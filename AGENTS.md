@@ -27,6 +27,7 @@ The project uses [uv](https://docs.astral.sh/uv/) with Ruff (lint + format), Pyr
 ## Design conventions
 
 - **Strict typing is enforced.** Pyrefly runs in strict mode: every function parameter, every return type, and every attribute must be annotated (local variables are inferred). Do not add type-ignore comments to silence this — fix the annotation.
+- **No multi-clause comprehensions.** Never nest `for` clauses in a comprehension (`[x for a in b for c in d]`). Use explicit loops instead — flatten with a loop and `.extend(...)`, or write nested loops out. Readability over compactness.
 - **`contracts` is the only cross‑component dependency.** A, B and C depend on `contracts` and never on each other's internals.
 - Shared boundary types are plain data: `@dataclass` (frozen for value types), `Enum`, or simple type aliases. No behaviour in `contracts`.
 - Simulation time is discrete: timestamps are **tick counts (`int`)**, never floating‑point seconds. Seconds derive as `tick * dt`.

@@ -19,7 +19,8 @@ Wall-clock seconds, where needed, derive as ``tick * dt`` (``dt`` lives in ``Sce
 class Direction(Enum):
     """The eight compass headings on the grid.
 
-    Offset convention (see :pyattr:`offset`): x increases to the East, y to the North.
+    Members are listed clockwise, so :meth:`cw` / :meth:`ccw` step by one 45-degree
+    increment. Offset convention (see :pyattr:`offset`): x increases East, y increases North.
     """
 
     N = auto()
@@ -35,6 +36,16 @@ class Direction(Enum):
     def offset(self) -> tuple[int, int]:
         """The ``(dx, dy)`` grid step of a single move in this direction."""
         return _DIRECTION_OFFSETS[self]
+
+    def cw(self) -> "Direction":
+        """The heading one 45-degree step clockwise."""
+        order = list(Direction)
+        return order[(order.index(self) + 1) % len(order)]
+
+    def ccw(self) -> "Direction":
+        """The heading one 45-degree step counter-clockwise."""
+        order = list(Direction)
+        return order[(order.index(self) - 1) % len(order)]
 
 
 _DIRECTION_OFFSETS: dict[Direction, tuple[int, int]] = {
