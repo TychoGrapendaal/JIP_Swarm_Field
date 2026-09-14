@@ -36,10 +36,17 @@ Run all checks the way CI and reviewers will, before committing or pushing:
 uv run ruff check . && uv run ruff format --check . && uv run pyrefly check && uv run pytest
 ```
 
+## Modules
+
+- `contracts/` — the shared vocabulary (dataclasses, enums, the `SwarmAgent` protocol) that crosses module boundaries. Depends on nothing; every other package depends on it.
+- `swarm/` (A) — the decentralized algorithm, the robot "brain": a `ComposedAgent` combines `Behavior`s that propose scored actions.
+- `sim/` (B) — the environment simulation: a `SimLoop` runs an ordered list of `SimStage`s over a shared `SimContext`, and owns all ground truth.
+- `viz/` (C) — the visualization adapter: `Renderer`s draw read-only `WorldSnapshot`s.
+
 ## Project layout
 
 ```
-src/swarm_field/   # the package (modules land here as the design is implemented)
-tests/             # pytest suite
+src/swarm_field/   # the four packages above
+tests/             # pytest suite, mirroring the source
 docs/              # design documents and source material
 ```

@@ -1,6 +1,6 @@
 # System Decomposition & Module Interfaces
 
-> **Purpose.** This document is the Phase‑1 systems review. It takes the sketch in [`domain-mapping.md`](./domain-mapping.md) as the baseline structure and turns it into a set of **modules with clear boundaries and interfaces**. It deliberately does *not* decide how each module is implemented internally — that is the concern of whoever builds it. Each module is described by **what it must do (requirements)** and **what it exposes / consumes (interface)**.
+> **Purpose.** This document is the Phase‑1 systems review. It takes the initial mind‑map sketch as the baseline structure and turns it into a set of **modules with clear boundaries and interfaces**. It deliberately does *not* decide how each module is implemented internally — that is the concern of whoever builds it. Each module is described by **what it must do (requirements)** and **what it exposes / consumes (interface)**.
 >
 > **Scope for v1** (agreed): scenario **S1 wide‑row (maize)** and **S3 (multi‑species strip / pixel cropping)**. Both are grid‑based, so a single 4/8‑neighbour grid engine covers them. The rail graph (S2), stacked layers (S5) and slope / irreversible actions (S4) are **out of scope for v1** but must not be designed out — leave interface seams.
 >
