@@ -20,7 +20,7 @@ Three rules, in the spirit of the decomposition doc's boundary principles:
 flowchart LR
     A1["A.1 Decision Engine"] -->|"NavGoal"| NAV["A.3 Navigation"]
     MEM["A.2 Memory / A.4 decoded hop-field"] -->|"HopFieldEntry"| NAV
-    SEN["Perception.self_state (position, facing, battery)"] --> NAV
+    SEN["Perception.self_state (facing, battery — not position)"] --> NAV
     NAV -->|"MovementIntent"| ACT["B.2 Act stage → Move / Turn"]
     NAV -->|"no resolvable gradient"| A1
 ```
@@ -53,7 +53,16 @@ All vectors are expressed in the simulation's metric frame, which must agree wit
 - A field cell at `(cx, cy)` has its centre at metres `(cx * cell_size, cy * cell_size)` with `cell_size` from `FieldGeometry`.
 - A vector is a *relative* displacement in metres, `(dx, dy)`, in this frame. `Vector2 = tuple[float, float]`.
 
-Two consequences the whole module relies on:
+### 3.1 Core assumption: no absolute position
+
+Navigation never reads `RobotSelfState.position`. The field exists, but the robot does not know where in it it stands — not at compile time, not at runtime. All spatial knowledge comes from two sources only:
+
+- **Relative radio measurements.** Range and bearing to a broadcasting explorer, derived from the incoming signal. This is how the utility robot learns the vector `r` to the explorer whose beacon it is following.
+- **Local forward sensing.** A short-range, front-facing sensor that reports what the immediately adjacent cell in the robot's direction of travel contains — crop, obstacle, or empty ground. This is how a land robot discovers it is blocked without knowing its grid address.
+
+The `self_state.position` field in `contracts` exists as a simulation convenience (for logging, for the Act stage to snap a `Move` onto the grid, for debugging) and is explicitly marked "perceived, subject to error" — but navigation ignores it. A navigation algorithm that works by composing relative vectors and probing local terrain does not need it, and should not grow a dependency on it.
+
+### 3.2 Two consequences the whole module relies on
 
 1. **Navigation composes relative vectors, never absolute positions.** The utility robot measures `r` (the vector from itself to a broadcasting explorer) by perception, and receives `v` (that explorer's vector to the next hop down) in the message. Absolute addresses would be subject to a position error the robot cannot trust away; composed relative vectors cancel the shared error and stay valid as long as the messages are fresh.
 2. **Heading, not position, is what persists across ticks.** Because every hop vector is re-issued and re-measured continuously, the module re-solves its desired heading every tick (Section 9) instead of remembering long waypoint chains.
@@ -98,8 +107,8 @@ Navigation also reports back to A.1 with one, and only one, signal: **"no resolv
 
 Movement constraints are checked in a fixed order, and they are the same every tick regardless of mode:
 
-1. **Field border (both bodies).** The field is a `width × height` cell rectangle. Any candidate position that would cross the border is rejected; navigation replaces the heading with the admissible tangent (slide along the border) or rotates the drift vector back into the field. For CHASE mode this usually means "skirt the border until the hop-field re-syncs" — a pest cannot be outside the field.
-2. **Crop and obstacle cells (land only).** A utility robot may not enter a cell whose ground-truth `crop` is not `None`, nor an `obstacle` cell. This is the biggest single constraint named in the system: the killer robot must keep the rows. When the straight-line heading is blocked, navigation picks the admissible neighbour whose direction has the largest dot product with the desired heading (a tangent detour), commits the turn, and reverts to the desired heading once the blocker is passed — see the per-tick flow in Section 9.
+1. **Field border (both bodies).** A robot must not leave the field. Because it has no absolute position (Section 3.1), the border is *felt, not computed*: a boundary sensor detects the edge of the field — the last accessible cell ahead, the physical limit, or "no crop row continues here" — and navigation responds exactly as it does to any other blockage: it replaces the heading with the admissible tangent (slide along the border) or rotates the drift vector back into the field. For CHASE mode this usually means "skirt the border until the hop-field re-syncs" — a pest cannot be outside the field.
+2. **Crop and obstacle cells (land only).** A utility robot may not drive through crops or blockages. It knows what is directly ahead from its **local forward sensor** (Section 3.1), never from a lookup of its own grid address: each tick the sensor reports the content of the cell one step in the direction of travel — crop, obstacle, or clear ground — and the desired heading is only honoured if that report says *clear*. This is the biggest single constraint named in the system: the killer robot must keep the rows. When the straight-line heading is blocked, navigation picks the admissible neighbour whose direction has the largest dot product with the desired heading (a tangent detour, chosen among the cells the sensors report as clear), commits the turn, and reverts to the desired heading once the blocker is passed — see the per-tick flow in Section 9.
 3. **Occupancy by another robot (both bodies, deferred).** Robot–robot collisions are an open decision (Section 13). Until resolved, navigation ignores the `occupant` field; the aversion rules in Section 10 are behavioral, not physical.
 
 Aerial explorers skip rule 2 entirely: they are bounded only by the field border.
@@ -109,7 +118,7 @@ flowchart LR
     H["desired heading"] --> B{"crosses field border?"}
     B -- "yes" --> TB["slide / rotate back into field"]
     B -- "no" --> C{"land robot?"}
-    C -- "yes" --> O{"next cell has crop or is an obstacle?"}
+    C -- "yes" --> O{"local forward sensor: cell ahead has crop or is an obstacle?"}
     O -- "yes" --> D["pick best-aligned free neighbour (detour)"]
     O -- "no" --> OK["heading OK"]
     C -- "no" --> OK
@@ -225,7 +234,7 @@ sequenceDiagram
 
 ### 8.1 The walkthrough as a 2D view of the field
 
-The same scenario, step by step, drawn as a crop field: the crop rows run East–West, the aisles between rows and the two headland lanes (x = 0 and x = 12) are drivable, and the land utility robot may not enter crop cells. The example uses a `radio_range` of 3 cells, so the beacon chain hops every 2 cells; positions and ranges are illustrative, not a scenario spec.
+The same scenario, step by step, drawn as a crop field: the crop rows run East–West, the aisles between rows and the two headland lanes (x = 0 and x = 12) are drivable, and the land utility robot may not enter crop cells. The example uses a `radio_range` of 3 cells, so the beacon chain hops every 2 cells; positions and ranges are illustrative, not a scenario spec. Grid coordinates such as "(11, 4)" are the **designer's god's-eye view** — they exist so a human reader can follow the action, not because any robot holds them: every robot here discovers its own situation purely by relative radio measurements and local forward sensing (Section 3.1).
 
 ```text
 Legend (one character per cell; x grows East →, y grows North ↑):
@@ -395,7 +404,7 @@ The translation rule (living in B.2 / Act, one physical action per tick): if the
 |---|---|---|
 | A.1 Decision Engine | `NavGoal` each tick | `MovementIntent`; the single signal "no resolvable gradient" when a committed CHASE goes stale |
 | A.4 Communication & Knowledge | decoded `HopBeacon` hop-field, freshness-filtered | — |
-| A.2 Memory | `Perception.self_state` (perceived position, facing, battery) | nothing directly |
+| A.2 Memory | `Perception.self_state` (facing, battery — navigation deliberately ignores `position`, Section 3.1) | nothing directly |
 | B.2 Act / Simulation | (translation of intents into actions) | `MovementIntent` per tick, exactly one |
 | C.1 Visualization | — (via `inspect()`) | short human-readable `explain` string for the "click a robot" panel |
 
