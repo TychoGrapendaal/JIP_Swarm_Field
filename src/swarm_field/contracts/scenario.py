@@ -41,12 +41,10 @@ class ScenarioConfig:
         field: The field geometry.
         crops: Crop growing in each cell; supports multiple species (S3).
         robots: The robots to place at the start.
-        dt: Seconds represented by one tick (ticks remain the canonical clock).
         seed: RNG seed, for reproducible runs.
     """
 
     field: FieldGeometry
     crops: dict[CellId, CropType]
     robots: list[RobotSpec]
-    dt: float
     seed: int

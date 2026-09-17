@@ -1,17 +1,18 @@
-"""Component B — the environment simulation.
+"""Component B — the environment simulation (discrete-event).
 
-Drives time as a pipeline of stages (``SimLoop`` over ``SimContext``). Kept minimal for
-now: two example stages, assembled into a loop programmatically.
+An ``EventQueue`` holds timestamped events and ``SimLoop`` processes them in time order over
+a shared ``SimContext``. Kept minimal for now: two example events, scheduled programmatically.
 """
 
 from swarm_field.sim.context import SimContext
+from swarm_field.sim.event import Event, EventQueue, RobotDecision, WorldTick
 from swarm_field.sim.loop import SimLoop
-from swarm_field.sim.stage import Decide, SimStage, SpreadPests
 
 __all__ = [
-    "Decide",
+    "Event",
+    "EventQueue",
+    "RobotDecision",
     "SimContext",
     "SimLoop",
-    "SimStage",
-    "SpreadPests",
+    "WorldTick",
 ]

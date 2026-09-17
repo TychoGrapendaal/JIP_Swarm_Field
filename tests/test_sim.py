@@ -1,44 +1,67 @@
-"""Tests for the minimal simulation wiring: the staged loop."""
+"""Tests for the discrete-event simulation core: the queue and the loop."""
 
+from dataclasses import dataclass
 from random import Random
 
+from swarm_field.contracts import Time
 from swarm_field.sim import SimContext, SimLoop
 
 
-def _empty_context() -> SimContext:
-    return SimContext(tick=0, rng=Random(0), agents={})
+def _context() -> SimContext:
+    return SimContext(now=0, rng=Random(0), agents={})
 
 
-class _RecordingStage:
-    name: str = "recording"
+@dataclass
+class _RecordingEvent:
+    time: Time
+    log: list[Time]
 
-    def __init__(self) -> None:
-        self.seen_ticks: list[int] = []
-
-    def run(self, ctx: SimContext) -> None:
-        self.seen_ticks.append(ctx.tick)
-
-
-def test_loop_advances_clock_and_runs_stage_each_tick() -> None:
-    stage = _RecordingStage()
-    ctx = _empty_context()
-
-    SimLoop([stage]).run(ctx, until=3)
-
-    assert ctx.tick == 3
-    assert stage.seen_ticks == [0, 1, 2]
+    def handle(self, ctx: SimContext) -> None:
+        self.log.append(self.time)
 
 
-def test_loop_runs_stages_in_order() -> None:
-    order: list[str] = []
+@dataclass
+class _Recurring:
+    time: Time
+    period: Time
+    fires: list[Time]
 
-    class _Tagged:
-        def __init__(self, tag: str) -> None:
-            self.name: str = tag
+    def handle(self, ctx: SimContext) -> None:
+        self.fires.append(self.time)
+        nxt = _Recurring(time=self.time + self.period, period=self.period, fires=self.fires)
+        ctx.schedule(nxt)
 
-        def run(self, ctx: SimContext) -> None:
-            order.append(self.name)
 
-    SimLoop([_Tagged("a"), _Tagged("b")]).step(_empty_context())
+def test_events_processed_in_time_order() -> None:
+    log: list[Time] = []
+    ctx = _context()
+    ctx.schedule(_RecordingEvent(time=30, log=log))
+    ctx.schedule(_RecordingEvent(time=10, log=log))
+    ctx.schedule(_RecordingEvent(time=20, log=log))
 
-    assert order == ["a", "b"]
+    SimLoop().run(ctx, until=100)
+
+    assert log == [10, 20, 30]
+    assert ctx.now == 100
+
+
+def test_run_stops_at_until_and_keeps_later_events() -> None:
+    log: list[Time] = []
+    ctx = _context()
+    ctx.schedule(_RecordingEvent(time=50, log=log))
+    ctx.schedule(_RecordingEvent(time=150, log=log))
+
+    SimLoop().run(ctx, until=100)
+
+    assert log == [50]
+    assert len(ctx.queue) == 1
+
+
+def test_recurring_event_reschedules_itself() -> None:
+    fires: list[Time] = []
+    ctx = _context()
+    ctx.schedule(_Recurring(time=0, period=25, fires=fires))
+
+    SimLoop().run(ctx, until=100)
+
+    assert fires == [0, 25, 50, 75, 100]

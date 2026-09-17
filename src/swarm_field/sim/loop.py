@@ -1,26 +1,21 @@
-"""B.2 — the staged simulation loop.
+"""The discrete-event loop.
 
-The loop is the active object: it knows nothing about what a tick contains, only that it
-runs each stage in order and advances the clock. Build one by passing the stages directly,
-e.g. ``SimLoop([Decide(), SpreadPests()])``.
+Pop the earliest event, advance the clock to it, handle it (which may schedule more
+events), and repeat until a target time or the queue empties.
 """
 
-from swarm_field.contracts import Tick
+from swarm_field.contracts import Time
 from swarm_field.sim.context import SimContext
-from swarm_field.sim.stage import SimStage
 
 
 class SimLoop:
-    def __init__(self, stages: list[SimStage]) -> None:
-        self.stages: list[SimStage] = stages
-
-    def step(self, ctx: SimContext) -> None:
-        """Run every stage in order for one tick, then advance the clock."""
-        for stage in self.stages:
-            stage.run(ctx)
-        ctx.tick += 1
-
-    def run(self, ctx: SimContext, until: Tick) -> None:
-        """Step until ``ctx.tick`` reaches ``until``."""
-        while ctx.tick < until:
-            self.step(ctx)
+    def run(self, ctx: SimContext, until: Time) -> None:
+        """Process events in time order until ``until`` (inclusive) or the queue empties."""
+        while True:
+            event = ctx.queue.peek()
+            if event is None or event.time > until:
+                break
+            ctx.queue.pop()
+            ctx.now = event.time
+            event.handle(ctx)
+        ctx.now = until

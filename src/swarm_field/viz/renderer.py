@@ -27,4 +27,4 @@ class TextRenderer:
     def summarize(snapshot: WorldSnapshot) -> str:
         field = snapshot.field
         robots = len(snapshot.robots)
-        return f"tick {snapshot.tick}: {field.width}x{field.height} grid, {robots} robot(s)"
+        return f"t={snapshot.time}: {field.width}x{field.height} grid, {robots} robot(s)"

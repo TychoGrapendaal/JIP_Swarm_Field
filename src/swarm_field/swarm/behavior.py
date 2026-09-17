@@ -1,8 +1,8 @@
 """The ``Behavior`` port and a couple of example behaviors.
 
 A behavior is one composable piece of decision logic: given a read-only view of the robot
-this tick, it proposes scored candidate actions. The brain combines several behaviors and
-picks between their candidates.
+at a decision point, it proposes scored candidate actions. The brain combines several
+behaviors and picks between their candidates.
 
 The two examples below are still unimplemented: ``Explore`` drives field coverage and
 ``TreatInfestation`` reacts to sensed pests. More behaviors (return-to-charge,
@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from random import Random
 from typing import Protocol
 
-from swarm_field.contracts import Action, Move, Observation, RobotSelfState, Tick, Turn
+from swarm_field.contracts import Action, Move, Observation, RobotSelfState, Time, Turn
 
 
 @dataclass(frozen=True)
@@ -33,18 +33,18 @@ class ActionCandidate:
 
 @dataclass(frozen=True)
 class DecisionContext:
-    """Read-only view handed to every behavior each tick.
+    """Read-only view handed to every behavior at a decision point.
 
     Minimal for now — a memory view (accumulated belief) and the message inbox are added
     when those parts are built.
 
     Attributes:
-        tick: The current tick.
+        time: The current simulation time.
         self_state: The robot's view of itself.
-        sensed: What the robot's sensors picked up this tick.
+        sensed: What the robot's sensors picked up at this decision point.
     """
 
-    tick: Tick
+    time: Time
     self_state: RobotSelfState
     sensed: list[Observation]
 
@@ -53,7 +53,7 @@ class Behavior(Protocol):
     """A single, composable piece of decision logic.
 
     ``propose`` returns a single candidate, a tuple of candidates, or an empty tuple to
-    propose nothing this tick. Returning several candidates only matters to arbiters that
+    propose nothing. Returning several candidates only matters to arbiters that
     fuse or fall back between them; the current brain simply takes the highest-scoring
     candidate across all behaviors, so returning your single best is usually enough.
 

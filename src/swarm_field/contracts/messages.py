@@ -7,7 +7,7 @@ The simulation's channel reads only the header (sender, time) to decide delivery
 from dataclasses import dataclass
 from enum import Enum, auto
 
-from swarm_field.contracts.ids import RobotId, Tick
+from swarm_field.contracts.ids import RobotId, Time
 
 
 class MessageKind(Enum):
@@ -26,12 +26,12 @@ class Message:
 
     Attributes:
         sender: The robot that sent the message.
-        sent_at: Tick at which the message was sent.
+        sent_at: Time at which the message was sent.
         kind: Discriminates how to interpret the payload.
         payload: Opaque to the simulation; the algorithm owns its shape.
     """
 
     sender: RobotId
-    sent_at: Tick
+    sent_at: Time
     kind: MessageKind
     payload: object

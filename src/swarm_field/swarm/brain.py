@@ -1,8 +1,8 @@
 """The composed robot brain (A).
 
 ``ComposedAgent`` is the thin orchestrator that implements the ``SwarmAgent`` boundary: it
-holds a list of behaviors, gathers their scored candidates each tick and picks the best.
-Memory, communication and capability gating are added as those parts are built.
+holds a list of behaviors, gathers their scored candidates at each decision point and picks
+the best. Memory, communication and capability gating are added as those parts are built.
 """
 
 from swarm_field.contracts import AgentInspection, Decision, Idle, Perception, RobotId
@@ -14,7 +14,7 @@ class ComposedAgent:
 
     Attributes:
         robot_id: The robot this brain drives.
-        behaviors: The composable pieces of decision logic, combined each tick.
+        behaviors: The composable pieces of decision logic, combined at each decision point.
     """
 
     def __init__(self, robot_id: RobotId, behaviors: list[Behavior]) -> None:
@@ -24,7 +24,7 @@ class ComposedAgent:
 
     def decide(self, perception: Perception) -> Decision:
         ctx = DecisionContext(
-            tick=perception.tick,
+            time=perception.time,
             self_state=perception.self_state,
             sensed=perception.sensed,
         )

@@ -17,7 +17,7 @@ from swarm_field.swarm import ActionCandidate, ComposedAgent, DecisionContext, E
 
 def _perception() -> Perception:
     return Perception(
-        tick=0,
+        time=0,
         self_state=RobotSelfState(
             robot_id=1,
             position=(0, 0),
@@ -79,7 +79,7 @@ def test_agent_picks_highest_scoring_candidate() -> None:
 def test_explore_mock_goes_straight_or_turns_left() -> None:
     explore = Explore(Random(0))
     ctx = DecisionContext(
-        tick=0,
+        time=0,
         self_state=RobotSelfState(
             robot_id=1,
             position=(0, 0),

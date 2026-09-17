@@ -21,7 +21,7 @@ from swarm_field.contracts.ids import (
     Direction,
     PestType,
     RobotId,
-    Tick,
+    Time,
 )
 from swarm_field.contracts.messages import Message, MessageKind
 from swarm_field.contracts.observations import (
@@ -65,7 +65,7 @@ __all__ = [
     "RobotSpec",
     "ScenarioConfig",
     "SwarmAgent",
-    "Tick",
+    "Time",
     "Treat",
     "Turn",
     "WorldSnapshot",

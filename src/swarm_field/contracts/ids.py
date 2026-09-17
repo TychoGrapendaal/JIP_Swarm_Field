@@ -9,10 +9,11 @@ RobotId = int
 CellId = tuple[int, int]
 """Grid coordinate for v1; treated as an opaque handle elsewhere."""
 
-Tick = int
-"""Discrete simulation clock. Timestamps are tick counts, never seconds.
+Time = int
+"""Simulation time as an integer in fine units (e.g. milliseconds).
 
-Wall-clock seconds, where needed, derive as ``tick * dt`` (``dt`` lives in ``ScenarioConfig``).
+The simulation is discrete-event: events carry a ``Time`` timestamp and are processed in
+time order. There is no fixed timestep.
 """
 
 
