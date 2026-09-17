@@ -36,7 +36,7 @@ flowchart LR
     end
 
     subgraph B["B. Simulation (core)"]
-        LOOP["Sim loop (event-driven)"]
+        LOOP["Simulation loop (event-driven)"]
     end
 
     A["A. Swarm Algorithm<br/>(assembled brains)"]
@@ -77,9 +77,9 @@ def run_experiment(
         spec.robot_id: build_agent(brain_spec, spec.body, rng)   # A, assembled
         for spec in scenario.robots
     }
-    ctx = SimContext(now=0, rng=rng, agents=agents, queue=EventQueue())
+    ctx = SimulationContext(now=0, rng=rng, agents=agents, queue=EventQueue())
     seed_initial_events(ctx, world, scenario)   # first decision per robot + a recurring world tick
-    SimLoop().run(ctx, until)
+    SimulationLoop().run(ctx, until)
     return summarize(ctx)
 ```
 
@@ -88,7 +88,7 @@ The runner is also the natural home for the batch / sweep logic that runs many c
 ## I.3 Threads of control (who calls whom)
 
 - The **loop drives everything**: it is the active object. A and C are passive with respect to it — A is *called* (`decide`), C *pulls* snapshots and *pushes* commands.
-- **Visualization runs on its own clock.** Rendering is decoupled from simulation time: C samples the world at its own render clock (interpolating robot positions between events for smooth motion), independent of how fast the loop advances sim time. Nothing in B blocks on C.
+- **Visualization runs on its own clock.** Rendering is decoupled from simulation time: C samples the world at its own render clock (interpolating robot positions between events for smooth motion), independent of how fast the loop advances simulation time. Nothing in B blocks on C.
 - **No component calls A except B**, and only through `SwarmAgent`. This is what keeps algorithms swappable and independently testable.
 
 ---
@@ -260,7 +260,7 @@ The simulation is discrete-event: an event queue holds timestamped events, and t
 ```python
 class Event(Protocol):
     time: Time
-    def handle(self, ctx: SimContext) -> None: ...   # may schedule follow-up events
+    def handle(self, ctx: SimulationContext) -> None: ...   # may schedule follow-up events
 
 class EventQueue:                # min-priority queue ordered by (time, tie-break)
     def schedule(self, event: Event) -> None: ...
@@ -268,7 +268,7 @@ class EventQueue:                # min-priority queue ordered by (time, tie-brea
     def pop(self) -> Event | None: ...
 
 @dataclass
-class SimContext:
+class SimulationContext:
     now: Time
     rng: Random                            # the single seeded source; handlers draw in event order
     agents: dict[RobotId, SwarmAgent]      # A, behind the port
@@ -276,8 +276,8 @@ class SimContext:
     # a world (B.1), a channel (B.3) and metrics (B.5) are added as those pieces are built
     def schedule(self, event: Event) -> None: ...
 
-class SimLoop:
-    def run(self, ctx: SimContext, until: Time) -> None:
+class SimulationLoop:
+    def run(self, ctx: SimulationContext, until: Time) -> None:
         while True:
             event = ctx.queue.peek()
             if event is None or event.time > until:
@@ -304,7 +304,7 @@ flowchart LR
 
 ### B.4 Keeping handlers uncoupled
 
-Handlers never call each other. They communicate only through the shared `SimContext` (and, later, a notification mechanism so metrics can observe facts like `TargetRemoved` without depending on the dynamics that produce them). Determinism holds because there is one `rng` in the context, drawn in event order, and equal timestamps break deterministically by *world events before robot events, then `robot_id`*.
+Handlers never call each other. They communicate only through the shared `SimulationContext` (and, later, a notification mechanism so metrics can observe facts like `TargetRemoved` without depending on the dynamics that produce them). Determinism holds because there is one `rng` in the context, drawn in event order, and equal timestamps break deterministically by *world events before robot events, then `robot_id`*.
 
 ### B.5 Simplifying assumptions (v1)
 
@@ -318,7 +318,7 @@ Two assumptions keep the loop simple and cheap: **no collisions / occupancy conf
 
 ### B.7 Testing posture
 
-The queue and loop are tested with fake events (ordering, the `until` bound, self-rescheduling). Each real handler is tested with a hand-built `SimContext`, asserting the state change it makes. Whole-sim tests run a seeded scenario to a target time and assert reproducibility (same seed → identical outcome).
+The queue and loop are tested with fake events (ordering, the `until` bound, self-rescheduling). Each real handler is tested with a hand-built `SimulationContext`, asserting the state change it makes. Whole-simulation tests run a seeded scenario to a target time and assert reproducibility (same seed → identical outcome).
 
 ---
 
@@ -340,11 +340,11 @@ flowchart LR
 
 | I want to… | I add / change | I do **not** touch |
 |---|---|---|
-| Add a robot action | a `contracts` action + a `Capability` + a `Behavior` | orchestrator, arbiter, loop, sim |
+| Add a robot action | a `contracts` action + a `Capability` + a `Behavior` | orchestrator, arbiter, loop, simulation |
 | Try a new decision algorithm | `Behavior` / `Arbiter` implementations + a `BrainSpec` | ports, contracts, simulation |
 | Change how robots share knowledge | a `CommsStrategy` (payload stays opaque) | simulation, other agents |
 | Add a simulation dynamic (e.g. pest model) | a new `Event` type + handler | brains, contracts, other events |
 | Add a robot/body class | a `CapabilitySet` + per‑robot `BrainSpec` | orchestrator, simulation |
 | Swap the renderer | the C adapter | A, B, contracts |
 
-The recurring shape is the same on both sides of the system: a dumb orchestrator (`ComposedAgent` / `SimLoop`) running assembled single‑purpose parts — behaviours for the brain, event handlers for the simulation. That symmetry is intentional — it is the same extensibility mechanism applied to the algorithm and to the environment.
+The recurring shape is the same on both sides of the system: a dumb orchestrator (`ComposedAgent` / `SimulationLoop`) running assembled single‑purpose parts — behaviours for the brain, event handlers for the simulation. That symmetry is intentional — it is the same extensibility mechanism applied to the algorithm and to the environment.

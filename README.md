@@ -40,8 +40,8 @@ uv run ruff check . && uv run ruff format --check . && uv run pyrefly check && u
 
 - `contracts/` — the shared vocabulary (dataclasses, enums, the `SwarmAgent` protocol) that crosses module boundaries. Depends on nothing; every other package depends on it.
 - `swarm/` (A) — the decentralized algorithm, the robot "brain": a `ComposedAgent` combines `Behavior`s that propose scored actions.
-- `sim/` (B) — the environment simulation: a `SimLoop` runs an ordered list of `SimStage`s over a shared `SimContext`, and owns all ground truth.
-- `viz/` (C) — the visualization adapter: `Renderer`s draw read-only `WorldSnapshot`s.
+- `simulation/` (B) — the environment simulation: a `SimulationLoop` processes timestamped events from an `EventQueue`, and owns all ground truth.
+- `visualization/` (C) — the visualization adapter: `Renderer`s draw read-only `WorldSnapshot`s.
 
 ## Project layout
 

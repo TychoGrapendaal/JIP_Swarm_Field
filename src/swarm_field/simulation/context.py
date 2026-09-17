@@ -9,11 +9,11 @@ from dataclasses import dataclass, field
 from random import Random
 
 from swarm_field.contracts import RobotId, SwarmAgent, Time
-from swarm_field.sim.event import Event, EventQueue
+from swarm_field.simulation.event import Event, EventQueue
 
 
 @dataclass
-class SimContext:
+class SimulationContext:
     """Mutable state shared across a run.
 
     Attributes:

@@ -63,7 +63,7 @@ flowchart TB
 
 ## 3. The `contracts` module *(added)*
 
-**Why it exists.** The mind map describes three components that clearly must exchange data (the sim "exposes its state", robots "share information", the frontend "shows robot memory"), but never names the shared types. Without a single owner for those types, the three teams will invent three incompatible versions of "an observation" or "a message". This module is that owner.
+**Why it exists.** The mind map describes three components that clearly must exchange data (the simulation "exposes its state", robots "share information", the frontend "shows robot memory"), but never names the shared types. Without a single owner for those types, the three teams will invent three incompatible versions of "an observation" or "a message". This module is that owner.
 
 **Responsibility.** Define the data types that cross a module boundary. No behaviour, no logic — just shapes. It is the interface contract the other modules are written against.
 
@@ -347,7 +347,7 @@ class MetricsSample:
 
 **Requirements**
 
-- Pure data. Serializable (for logging, replay, and the sim↔viz link if they run as separate processes).
+- Pure data. Serializable (for logging, replay, and the simulation↔visualization link if they run as separate processes).
 - Stable: changes here ripple everywhere, so this is the most carefully reviewed module.
 - Extensible closed sets (`Action`, `Observation`, `Command`, `MessageKind`, `TargetPreset`) so v1‑out‑of‑scope items (rail graph, DISPERSE / COLLECT, layers) can be added without breaking the boundary.
 
@@ -371,7 +371,7 @@ The Simulation constructs one `SwarmAgent` per robot and calls `decide()` at eac
 
 ```mermaid
 sequenceDiagram
-    participant SL as B.2 Sim Loop
+    participant SL as B.2 Simulation Loop
     participant CH as B.3 Channel
     participant AG as A. SwarmAgent
     SL->>AG: decide(perception)

@@ -3,7 +3,7 @@
 from pytest import CaptureFixture
 
 from swarm_field.contracts import FieldGeometry, WorldSnapshot
-from swarm_field.viz import TextRenderer
+from swarm_field.visualization import TextRenderer
 
 
 def _snapshot() -> WorldSnapshot:

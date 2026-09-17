@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Protocol
 from swarm_field.contracts import RobotId, Time
 
 if TYPE_CHECKING:
-    from swarm_field.sim.context import SimContext
+    from swarm_field.simulation.context import SimulationContext
 
 
 class Event(Protocol):
@@ -28,14 +28,14 @@ class Event(Protocol):
 
     time: Time
 
-    def handle(self, ctx: SimContext) -> None: ...
+    def handle(self, ctx: SimulationContext) -> None: ...
 
 
 class EventQueue:
     """Min-priority queue of events, ordered by time then insertion order.
 
     Equal timestamps currently break by insertion order (FIFO). The full deterministic
-    tie-break agreed for the sim (world events before robot events, then robot id) is a
+    tie-break agreed for the simulation (world events before robot events, then robot id) is a
     refinement to layer onto the sort key when the loop is implemented.
     """
 
@@ -76,7 +76,7 @@ class RobotDecision:
     time: Time
     robot: RobotId
 
-    def handle(self, ctx: SimContext) -> None:
+    def handle(self, ctx: SimulationContext) -> None:
         raise NotImplementedError
 
 
@@ -84,10 +84,10 @@ class RobotDecision:
 class WorldTick:
     """Advance pest dynamics one step, then reschedule itself at the next tick.
 
-    Runs on its own coarse cadence (sim-minutes/hours), independent of robot activity.
+    Runs on its own coarse cadence (simulated minutes/hours), independent of robot activity.
     """
 
     time: Time
 
-    def handle(self, ctx: SimContext) -> None:
+    def handle(self, ctx: SimulationContext) -> None:
         raise NotImplementedError

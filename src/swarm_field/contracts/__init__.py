@@ -2,7 +2,7 @@
 
 This package is pure data (dataclasses, enums, type aliases) plus the ``SwarmAgent``
 protocol. It has no behaviour and depends on nothing else in the project. Everything in
-``swarm`` (A), ``sim`` (B) and ``viz`` (C) depends on it.
+``swarm`` (A), ``simulation`` (B) and ``visualization`` (C) depends on it.
 """
 
 from swarm_field.contracts.actions import Action, Charge, Idle, Move, Treat, Turn

@@ -5,11 +5,11 @@ events), and repeat until a target time or the queue empties.
 """
 
 from swarm_field.contracts import Time
-from swarm_field.sim.context import SimContext
+from swarm_field.simulation.context import SimulationContext
 
 
-class SimLoop:
-    def run(self, ctx: SimContext, until: Time) -> None:
+class SimulationLoop:
+    def run(self, ctx: SimulationContext, until: Time) -> None:
         """Process events in time order until ``until`` (inclusive) or the queue empties."""
         while True:
             event = ctx.queue.peek()
