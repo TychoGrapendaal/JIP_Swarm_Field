@@ -3,10 +3,9 @@
 Exactly one physical action per tick (each consumes the tick). Communication is not an
 action; it rides on ``Decision.outbox``.
 
-Most variants are intentionally empty placeholders: how movement and treatment are
-parameterised depends on how motion is modelled in the discrete simulation (e.g. the
-robot may command a direction or speed rather than an absolute cell — a ``CellId`` is an
-environment concept the robot cannot be certain of). Those shapes are decided later.
+Movement and treatment are parameterised as the simulation models them: ``Move`` carries a
+compass heading chosen by the navigator, ``Turn`` a new heading. ``Treat`` stays an empty
+placeholder — how treatment is parameterised is decided later.
 """
 
 from dataclasses import dataclass
@@ -16,7 +15,14 @@ from swarm_field.contracts.ids import Direction
 
 @dataclass(frozen=True)
 class Move:
-    """Move for this tick. Parameters deferred until movement modelling is decided."""
+    """Move one cell along a compass heading this tick.
+
+    Attributes:
+        direction: The compass heading of the move — an absolute grid direction, using the
+            same convention as ``Turn.facing``.
+    """
+
+    direction: Direction
 
 
 @dataclass(frozen=True)

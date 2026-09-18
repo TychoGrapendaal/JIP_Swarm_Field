@@ -13,6 +13,7 @@ from swarm_field.swarm.behavior import (
     TreatInfestation,
 )
 from swarm_field.swarm.brain import ComposedAgent
+from swarm_field.swarm.navigator import Navigator, Sensing, SteeringConfig, Vector2
 
 __all__ = [
     "ActionCandidate",
@@ -20,5 +21,9 @@ __all__ = [
     "ComposedAgent",
     "DecisionContext",
     "Explore",
+    "Navigator",
+    "Sensing",
+    "SteeringConfig",
     "TreatInfestation",
+    "Vector2",
 ]

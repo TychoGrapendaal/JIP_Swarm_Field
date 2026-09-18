@@ -84,7 +84,7 @@ class Explore:
         # MOCK: coin flip — 50% go straight ahead, 50% turn 45 degrees left. No real
         # exploration; replace with coverage-driven logic.
         if self._rng.random() < 0.5:
-            action: Action = Move()
+            action: Action = Move(direction=ctx.self_state.facing)
         else:
             action = Turn(facing=ctx.self_state.facing.ccw())
         return (ActionCandidate(action=action, score=1.0, source=self.name),)

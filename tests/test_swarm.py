@@ -98,9 +98,9 @@ def test_explore_mock_goes_straight_or_turns_left() -> None:
         assert len(candidates) == 1
         actions.add(candidates[0].action)
 
-    # Straight ahead is Move(); 45 degrees left of North is North-West.
-    assert actions <= {Move(), Turn(Direction.NW)}
-    assert Move() in actions
+    # Straight ahead is Move(direction=facing); 45 degrees left of North is North-West.
+    assert actions <= {Move(direction=Direction.N), Turn(Direction.NW)}
+    assert Move(direction=Direction.N) in actions
     assert Turn(Direction.NW) in actions
 
 
