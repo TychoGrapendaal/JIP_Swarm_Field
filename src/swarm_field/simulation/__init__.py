@@ -8,12 +8,15 @@ scheduled programmatically.
 from swarm_field.simulation.context import SimulationContext
 from swarm_field.simulation.event import Event, EventQueue, RobotDecision, WorldTick
 from swarm_field.simulation.loop import SimulationLoop
+from swarm_field.simulation.world import RobotState, WorldState
 
 __all__ = [
     "Event",
     "EventQueue",
     "RobotDecision",
+    "RobotState",
     "SimulationContext",
     "SimulationLoop",
+    "WorldState",
     "WorldTick",
 ]

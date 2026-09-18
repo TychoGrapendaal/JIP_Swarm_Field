@@ -20,6 +20,7 @@ class FieldGeometry:
         row_sp: Row spacing — distance between crop rows (the drivable aisle pitch).
         in_row_sp: In-row spacing — distance between plants along a single row.
         headland: Width of the turning strip at the ends of the rows.
+        connectivity: Grid adjacency, either 4 or 8 neighbours.
     """
 
     width: int
@@ -28,6 +29,7 @@ class FieldGeometry:
     row_sp: float
     in_row_sp: float
     headland: float
+    connectivity: int = 4
 
 
 @dataclass
