@@ -63,7 +63,7 @@ flowchart TB
 
 ## 3. The `contracts` module *(added)*
 
-**Why it exists.** The mind map describes three components that clearly must exchange data (the sim "exposes its state", robots "share information", the frontend "shows robot memory"), but never names the shared types. Without a single owner for those types, the three teams will invent three incompatible versions of "an observation" or "a message". This module is that owner.
+**Why it exists.** The mind map describes three components that clearly must exchange data (the simulation "exposes its state", robots "share information", the frontend "shows robot memory"), but never names the shared types. Without a single owner for those types, the three teams will invent three incompatible versions of "an observation" or "a message". This module is that owner.
 
 **Responsibility.** Define the data types that cross a module boundary. No behaviour, no logic — just shapes. It is the interface contract the other modules are written against.
 
@@ -71,7 +71,7 @@ flowchart TB
 
 ### 3.1 Identifiers, geometry and the clock
 
-Simulation time is discrete, so a timestamp is a **tick count (`int`)**, not a float. Wall‑clock seconds, where ever needed (e.g. the energy model), are derived as `tick * dt`, and `dt` lives in `ScenarioConfig`. This keeps decay / staleness comparisons exact.
+The simulation is **discrete-event**: time is an integer timestamp (`Time`) in fine units (e.g. milliseconds), and events are processed in time order. There is **no fixed timestep** — the clock jumps to the next scheduled event. Integer time keeps decay / staleness comparisons and event ordering exact.
 
 ```python
 from dataclasses import dataclass, field
@@ -81,7 +81,7 @@ from typing import Protocol
 # --- identifiers & geometry ---
 RobotId = int
 CellId  = tuple[int, int]      # grid coordinate (v1); treated as an opaque handle elsewhere
-Tick    = int                  # discrete simulation clock; timestamps are tick counts, never seconds
+Time    = int                  # integer timestamp in fine units (e.g. ms); events run in time order
 
 class Direction(Enum):
     N = auto();  NE = auto();  E = auto();  SE = auto()
@@ -117,7 +117,7 @@ Who decides what a robot observes is a **boundary rule, not a robot choice**: th
 class ObservationBase:
     cell: CellId
     confidence: float           # 0..1 — how reliable this reading is
-    observed_at: Tick
+    observed_at: Time
     source: RobotId
 
 @dataclass(frozen=True)
@@ -145,7 +145,7 @@ Observation = (
 
 ### 3.4 Actions — a tagged union
 
-Exactly one **physical** action per tick (movement, turning, sensing and treatment are mutually exclusive — each consumes the tick). Communication is *not* an action; it rides on `Decision.outbox` and may accompany any action.
+Exactly one **physical** action per decision (movement, turning and treatment are mutually exclusive — the robot commits to it until it completes). Communication is *not* an action; it rides on `Decision.outbox` and may accompany any action.
 
 ```python
 class SenseMode(Enum):
@@ -161,7 +161,7 @@ class Move:
 
 @dataclass(frozen=True)
 class Turn:
-    facing: Direction           # reorient in place; cheap, but changes what is sensed next tick
+    facing: Direction           # reorient in place; cheap, but changes what is sensed next
 
 @dataclass(frozen=True)
 class Sense:
@@ -194,7 +194,7 @@ class MessageKind(Enum):
 @dataclass(frozen=True)
 class Message:
     sender: RobotId
-    sent_at: Tick
+    sent_at: Time
     kind: MessageKind
     payload: object             # opaque to B; A owns its shape. Must be serializable if A/B/C
                                 #   ever run as separate processes.
@@ -222,14 +222,14 @@ class RobotSelfState:
 
 @dataclass(frozen=True)
 class Perception:
-    tick: Tick
+    time: Time
     self_state: RobotSelfState
     sensed: list[Observation]   # world-computed from pose / facing / FOV / sensors
     inbox: list[Message]        # already range-filtered by B.3
 
 @dataclass(frozen=True)
 class Decision:
-    action: Action                              # one physical action this tick
+    action: Action                              # one physical action for this decision
     outbox: list[Message] = field(default_factory=list)   # optional broadcast(s)
 ```
 
@@ -258,7 +258,7 @@ class FieldGeometry:
 
 @dataclass
 class WorldSnapshot:
-    tick: Tick
+    time: Time
     field: FieldGeometry
     cells: dict[CellId, CellState]
     robots: list[RobotPublicState]
@@ -333,12 +333,11 @@ class ScenarioConfig:
     target_preset: TargetPreset
     host_match: bool                 # S3 spread modifier
     robots: list[RobotSpec]
-    dt: float                        # seconds per tick (ticks remain the canonical clock)
     seed: int                        # determinism for reproducible benchmarks
 
 @dataclass(frozen=True)
 class MetricsSample:
-    tick: Tick
+    time: Time
     targets_remaining: int
     detection_latency: float
     energy_per_area: float
@@ -348,7 +347,7 @@ class MetricsSample:
 
 **Requirements**
 
-- Pure data. Serializable (for logging, replay, and the sim↔viz link if they run as separate processes).
+- Pure data. Serializable (for logging, replay, and the simulation↔visualization link if they run as separate processes).
 - Stable: changes here ripple everywhere, so this is the most carefully reviewed module.
 - Extensible closed sets (`Action`, `Observation`, `Command`, `MessageKind`, `TargetPreset`) so v1‑out‑of‑scope items (rail graph, DISPERSE / COLLECT, layers) can be added without breaking the boundary.
 
@@ -368,11 +367,11 @@ class SwarmAgent(Protocol):        # implemented by A, called by B
     def inspect(self) -> AgentInspection: ...   # read-only, for C.1 "click a robot"
 ```
 
-The Simulation constructs one `SwarmAgent` per robot, calls `decide()` each tick, applies the returned `action`, and hands `outbox` to the channel (B.3). `inspect()` lets Visualization read a robot's memory / current goal **without** the frontend reaching into the algorithm's internals (preserves boundary principle 4).
+The Simulation constructs one `SwarmAgent` per robot and calls `decide()` at each of that robot's **decision events** (when it arrives at a cell, or on a fixed interval while stationary), applies the returned `action`, and hands `outbox` to the channel (B.3). `inspect()` lets Visualization read a robot's memory / current goal **without** the frontend reaching into the algorithm's internals (preserves boundary principle 4).
 
 ```mermaid
 sequenceDiagram
-    participant SL as B.2 Sim Loop
+    participant SL as B.2 Simulation Loop
     participant CH as B.3 Channel
     participant AG as A. SwarmAgent
     SL->>AG: decide(perception)
@@ -380,17 +379,17 @@ sequenceDiagram
     AG-->>SL: decision = action + outbox
     SL->>CH: hand over outbox
     CH-->>SL: deliver to in-range robots
-    SL->>SL: apply action, advance world, sample metrics
+    SL->>SL: apply action, schedule this robot's next event
 ```
 
 **Contract guarantees the two sides can rely on:**
 
 - A sees only `Perception`; it can assume nothing about global truth.
-- A returns exactly one physical `action`; movement, turning, sensing and treatment are mutually exclusive per tick (they consume the tick). Communication (`outbox`) may accompany any action.
+- A returns exactly one physical `action`; movement, turning and treatment are mutually exclusive, and the robot commits to it until it completes (actions are not interrupted). Communication (`outbox`) may accompany any action.
 - B guarantees `sensed` reflects only what the robot's sensors would perceive given its pose / facing / FOV, and `inbox` reflects only messages whose senders were in radio range per the channel rules.
 - Neither side blocks on the other; a slow or crashed agent is the Simulation's problem to bound.
 
-**Open decision (deferred, does not change this interface):** whether all robots `decide()` on the same tick against a frozen snapshot, or sequentially against updated state. This is a **B.2** scheduling concern (Section 6.2), invisible to A.
+**No global frame.** Because the simulation is discrete-event, robots do not decide on a shared snapshot — each acts at its own decision events on its own latest information. This is more honest for a decentralized swarm (there is no shared clock in reality), and it removes the old "simultaneous vs. sequential tick" question entirely.
 
 ---
 
@@ -414,7 +413,7 @@ flowchart LR
 ### A.1 Decision Engine
 
 - **Responsibility:** given current memory + capabilities, choose the next objective and the physical action that serves it.
-- **Requirements:** must weigh the drivers the mind map lists (pest detected, battery level, own capabilities, shared information); must produce a decision every tick without blocking; must respect feasibility (never pick an action the robot can't afford / can't reach).
+- **Requirements:** must weigh the drivers the mind map lists (pest detected, battery level, own capabilities, shared information); must produce a decision at each decision event without blocking; must respect feasibility (never pick an action the robot can't afford / can't reach).
 - **Consumes:** memory view from A.2. **Provides:** an objective / goal to A.3, plus decisions that may emit messages via A.4.
 - **NOT its concern:** how movement toward a goal is computed (A.3); message transport (B.3).
 - **Open decisions (team):** one shared decision engine vs. body‑specific engines (mind map A.1); exact utility / weighting scheme.
@@ -422,7 +421,7 @@ flowchart LR
 ### A.2 State & Memory
 
 - **Responsibility:** hold the robot's own state (position, facing, speed, range, battery, capabilities) and its local belief map of the field.
-- **Requirements:** must store observations with tick timestamps so information can **decay**; must merge incoming knowledge from A.4; must expose a read‑only view for `inspect()`; must fit the storage assumption (a robot may not hold the entire field — assumption 4 in the problem statement).
+- **Requirements:** must store observations with timestamps so information can **decay**; must merge incoming knowledge from A.4; must expose a read‑only view for `inspect()`; must fit the storage assumption (a robot may not hold the entire field — assumption 4 in the problem statement).
 - **Consumes:** `Perception.self_state` + `Observation`s (own sensed + received). **Provides:** memory view to A.1; knowledge to A.4 for broadcasting; inspection snapshot for C.
 - **NOT its concern:** deciding what to do (A.1); message delivery (B.3).
 - **Open decisions (team):** grid‑cell map vs. continuous markers; how duplicate events are de‑duplicated (is A's sighting the same as B's?).
@@ -457,18 +456,19 @@ Owns ground truth, drives time, delivers messages, defines scenarios, records me
 - **NOT its concern:** time stepping (B.2); who can talk to whom (B.3).
 - **Seam for later:** connectivity is configurable, so rail graph (S2) and stacked layers (S5) plug in here without touching A or C.
 
-### B.2 Simulation Loop
+### B.2 Simulation Loop (discrete-event)
 
-- **Responsibility:** advance the world in discrete steps of `dt`; orchestrate one tick: perceive → decide → act → spread → record.
-- **Requirements:** build each robot's `Perception`; call `SwarmAgent.decide()`; apply each `action` to B.1; hand `outbox` to B.3; step infestation dynamics; sample B.5; be deterministic given a seed.
-- **Consumes:** `SwarmAgent`s (from A), B.1, B.3. **Provides:** ticks; assembles `WorldSnapshot`.
+- **Responsibility:** drive the run as a **discrete-event loop** — pop the earliest event from a time-ordered queue, advance the clock to it, handle it; handlers schedule follow-up events. There is no fixed `dt`.
+- **Requirements:** on a robot **decision event**, build the robot's `Perception`, call `SwarmAgent.decide()`, apply the `action` to B.1, hand `outbox` to B.3, and schedule that robot's **next event** (a cell arrival while moving, or the next decision interval while stationary); run recurring **world events** (infestation dynamics) on their own coarse cadence; be deterministic given a seed (ties broken by `time`, then world-before-robot, then `robot_id`).
+- **Consumes:** `SwarmAgent`s (from A), B.1, B.3. **Provides:** the run; assembles a `WorldSnapshot` on demand.
 - **NOT its concern:** robot logic (A); rendering (C).
-- **Open decisions (team, mind map B.2):** simultaneous decisions vs. sequential queue; how continuous motion maps onto discrete `dt`; whether brains run against frozen or live state. All invisible to A.
+- **Open decisions (team):** the stationary-robot decision interval; how finely to sub-schedule sensing; the exact event tie-break key. All invisible to A.
+- **Simplifying assumptions (v1):** no collisions / occupancy conflicts, and actions cannot be interrupted — so no scheduled event is ever cancelled (the queue is append-only).
 
 ### B.3 Communication Channel
 
 - **Responsibility:** deliver `Message`s between robots according to range and timing.
-- **Requirements:** deliver a message only to robots within the sender's radio range in the relevant frame; model in‑frame vs. next‑frame delivery consistently; **treat payload as opaque**.
+- **Requirements:** at a robot's broadcast, deliver the message immediately to every robot within the sender's radio range and append it to their inbox (read at the recipient's next decision); range is computed from robots' whole‑cell positions (radio range is fuzzy, so sub‑cell error is irrelevant); **treat payload as opaque**.
 - **Consumes:** `outbox` from each robot + robot positions from B.1. **Provides:** each robot's `inbox`.
 - **NOT its concern:** message *meaning* (A owns that); knowledge merging (A.4).
 - **Seam for later:** two‑tier radio / aerial relay / store‑and‑forward (lit review §2.4.4) refine this module only.
@@ -483,7 +483,7 @@ Owns ground truth, drives time, delivers messages, defines scenarios, records me
 ### B.5 Metrics & Benchmarking *(added)*
 
 - **Responsibility:** measure swarm performance over a run so algorithms can be **compared** — the explicit purpose of the whole simulation (problem statement §6, research question 4). The mind map omits this entirely; the system is incomplete without it.
-- **Requirements:** sample per‑tick and summarise per‑run: targets remaining over time, detection latency, energy per unit area, messages sent, coverage, and degradation when *k* agents fail; reproducible given a seed; exportable (CSV / JSON) for offline analysis.
+- **Requirements:** sample periodically and summarise per‑run: targets remaining over time, detection latency, energy per unit area, messages sent, coverage, and degradation when *k* agents fail; reproducible given a seed; exportable (CSV / JSON) for offline analysis.
 - **Consumes:** read‑only truth + events from B.1 / B.2 / B.3. **Provides:** `MetricsSample` into `WorldSnapshot`; run summaries to disk.
 - **NOT its concern:** deciding anything; it is a passive observer.
 
@@ -526,8 +526,8 @@ Owns ground truth, drives time, delivers messages, defines scenarios, records me
 | 2 | Map‑merge vs. vicinity‑vector knowledge sharing | A.4 | No (lives in opaque payload) |
 | 3 | Potential‑field vs. coverage‑control navigation | A.3 | No |
 | 4 | Grid‑cell map vs. continuous markers for memory | A.2 | No |
-| 5 | Simultaneous vs. sequential robot decisions; continuous motion in discrete `dt` | B.2 | No (invisible to A) |
-| 6 | In‑frame vs. next‑frame message delivery | B.3 | No |
+| 5 | Stationary-robot decision interval; event tie-break key | B.2 | No (invisible to A) |
+| 6 | Range on previous vs. next whole-cell position | B.3 | No |
 | 7 | Rendering technology (Python vs. other) | C.1 | No (talks via snapshot / command) |
 
 The fact that every open decision is marked "boundary: No" is the success criterion for this phase: the module interfaces are stable regardless of how these are resolved.

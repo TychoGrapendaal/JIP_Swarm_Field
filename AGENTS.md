@@ -9,7 +9,7 @@ A decentralized swarm of robots that monitor and cultivate a crop field. Each ro
 ## Where to find things
 
 - [`docs/system-decomposition.md`](docs/system-decomposition.md) — the module boundaries and the interface contracts between them.
-- [`docs/architecture.md`](docs/architecture.md) — inter- and intra-module architecture: the composable brain (A) and the staged simulation pipeline (B).
+- [`docs/architecture.md`](docs/architecture.md) — inter- and intra-module architecture: the composable brain (A) and the discrete-event simulation (B).
 - `docs/*.pdf` — the problem statement and literature review (domain background on swarm robotics for crop fields).
 - Source lives under `src/swarm_field/<package>/`; tests mirror it under `tests/`.
 
@@ -17,16 +17,16 @@ A decentralized swarm of robots that monitor and cultivate a crop field. Each ro
 
 - `contracts/` — shared boundary types (dataclasses, enums, the `SwarmAgent` protocol). Depends on nothing; everything depends on it.
 - `swarm/` (A) — the robot brain: `ComposedAgent` combines `Behavior`s that propose scored actions.
-- `sim/` (B) — the environment simulation: `SimLoop` runs `SimStage`s over a shared `SimContext`, and owns ground truth.
-- `viz/` (C) — the visualization adapter: `Renderer`s draw read-only `WorldSnapshot`s.
+- `simulation/` (B) — the environment simulation: `SimulationLoop` processes timestamped events from an `EventQueue`, and owns ground truth.
+- `visualization/` (C) — the visualization adapter: `Renderer`s draw read-only `WorldSnapshot`s.
 
 ## Architecture rules
 
-- `contracts` is the only cross-component dependency; `swarm`, `sim` and `viz` never import each other's internals.
+- `contracts` is the only cross-component dependency; `swarm`, `simulation` and `visualization` never import each other's internals.
 - The simulation owns all ground truth. The algorithm sees only `Perception` (perceived, partial, noisy). Visualization is read-only, via `WorldSnapshot`.
 - The `SwarmAgent` protocol is the single boundary between algorithm and simulation.
-- Time is discrete: an integer `Tick`. Seconds derive as `tick * dt`.
-- The brain and the loop are each assembled from small, single-purpose parts (`Behavior`s / `SimStage`s), built programmatically.
+- Time is discrete-event: an integer `Time` timestamp (no fixed timestep); events are processed in time order.
+- The brain and the loop are each assembled from small, single-purpose parts (`Behavior`s / event handlers), built programmatically.
 
 ## Development
 

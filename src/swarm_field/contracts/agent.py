@@ -9,7 +9,7 @@ from enum import Enum, auto
 from typing import Protocol
 
 from swarm_field.contracts.actions import Action
-from swarm_field.contracts.ids import CellId, Direction, RobotId, Tick
+from swarm_field.contracts.ids import CellId, Direction, RobotId, Time
 from swarm_field.contracts.messages import Message
 from swarm_field.contracts.observations import Observation
 
@@ -53,16 +53,16 @@ class RobotSelfState:
 
 @dataclass(frozen=True)
 class Perception:
-    """Everything a robot is given to decide on a single tick.
+    """Everything a robot is given to decide at one decision point.
 
     Attributes:
-        tick: The current tick.
+        time: The current simulation time.
         self_state: The robot's view of itself.
-        sensed: What the robot's sensors picked up this tick.
+        sensed: What the robot's sensors picked up at this decision point.
         inbox: Messages that reached the robot (already range-filtered by the channel).
     """
 
-    tick: Tick
+    time: Time
     self_state: RobotSelfState
     sensed: list[Observation]
     inbox: list[Message]

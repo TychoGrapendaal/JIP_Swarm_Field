@@ -2,7 +2,7 @@
 
 This package is pure data (dataclasses, enums, type aliases) plus the ``SwarmAgent``
 protocol. It has no behaviour and depends on nothing else in the project. Everything in
-``swarm`` (A), ``sim`` (B) and ``viz`` (C) depends on it.
+``swarm`` (A), ``simulation`` (B) and ``visualization`` (C) depends on it.
 """
 
 from swarm_field.contracts.actions import Action, Charge, Idle, Move, Treat, Turn
@@ -21,7 +21,7 @@ from swarm_field.contracts.ids import (
     Direction,
     PestType,
     RobotId,
-    Tick,
+    Time,
 )
 from swarm_field.contracts.messages import Message, MessageKind
 from swarm_field.contracts.observations import (
@@ -65,7 +65,7 @@ __all__ = [
     "RobotSpec",
     "ScenarioConfig",
     "SwarmAgent",
-    "Tick",
+    "Time",
     "Treat",
     "Turn",
     "WorldSnapshot",

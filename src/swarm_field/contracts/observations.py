@@ -6,7 +6,7 @@ how reliable, when, by whom) and are matched with ``match``/``case``, like ``Act
 
 from dataclasses import dataclass
 
-from swarm_field.contracts.ids import CellId, CropType, PestType, RobotId, Tick
+from swarm_field.contracts.ids import CellId, CropType, PestType, RobotId, Time
 
 
 @dataclass(frozen=True)
@@ -16,13 +16,13 @@ class ObservationBase:
     Attributes:
         cell: The cell the observation is about.
         confidence: How reliable this reading is, 0..1.
-        observed_at: Tick the observation was made (drives decay / staleness).
+        observed_at: Time the observation was made (drives decay / staleness).
         source: The robot that made it.
     """
 
     cell: CellId
     confidence: float
-    observed_at: Tick
+    observed_at: Time
     source: RobotId
 
 
