@@ -24,6 +24,7 @@ from swarm_field.contracts.ids import (
     Time,
 )
 from swarm_field.contracts.messages import Message, MessageKind
+from swarm_field.contracts.navigation import HopFieldEntry, NavGoal, NavMode, Vector2
 from swarm_field.contracts.observations import (
     CropObservation,
     InfestationObservation,
@@ -48,11 +49,14 @@ __all__ = [
     "Decision",
     "Direction",
     "FieldGeometry",
+    "HopFieldEntry",
     "Idle",
     "InfestationObservation",
     "Message",
     "MessageKind",
     "Move",
+    "NavGoal",
+    "NavMode",
     "Observation",
     "ObservationBase",
     "ObstacleObservation",
@@ -68,5 +72,6 @@ __all__ = [
     "Time",
     "Treat",
     "Turn",
+    "Vector2",
     "WorldSnapshot",
 ]

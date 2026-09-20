@@ -1,11 +1,12 @@
-"""A.3 Navigation — turn a relative goal into concrete ``Move`` / ``Turn`` actions.
+"""A.3 Navigation — turn a goal into concrete ``Move`` / ``Turn`` actions.
 
-The navigator is the movement policy of component A (the brain). It receives a goal as a
-relative displacement vector (where the target is *from here*, in cells) and returns one
-physical action per tick: heading changes are ``Turn``, steps along the current heading are
-``Move``. It never sees an absolute position — spatial knowledge arrives only through a
-``Sensing`` port that reports whether each adjacent grid cell is clear to enter. That keeps
-the policy honest about what a robot can actually know (see ``docs/navigation-module.md``).
+The navigator is the movement policy of component A (the brain). It resolves a goal — a
+relative displacement vector, a fixed drift, or a resolved pest-gradient target — into one
+physical action per decision point: heading changes are ``Turn``, steps along the current
+heading are ``Move``. It never sees an absolute position — spatial knowledge arrives only
+through a ``Sensing`` port that reports whether each adjacent grid cell is clear to enter.
+That keeps the policy honest about what a robot can actually know (see
+``docs/navigation-module.md``).
 
 Obstacle avoidance is a committed right-hand wall-follow (Bug-algorithm style). When the
 goal heading is blocked the navigator picks the most goal-aligned clear heading (ties to
@@ -14,19 +15,31 @@ toward the goal as soon as the tangent ahead gives out, and never re-consults th
 bearing while sliding (that is what turns a row's south aisle into a dead-end trap). It
 only leaves the wall when the goal is right next to it. A dead end with no route at all
 flips ``is_stalled`` — re-routing stays the brain's job (A.1), not the navigator's.
+
+Chasing the pest gradient is orchestrated on top: :meth:`Navigator.steer_chase` picks the
+freshest qualifying hop-field entry each decision point, composes its target
+(``to_holder + parent_vector``) and steers; once the tail of the chain is reached (the
+hop-0 beacon's cell, with the pest ahead blocked) it stands still so treatment takes over
+from the row edge.
 """
 
+from __future__ import annotations
+
+from collections.abc import Sequence
 from dataclasses import dataclass
 from math import hypot
 from typing import Protocol
 
-from swarm_field.contracts import Direction, Idle, Move, Turn
-
-Vector2 = tuple[float, float]
-"""The relative displacement from the robot to its goal, in grid cells.
-
-Units are cells (matching ``Direction.offset``): ``(dx, dy)`` with y increasing North.
-"""
+from swarm_field.contracts import (
+    Direction,
+    HopFieldEntry,
+    Idle,
+    Move,
+    NavGoal,
+    NavMode,
+    Turn,
+    Vector2,
+)
 
 
 class Sensing(Protocol):
@@ -154,6 +167,66 @@ class Navigator:
         self._detour_ticks += 1
         return self._track_progress(goal_dist, tangent, facing)
 
+    def steer_goal(
+        self, goal: NavGoal, field: Sequence[HopFieldEntry], facing: Direction
+    ) -> Move | Turn | Idle:
+        """Resolve one ``NavGoal`` into this decision point's movement action.
+
+        ``HOLD`` stands still; ``SPREAD`` steers along the fixed drift vector; ``CHASE``
+        pursues the freshest qualifying beacon in ``field`` (``steer_chase``). The goal's
+        mode-specific field must be present: ``drift`` for SPREAD, ``max_hop`` for CHASE.
+
+        Args:
+            goal: The goal A.1 issued for this decision point.
+            field: The decoded hop-field (A.4) — ignored by every mode but CHASE.
+            facing: The robot's current heading, read from its self view.
+        """
+        if goal.mode is NavMode.HOLD:
+            return Idle()
+        if goal.mode is NavMode.SPREAD:
+            assert goal.drift is not None
+            return self.steer(goal.drift, facing)
+        assert goal.max_hop is not None
+        return self.steer_chase(field, goal.max_hop, facing)
+
+    def steer_chase(
+        self, field: Sequence[HopFieldEntry], max_hop: int, facing: Direction
+    ) -> Move | Turn | Idle:
+        """Pursue the pest gradient: steer toward the freshest qualifying beacon.
+
+        Re-reads ``field`` every decision point (reactive pursuit, never a memorised
+        waypoint). An empty or stale field — no entry at or below ``max_hop`` — means "no
+        resolvable gradient": the navigator idles and leaves the decision to the brain,
+        exactly the module's single report-to-A.1 signal.
+
+        Args:
+            field: The decoded hop-field (A.4), one entry per in-range explorer.
+            max_hop: Pursue only beacons at this hop level or lower.
+            facing: The robot's current heading, read from its self view.
+        """
+        resolved = resolve_chase_target(field, max_hop)
+        if resolved is None:
+            return Idle()
+        if resolved.holder_hop == 0 and self._pest_row_edge(resolved, facing):
+            self.reset()
+            return Idle()
+        return self.steer(resolved.target, facing)
+
+    def _pest_row_edge(self, resolved: ChaseTarget, facing: Direction) -> bool:
+        """True when the chase has resolved at the pest's row edge and must STAND.
+
+        The robot has reached the hop-0 explorer's hover cell and the composed tail — the
+        vector to the pest itself — points into a cell it cannot enter (the crop row). The
+        navigator then stands still so the brain's treat logic takes over from the aisle;
+        this resolves arrival semantics (``docs/navigation-module.md`` §13, decision 5) to
+        "STAND at the row edge".
+        """
+        holder_dx, holder_dy = resolved.to_holder
+        if hypot(holder_dx, holder_dy) > self._config.target_tolerance:
+            return False
+        desired = self._best_aligned(resolved.target, facing)
+        return not self._sensing.clear(desired)
+
     def _track_progress(
         self, goal_dist: float, tangent: Direction, facing: Direction
     ) -> Move | Turn | Idle:
@@ -248,6 +321,53 @@ class Navigator:
             if self._sensing.clear(candidate):
                 return candidate
         return None
+
+
+@dataclass(frozen=True)
+class ChaseTarget:
+    """The composed pursuit target, with the hop level it was built from.
+
+    Attributes:
+        target: The composed relative vector to steer toward, in cells.
+        holder_hop: The selected beacon's hop number; 0 means the chain resolved at the
+            pest itself.
+        to_holder: The robot's measured vector to the selected holder, kept for the arrival
+            (row-edge STAND) test.
+    """
+
+    target: Vector2
+    holder_hop: int
+    to_holder: Vector2
+
+
+def resolve_chase_target(field: Sequence[HopFieldEntry], max_hop: int) -> ChaseTarget | None:
+    """Compose the freshest qualifying beacon's gradient into one steerable target.
+
+    From the decoded hop-field pick the qualifying entry (hop at most ``max_hop``) with the
+    lowest hop, then the closest holder, then the freshest beacon, and compose its gradient:
+    the robot's measured vector to the holder plus the holder's vector onward to the next
+    hop down (``docs/navigation-module.md`` §7.2). Returns ``None`` when no entry qualifies
+    — the "no resolvable gradient" case that A.1 must react to.
+
+    Args:
+        field: The decoded hop-field, one entry per in-range explorer.
+        max_hop: Pursue only beacons at this hop level or lower.
+    """
+    qualifying = [entry for entry in field if entry.holder_hop <= max_hop]
+    if not qualifying:
+        return None
+    best = min(qualifying, key=_pilot_key)
+    target = (
+        best.to_holder[0] + best.parent_vector[0],
+        best.to_holder[1] + best.parent_vector[1],
+    )
+    return ChaseTarget(target=target, holder_hop=best.holder_hop, to_holder=best.to_holder)
+
+
+def _pilot_key(entry: HopFieldEntry) -> tuple[int, float, int]:
+    """Selection order for a pilot beacon: lower hop, then closer holder, then fresher."""
+    holder_dx, holder_dy = entry.to_holder
+    return (entry.holder_hop, hypot(holder_dx, holder_dy), -entry.seen_at)
 
 
 def _unit_offset(direction: Direction) -> tuple[float, float]:

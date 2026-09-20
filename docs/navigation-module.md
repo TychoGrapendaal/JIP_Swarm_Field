@@ -53,6 +53,8 @@ All vectors are expressed in the simulation's metric frame, which must agree wit
 - A field cell at `(cx, cy)` has its centre at metres `(cx * cell_size, cy * cell_size)` with `cell_size` from `FieldGeometry`.
 - A vector is a *relative* displacement in metres, `(dx, dy)`, in this frame. `Vector2 = tuple[float, float]`.
 
+The implementation keeps vectors grid-native: a `Vector2` is a displacement in **cells** between the cells it connects, matching the grid frame of `contracts.ids`. The metre framing above is the presentation-level reading of the same vectors (one cell is one `cell_size` wide); nothing in navigation scales or converts.
+
 ### 3.1 Core assumption: no absolute position
 
 Navigation never reads `RobotSelfState.position`. The field exists, but the robot does not know where in it it stands — not at compile time, not at runtime. All spatial knowledge comes from two sources only:
@@ -89,7 +91,7 @@ class NavMode(Enum):
 @dataclass(frozen=True)
 class NavGoal:
     mode: NavMode
-    drift: Vector2 | None = None   # SPREAD only — the random vector, metres, fixed per deployment
+    drift: Vector2 | None = None   # SPREAD only — the random vector, fixed per deployment (cells in the implementation)
     max_hop: int | None = None     # CHASE only — chase while freshest heard hop is <= max_hop
 ```
 
@@ -317,6 +319,8 @@ Summary of the chase, per step:
 | 3 | (7, 4) | E0: hop 0, `(0, +1)` | `(-2, 0) + (0, +1) = (-2, 1)` | West then North |
 | 4 | (5, 4) | — (arrived) | — | Stop; Treat from the aisle |
 
+**Implementation status — §8.1 is real, tested code.** `contracts.navigation` provides `Vector2`, `NavMode` / `NavGoal` and the decoded `HopFieldEntry` (the per-explorer hop-field entry A.4 hands to navigation: `holder_hop`, `parent_vector`, `to_holder`, `seen_at`); `swarm_field.swarm.navigator.resolve_chase_target` composes `to_holder + parent_vector` for the best pilot (the hop / closeness / freshness tie-breaks of decision #2), and `Navigator.steer_chase` / `steer_goal` turn that into `Turn` / `Move` / `Idle` while applying the row-edge `STAND` at the tail (decision #5). `tests/test_chase_scenario.py` replays this walkthrough end to end: a fabricated A.4 re-derives every explorer's `to_holder` from a live utility-robot position and a `radio_range` of 3, the composed targets come out `(-4,0) → (-4,0) → (-2,1) → (0,1)`, and the utility robot ends `STAND`-idle at (5, 4) without ever entering a crop cell, its pilot hop descending 2 → 1 → 0. The other `NavGoal` modes of Section 4 are implemented and exercised too: `HOLD` → `Idle`, SPREAD's fixed drift (which detours around crops), and CHASE's "no resolvable gradient" → `Idle` fallback.
+
 ---
 
 ## 9. The per-tick navigation decision
@@ -422,7 +426,7 @@ All open items below are internal to A.3 (or a B.2 translation detail), so the m
 | 2 | **Gradient freshness window.** Number of ticks a `HopBeacon` stays usable (decay), and the tie-break between same-hop beacons: prefer lower hop, then closer, then freshest | No |
 | 3 | **SPREAD behaviour on stuck detection.** Single drift per deployment vs. re-roll after a stuck timeout; who detects "stuck" | No |
 | 4 | **Robot–robot collisions.** Currently both bodies ignore the `occupant` cell field; land robots might later yield to each other | No |
-| 5 | **Arrival semantics.** Stop exactly at the pest (`STAND`) vs. continuous pursuit around it while it "lives" | No |
+| 5 | **Arrival semantics.** Stop exactly at the pest (`STAND`) vs. continuous pursuit around it while it "lives". **Resolved: STAND.** Implemented as the row-edge rule in `Navigator.steer_chase`: when the pilot hop is 0, `to_holder` is inside `target_tolerance`, and the composed target's cell is blocked (a crop), navigation resets and emits `Idle` — the utility robot stands on the aisle and treatment proceeds from the row edge (§8.1 Step 4). | No |
 | 6 | **Speed / energy coupling.** `MovementIntent` carries a `speed_fraction` vs. `v_max`; how battery consumption modifies it (a decision concern, surfaced here) | No |
 | 7 | **Aversion parameters.** Personal-space radius, impulse cap and decay curve for the explorer separation (scenario-tunable) | No |
 

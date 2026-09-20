@@ -42,7 +42,7 @@ select = [
 
 [tool.pyrefly]
 project-includes = ["src", "tests"]
-search-path = ["src"]
+search-path = ["src", "."]
 python-version = "3.12"
 # Strict type checking. On top of the strict preset we require fully-typed public
 # surface: every parameter, every return type, and every attribute must be annotated.
