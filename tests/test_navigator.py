@@ -70,6 +70,35 @@ def test_finds_the_single_hole_in_a_closed_crop_wall() -> None:
     assert not navigator.is_stalled
 
 
+def test_is_trapped_by_a_u_shaped_crop_wall() -> None:
+    """A U-shaped wall whose mouth faces the robot is a trap for the wall-follow.
+
+    The U stands between the robot and the goal: two arms join a back wall, and the mouth
+    opens toward the oncoming robot on the y=5 aisle. The robot drives into the mouth,
+    slides up one arm, rounds the inner corner, and comes back to its own mouth — the
+    classic wall-follow dead-end. A route around the U exists at the field's top and
+    bottom edges, but with one-cell sensing and no Bug2-style "leave the wall at the
+    start-to-goal line" rule, the navigator never finds it and declares itself stalled.
+    """
+    u = frozenset(
+        {(x, 7) for x in range(2, 7)}
+        | {(x, 3) for x in range(2, 7)}
+        | {(2, y) for y in range(3, 8)}
+    )
+    world = GridWorld(width=13, height=9, blocked=u)
+    harness = Harness(world, start=(10, 5), facing=Direction.N)
+    navigator = Navigator(GridSensing(harness))
+
+    for _ in range(300):
+        harness.apply(navigator, (1, 5))
+        if navigator.is_stalled:
+            break
+
+    assert navigator.is_stalled
+    assert harness.position != (1, 5)
+    assert (1, 5) not in harness.visited
+
+
 def test_reports_stalled_when_fully_surrounded() -> None:
     pocket = frozenset({(x, y) for x in range(1, 4) for y in range(1, 4)} - {(2, 2)})
     world = GridWorld(width=5, height=5, blocked=pocket)
