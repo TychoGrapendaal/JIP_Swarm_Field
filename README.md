@@ -1,17 +1,28 @@
 # Swarm Field
 
-A decentralized swarm algorithm and simulation for robots cultivating and monitoring a crop field. Each robot follows simple local rules and shares information peer-to-peer, so that swarm-level behaviour emerges and the robots together form a "collective brain" — a shared body of knowledge about the field that no single robot holds on its own.
+A decentralized swarm algorithm and simulation for robots cultivating and monitoring a crop field. The simulation is deliberately coarse-grained: one grid cell represents a field patch rather than one plant, and the model is intended to scale to hundreds of robots.
 
-See [`docs/system-decomposition.md`](docs/system-decomposition.md) for the module boundaries and interfaces, and [`docs/architecture.md`](docs/architecture.md) for the inter- and intra-module architecture.
+See [`docs/high-level-world-model.md`](docs/high-level-world-model.md) for the current world abstraction, [`docs/system-decomposition.md`](docs/system-decomposition.md) for module boundaries, and [`docs/architecture.md`](docs/architecture.md) for the broader architecture.
+
+## Current B.1 world model
+
+- One grid cell represents an area of field rather than an individual plant.
+- Obstacles can span any number of cells, such as a three-cell-wide river.
+- Multiple robots may occupy the same cell; there is no cell-capacity limit.
+- Robots move directly with `Move(to=CellId)`; there is no turn/facing model.
+- Each robot has its own movement speed in metres per second.
+- Movement time is calculated from the distance between cells, cell size, and robot speed.
+- Infestation is represented as a per-cell severity value, providing a coarse-grained basis for later dynamic pest-spread models.
+- Robots receive local obstacle and infestation observations and can use this information to calculate potential-field attraction and repulsion.
+- A robot does not currently know about obstacles or infestations outside its local observation range.
+- Robot-to-robot communication is not implemented yet, so information about a distant infestation does not currently propagate through the swarm.
 
 ## Requirements
 
-- [uv](https://docs.astral.sh/uv/) for environment and dependency management (run `uv --version` in the terminal).
-- Python 3.12 (uv will provision it automatically from `.python-version`).
+- [uv](https://docs.astral.sh/uv/) for environment and dependency management.
+- Python 3.12 (uv will provision it from `.python-version`).
 
 ## Setup
-
-Create the virtual environment and install all dependencies (including dev tools):
 
 ```bash
 uv sync
@@ -19,34 +30,72 @@ uv sync
 
 ## Development commands
 
-All commands run inside the project environment via `uv run`.
+```bash
+uv run pytest
+uv run ruff check .
+uv run ruff format --check .
+uv run pyrefly check
+```
 
-| Task | Command |
-|------|---------|
-| Run the tests | `uv run pytest` |
-| Lint | `uv run ruff check .` |
-| Auto-fix lint issues | `uv run ruff check --fix .` |
-| Format code | `uv run ruff format .` |
-| Check formatting (no changes) | `uv run ruff format --check .` |
-| Type-check | `uv run pyrefly check` |
-
-Run all checks the way CI and reviewers will, before committing or pushing:
+Run all checks together:
 
 ```bash
 uv run ruff check . && uv run ruff format --check . && uv run pyrefly check && uv run pytest
 ```
 
-## Modules
+## Demonstrations
 
-- `contracts/` — the shared vocabulary (dataclasses, enums, the `SwarmAgent` protocol) that crosses module boundaries. Depends on nothing; every other package depends on it.
-- `swarm/` (A) — the decentralized algorithm, the robot "brain": a `ComposedAgent` combines `Behavior`s that propose scored actions.
-- `simulation/` (B) — the environment simulation: a `SimulationLoop` processes timestamped events from an `EventQueue`, and owns all ground truth.
-- `visualization/` (C) — the visualization adapter: `Renderer`s draw read-only `WorldSnapshot`s.
+> **Note:** The examples below are demonstration and visualization tools for the current world model and potential-field prototype. They are not the final swarm exploration or communication implementation.
+
+### Small WorldState demonstration
+
+```bash
+uv run python examples/worldstate_demo.py
+```
+
+Terminal-based demonstration of the core `WorldState`. It shows field-cell state, multiple robots sharing a cell, different robot speeds, direct target-cell movement, obstacles, local observations, infestation, and treatment actions.
+
+### Simple animated field-cell demonstration
+
+```bash
+uv run --with matplotlib python examples/simple_world_sim.py
+```
+
+A small animated visualization showing the coarse-grained field representation, multi-cell obstacles, infested areas, and direct cell-to-cell robot movement.
+
+### Hundreds-of-robots potential-field proof of concept
+
+```bash
+uv run --with matplotlib python examples/mass_swarm_visualization.py
+```
+
+The main large-scale visualization. It demonstrates hundreds of robots moving through a coarse-grained field using a simple local potential-field controller. Known infestations provide attraction, known obstacles provide repulsion, and a small random component provides a basic exploration baseline. Robots move directly toward selected target cells at their own speeds, and multiple robots can occupy the same cell.
+
+The mass-swarm demo defaults to 300 robots. Try 500 or more:
+
+```bash
+uv run --with matplotlib python examples/mass_swarm_visualization.py --robots 500 --seed 7
+```
+
+For an even larger test:
+
+```bash
+uv run --with matplotlib python examples/mass_swarm_visualization.py --robots 1000 --seed 7
+```
+
+## Current demonstration limitations
+
+- The exploration behavior is currently a simple baseline and is not yet a dedicated coverage/exploration algorithm.
+- Potential-field behavior is currently a proof of concept using local observations.
+- Robot-to-robot communication has not been implemented yet.
+- Infestation is currently static; infestation spreading and time-dependent dynamics are planned for a later layer.
+- Sensing is currently local; distant obstacles and infestations are unknown unless information is later propagated through communication.
 
 ## Project layout
 
-```
-src/swarm_field/   # the four packages above
-tests/             # pytest suite, mirroring the source
+```text
+src/swarm_field/   # contracts, swarm brain, simulation and visualization adapter
+tests/             # pytest suite
+examples/          # executable demonstrations
 docs/              # design documents and source material
 ```

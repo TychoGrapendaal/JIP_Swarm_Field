@@ -6,6 +6,8 @@
 >
 > Notation: the type sketches below are **real contract shapes** (`@dataclass` / `Enum` / type aliases), but field lists may still grow. They fix the *boundary*, not the internals. `*added*` marks a module or concept not in the original mind map, pulled in from the literature review because the system is incomplete without it — each is flagged and justified.
 
+> **Current implementation note (high-level world model).** The repository now uses a coarse field grid: one cell represents an area of field rather than one plant; multiple robots may share a cell; movement is `Move(to=CellId)` without turn/facing; each robot has its own speed; and obstacles can occupy arbitrary groups of cells. The detailed sketches below contain earlier design proposals and are retained as the broader architecture reference. For the implemented B.1 behaviour, see [`docs/high-level-world-model.md`](high-level-world-model.md).
+
 ---
 
 ## 1. Boundary principles

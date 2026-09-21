@@ -1,11 +1,6 @@
-"""Shared boundary types — the one vocabulary spoken across every module boundary.
+"""Shared boundary types used by the swarm, simulation and visualization modules."""
 
-This package is pure data (dataclasses, enums, type aliases) plus the ``SwarmAgent``
-protocol. It has no behaviour and depends on nothing else in the project. Everything in
-``swarm`` (A), ``simulation`` (B) and ``visualization`` (C) depends on it.
-"""
-
-from swarm_field.contracts.actions import Action, Charge, Idle, Move, Treat, Turn
+from swarm_field.contracts.actions import Action, Charge, Idle, Move, Treat
 from swarm_field.contracts.agent import (
     AgentInspection,
     BodyType,
@@ -15,14 +10,7 @@ from swarm_field.contracts.agent import (
     RobotSelfState,
     SwarmAgent,
 )
-from swarm_field.contracts.ids import (
-    CellId,
-    CropType,
-    Direction,
-    PestType,
-    RobotId,
-    Time,
-)
+from swarm_field.contracts.ids import CellId, CropType, Direction, PestType, RobotId, Time
 from swarm_field.contracts.messages import Message, MessageKind
 from swarm_field.contracts.observations import (
     CropObservation,
@@ -67,6 +55,5 @@ __all__ = [
     "SwarmAgent",
     "Time",
     "Treat",
-    "Turn",
     "WorldSnapshot",
 ]
