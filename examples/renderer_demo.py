@@ -1,7 +1,8 @@
 """Running-scenario demonstration of the matplotlib ``Renderer``.
 
-Builds a fully cropped field with an all-scout roster, steps a local rule-based controller, and
-draws each ``WorldState.snapshot`` through the ``Renderer`` port.
+Builds a fully cropped field with infestation patches of varying severity and an all-scout
+roster, steps a local rule-based controller, and draws each ``WorldState.snapshot`` through the
+``Renderer`` port.
 
 Run:
     uv run python examples/renderer_demo.py
@@ -57,7 +58,7 @@ class RandomWalkController:
 
 
 def build_world(seed: int) -> WorldState:
-    """Create a fully cropped field and an all-scout robot roster."""
+    """Create a fully cropped field with infestation patches of varying severity and scouts."""
     field = FieldGeometry(
         width=FIELD_WIDTH,
         height=FIELD_HEIGHT,
@@ -82,6 +83,19 @@ def build_world(seed: int) -> WorldState:
     for y in range(FIELD_HEIGHT):
         for x in range(FIELD_WIDTH):
             world.cell((x, y)).growth_stage = 0.3 + 0.6 * ((x + y) % 4) / 3
+
+    for cell, severity in {
+        (6, 6): 0.2,
+        (7, 6): 0.4,
+        (8, 6): 0.6,
+        (9, 6): 0.8,
+        (10, 6): 1.0,
+        (20, 12): 0.3,
+        (21, 12): 0.5,
+        (22, 12): 0.7,
+        (23, 12): 0.9,
+    }.items():
+        world.cell(cell).infestation = severity
 
     return world
 
