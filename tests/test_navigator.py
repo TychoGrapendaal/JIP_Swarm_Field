@@ -46,6 +46,30 @@ def test_rounds_a_crop_row_to_reach_a_goal_aisle_cell() -> None:
     assert any(cell in harness.visited for cell in ((12, 2), (12, 3), (12, 4)))
 
 
+def test_finds_the_single_hole_in_a_closed_crop_wall() -> None:
+    """Drive past a sealed crop line through its one gap instead of stalling on it.
+
+    West of the utility robot stands the pest at (0, 5), inside the column-0 crop line that
+    runs the full field height. Between the robot and the pest, the parallel column-5 crop
+    line also runs the full height, with exactly one gap — its top cell (5, 8). The
+    robot's one-cell sensing can't see the gap in advance; the committed wall-follow has
+    to carry it around the line until it finds it. It then descends the west column to the
+    cell next to the pest, (1, 5), and never touches a crop.
+    """
+    wall = frozenset({(0, y) for y in range(9)} | {(5, y) for y in range(9)} - {(5, 8)})
+    world = GridWorld(width=13, height=9, blocked=wall)
+    harness = Harness(world, start=(10, 5), facing=Direction.N)
+    navigator = Navigator(GridSensing(harness))
+
+    ticks = drive(navigator, harness, goal=(1, 5), max_ticks=400)
+
+    assert harness.position == (1, 5)
+    assert ticks <= 400
+    assert (5, 8) in harness.visited
+    assert (0, 5) not in harness.visited
+    assert not navigator.is_stalled
+
+
 def test_reports_stalled_when_fully_surrounded() -> None:
     pocket = frozenset({(x, y) for x in range(1, 4) for y in range(1, 4)} - {(2, 2)})
     world = GridWorld(width=5, height=5, blocked=pocket)
