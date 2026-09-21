@@ -1,8 +1,8 @@
 """Ground-truth world model for the high-level swarm simulation."""
 
+from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from math import ceil, hypot
-from typing import Iterable
 
 from swarm_field.contracts import (
     Action,
@@ -257,7 +257,11 @@ class WorldState:
     def continuous_position(self, robot_id: RobotId, time: Time) -> tuple[float, float]:
         """Return the robot position in cell coordinates, interpolated during a move."""
         robot = self._robot(robot_id)
-        if robot.move_target is None or robot.move_started_at is None or robot.move_arrival_at is None:
+        if (
+            robot.move_target is None
+            or robot.move_started_at is None
+            or robot.move_arrival_at is None
+        ):
             return self._cell_center(robot.position)
 
         if time <= robot.move_started_at:

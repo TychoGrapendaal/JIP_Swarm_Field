@@ -100,7 +100,10 @@ def test_robot_arrives_when_world_time_advances() -> None:
 def test_faster_robot_arrives_earlier() -> None:
     world = WorldState(
         _field(),
-        robots=[_robot(1, position=(0, 0), speed_mps=5.0), _robot(2, position=(0, 0), speed_mps=2.5)],
+        robots=[
+            _robot(1, position=(0, 0), speed_mps=5.0),
+            _robot(2, position=(0, 0), speed_mps=2.5),
+        ],
     )
 
     fast_arrival = world.apply_action(1, Move(to=(1, 0)), time=0)
@@ -141,7 +144,11 @@ def test_observe_for_reports_multiple_visible_peers() -> None:
     world = WorldState(_field(), robots=robots)
 
     observations = world.observe_for(1, time=10)
-    peers = [observation for observation in observations if isinstance(observation, PeerObservation)]
+    peers = [
+        observation
+        for observation in observations
+        if isinstance(observation, PeerObservation)
+    ]
 
     assert {peer.peer for peer in peers} == {2, 3}
 

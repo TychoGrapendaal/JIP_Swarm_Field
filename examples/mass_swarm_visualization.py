@@ -72,10 +72,10 @@ class PotentialFieldController:
             cell = getattr(observation, "cell", None)
             if cell is None:
                 continue
-            if hasattr(observation, "is_obstacle") and getattr(observation, "is_obstacle"):
+            if hasattr(observation, "is_obstacle") and observation.is_obstacle:
                 memory.obstacle_repulsion[cell] = 100.0
             if hasattr(observation, "severity"):
-                severity = float(getattr(observation, "severity"))
+                severity = float(observation.severity)
                 if severity > 0:
                     memory.infestation_attraction[cell] = max(
                         severity,
