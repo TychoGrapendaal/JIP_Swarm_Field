@@ -42,10 +42,8 @@ class DemoController:
                     cell for cell in world.neighbours(robot.position) if world.is_walkable(cell)
                 ]
                 target = (
-                candidates[(robot_id + time // 500) % len(candidates)]
-                if candidates
-                else None
-            )
+                    candidates[(robot_id + time // 500) % len(candidates)] if candidates else None
+                )
 
             if target is not None:
                 world.apply_action(robot_id, Move(to=target), time=time)

@@ -89,9 +89,7 @@ class PotentialFieldController:
     ) -> tuple[int, int] | None:
         robot = self.world.robots[robot_id]
         candidates = [
-            cell
-            for cell in self.world.neighbours(robot.position)
-            if self.world.is_walkable(cell)
+            cell for cell in self.world.neighbours(robot.position) if self.world.is_walkable(cell)
         ]
         if not candidates:
             return None

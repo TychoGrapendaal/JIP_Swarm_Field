@@ -149,9 +149,7 @@ class WorldState:
         if not self.is_inside(cell):
             raise ValueError(f"cell outside field: {cell}")
         return tuple(
-            robot_id
-            for robot_id, robot in sorted(self.robots.items())
-            if robot.position == cell
+            robot_id for robot_id, robot in sorted(self.robots.items()) if robot.position == cell
         )
 
     def positions(self) -> dict[RobotId, CellId]:

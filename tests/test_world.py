@@ -145,9 +145,7 @@ def test_observe_for_reports_multiple_visible_peers() -> None:
 
     observations = world.observe_for(1, time=10)
     peers = [
-        observation
-        for observation in observations
-        if isinstance(observation, PeerObservation)
+        observation for observation in observations if isinstance(observation, PeerObservation)
     ]
 
     assert {peer.peer for peer in peers} == {2, 3}

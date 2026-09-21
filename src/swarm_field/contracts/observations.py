@@ -1,4 +1,3 @@
-
 """Observations — a tagged union of beliefs about cells.
 
 An observation is a *belief*, not a truth. Variants share ``ObservationBase`` (which cell,
