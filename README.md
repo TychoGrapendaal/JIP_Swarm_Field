@@ -1,17 +1,26 @@
 # Swarm Field
 
-A decentralized swarm algorithm and simulation for robots cultivating and monitoring a crop field. Each robot follows simple local rules and shares information peer-to-peer, so that swarm-level behaviour emerges and the robots together form a "collective brain" — a shared body of knowledge about the field that no single robot holds on its own.
+A decentralized swarm algorithm and simulation for robots cultivating and monitoring a crop field. The simulation is deliberately coarse-grained: one grid cell represents a field patch rather than one plant, and the model is intended to scale to hundreds of robots.
 
-See [`docs/system-decomposition.md`](docs/system-decomposition.md) for the module boundaries and interfaces, and [`docs/architecture.md`](docs/architecture.md) for the inter- and intra-module architecture.
+See [`docs/high-level-world-model.md`](docs/high-level-world-model.md) for the current world abstraction, [`docs/system-decomposition.md`](docs/system-decomposition.md) for module boundaries, and [`docs/architecture.md`](docs/architecture.md) for the broader architecture.
+
+## Current B.1 world model
+
+- One grid cell represents an area of field.
+- Obstacles can span any number of cells, such as a three-cell-wide river.
+- Multiple robots may occupy the same cell.
+- Robots move with `Move(to=CellId)`; there is no turn/facing model.
+- Each robot has its own speed in metres per second.
+- Movement time is calculated from cell distance, cell size and robot speed.
+- Infestation is a per-cell severity value, suitable for later dynamic pest-spread models.
+- Robots receive local obstacle and infestation observations; the algorithm can turn those into potential-field attraction and repulsion values.
 
 ## Requirements
 
-- [uv](https://docs.astral.sh/uv/) for environment and dependency management (run `uv --version` in the terminal).
-- Python 3.12 (uv will provision it automatically from `.python-version`).
+- [uv](https://docs.astral.sh/uv/) for environment and dependency management.
+- Python 3.12 (uv will provision it from `.python-version`).
 
 ## Setup
-
-Create the virtual environment and install all dependencies (including dev tools):
 
 ```bash
 uv sync
@@ -19,34 +28,50 @@ uv sync
 
 ## Development commands
 
-All commands run inside the project environment via `uv run`.
+```bash
+uv run pytest
+uv run ruff check .
+uv run ruff format --check .
+uv run pyrefly check
+```
 
-| Task | Command |
-|------|---------|
-| Run the tests | `uv run pytest` |
-| Lint | `uv run ruff check .` |
-| Auto-fix lint issues | `uv run ruff check --fix .` |
-| Format code | `uv run ruff format .` |
-| Check formatting (no changes) | `uv run ruff format --check .` |
-| Type-check | `uv run pyrefly check` |
-
-Run all checks the way CI and reviewers will, before committing or pushing:
+Run all checks together:
 
 ```bash
 uv run ruff check . && uv run ruff format --check . && uv run pyrefly check && uv run pytest
 ```
 
-## Modules
+## Demonstrations
 
-- `contracts/` — the shared vocabulary (dataclasses, enums, the `SwarmAgent` protocol) that crosses module boundaries. Depends on nothing; every other package depends on it.
-- `swarm/` (A) — the decentralized algorithm, the robot "brain": a `ComposedAgent` combines `Behavior`s that propose scored actions.
-- `simulation/` (B) — the environment simulation: a `SimulationLoop` processes timestamped events from an `EventQueue`, and owns all ground truth.
-- `visualization/` (C) — the visualization adapter: `Renderer`s draw read-only `WorldSnapshot`s.
+Small WorldState demonstration:
+
+```bash
+uv run python examples/worldstate_demo.py
+```
+
+Simple animated field-cell demonstration:
+
+```bash
+uv run --with matplotlib python examples/simple_world_sim.py
+```
+
+Hundreds-of-robots potential-field proof of concept:
+
+```bash
+uv run --with matplotlib python examples/mass_swarm_visualization.py
+```
+
+The mass-swarm demo defaults to 300 robots. Try 500 or more:
+
+```bash
+uv run --with matplotlib python examples/mass_swarm_visualization.py --robots 500 --seed 7
+```
 
 ## Project layout
 
-```
-src/swarm_field/   # the four packages above
-tests/             # pytest suite, mirroring the source
+```text
+src/swarm_field/   # contracts, swarm brain, simulation and visualization adapter
+tests/             # pytest suite
+examples/          # executable demonstrations
 docs/              # design documents and source material
 ```
