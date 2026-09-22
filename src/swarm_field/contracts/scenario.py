@@ -1,7 +1,8 @@
 """Scenario definition — the input port that constructs a runnable world (B.4).
 
-Pest dynamics are not modelled yet, so for now a scenario assumes a single kind of pest
-and carries no target/spread configuration; that shape is added once pests are designed.
+The current pest model supports one pest kind. Pest dynamics are configured on the simulation
+world event for now; scenario-level pest configuration can be added when multiple pest models
+are introduced.
 """
 
 from dataclasses import dataclass
