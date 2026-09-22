@@ -77,8 +77,8 @@ def run_experiment(
         spec.robot_id: build_agent(brain_spec, spec.body, rng)   # A, assembled
         for spec in scenario.robots
     }
-    ctx = SimulationContext(now=0, rng=rng, agents=agents, queue=EventQueue())
-    seed_initial_events(ctx, world, scenario)   # first decision per robot + a recurring world tick
+    ctx = SimulationContext(now=0, rng=rng, agents=agents, world=world, queue=EventQueue())
+    seed_initial_events(ctx, scenario)   # first decision per robot + a recurring world tick
     SimulationLoop().run(ctx, until)
     return summarize(ctx)
 ```
@@ -274,8 +274,9 @@ class SimulationContext:
     now: Time
     rng: Random                            # the single seeded source; handlers draw in event order
     agents: dict[RobotId, SwarmAgent]      # A, behind the port
+    world: WorldState                     # B.1 ground truth
     queue: EventQueue
-    # a world (B.1), a channel (B.3) and metrics (B.5) are added as those pieces are built
+    # a channel (B.3) and metrics (B.5) are added as those pieces are built
     def schedule(self, event: Event) -> None: ...
 
 class SimulationLoop:

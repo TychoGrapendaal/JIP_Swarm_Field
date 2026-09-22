@@ -1,14 +1,36 @@
-"""Tests for the discrete-event simulation core: the queue and the loop."""
+"""Tests for the discrete-event simulation core and pest dynamics."""
 
 from dataclasses import dataclass
 from random import Random
 
-from swarm_field.contracts import Time
-from swarm_field.simulation import SimulationContext, SimulationLoop
+import pytest
+
+from swarm_field.contracts import FieldGeometry, Time
+from swarm_field.simulation import (
+    PestDynamicsConfig,
+    SimulationContext,
+    SimulationLoop,
+    WorldState,
+    WorldTick,
+)
 
 
 def _context() -> SimulationContext:
-    return SimulationContext(now=0, rng=Random(0), agents={})
+    field = FieldGeometry(
+        width=5,
+        height=5,
+        cell_size=1.0,
+        row_sp=1.0,
+        in_row_sp=1.0,
+        headland=0.0,
+        connectivity=4,
+    )
+    return SimulationContext(
+        now=0,
+        rng=Random(0),
+        agents={},
+        world=WorldState(field),
+    )
 
 
 @dataclass
@@ -65,3 +87,84 @@ def test_recurring_event_reschedules_itself() -> None:
     SimulationLoop().run(ctx, until=100)
 
     assert fires == [0, 25, 50, 75, 100]
+
+
+def test_world_tick_grows_infestation() -> None:
+    ctx = _context()
+    ctx.world.cell((2, 2)).infestation = 0.2
+
+    event = WorldTick(
+        time=0,
+        config=PestDynamicsConfig(
+            growth_rate=0.1,
+            spread_probability=0.0,
+            spawn_probability=0.0,
+        ),
+    )
+
+    event.handle(ctx)
+
+    assert ctx.world.cell((2, 2)).infestation == pytest.approx(0.3)
+    next_event = ctx.queue.peek()
+    assert isinstance(next_event, WorldTick)
+    assert next_event.time == 60_000
+
+
+def test_world_tick_spreads_without_cascading() -> None:
+    ctx = _context()
+    ctx.world.cell((2, 2)).infestation = 1.0
+
+    event = WorldTick(
+        time=0,
+        config=PestDynamicsConfig(
+            growth_rate=0.0,
+            spread_probability=1.0,
+            spawn_probability=0.0,
+            spawn_severity=0.2,
+        ),
+    )
+
+    event.handle(ctx)
+
+    neighbours = set(ctx.world.neighbours((2, 2)))
+    assert all(ctx.world.cell(cell).infestation == 0.2 for cell in neighbours)
+    assert ctx.world.cell((0, 0)).infestation == 0.0
+
+
+def test_world_tick_does_not_infest_obstacles() -> None:
+    ctx = _context()
+    ctx.world.cell((2, 2)).infestation = 1.0
+    ctx.world.cell((2, 3)).obstacle = True
+
+    event = WorldTick(
+        time=0,
+        config=PestDynamicsConfig(
+            growth_rate=0.0,
+            spread_probability=1.0,
+            spawn_probability=1.0,
+        ),
+    )
+
+    event.handle(ctx)
+
+    assert ctx.world.cell((2, 3)).infestation == 0.0
+
+
+def test_world_tick_is_deterministic_for_same_seed() -> None:
+    def run(seed: int) -> dict[tuple[int, int], float]:
+        ctx = _context()
+        ctx.rng = Random(seed)
+        ctx.world.cell((2, 2)).infestation = 1.0
+        config = PestDynamicsConfig(
+            growth_rate=0.05,
+            spread_probability=0.25,
+            spawn_probability=0.02,
+            spawn_severity=0.1,
+        )
+        ctx.schedule(WorldTick(time=0, config=config))
+
+        SimulationLoop().run(ctx, until=5 * config.period)
+
+        return {cell: state.infestation for cell, state in sorted(ctx.world.cells.items())}
+
+    assert run(seed=42) == run(seed=42)
