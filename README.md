@@ -83,18 +83,6 @@ For an even larger test:
 uv run --with matplotlib python examples/mass_swarm_visualization.py --robots 1000 --seed 7
 ```
 
-### Pest dynamics simulation
-
-```bash
-uv run --with matplotlib python examples/pest_dynamics_demo.py
-```
-
-Animates `WorldTick` pest growth, spread, and spontaneous spawn on the coarse field grid. Use `--seed` for reproducible runs, or write PNG frames headlessly with:
-
-```bash
-uv run --with matplotlib python examples/pest_dynamics_demo.py --frames 120 --save frames/pests
-```
-
 ### Renderer demonstration (C.1)
 
 ```bash
@@ -116,6 +104,7 @@ uv run --with matplotlib python examples/renderer_demo.py --frames 60 --save fra
 - Robot-to-robot communication has not been implemented yet.
 - Infestation is currently static; infestation spreading and time-dependent dynamics are planned for a later layer.
 - Sensing is currently local; distant obstacles and infestations are unknown unless information is later propagated through communication.
+- The visualization adapter only renders snapshots so far; interactive inspection, time control, and injecting infestations are not implemented yet.
 
 ## Project layout
 
