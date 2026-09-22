@@ -83,35 +83,6 @@ For an even larger test:
 uv run --with matplotlib python examples/mass_swarm_visualization.py --robots 1000 --seed 7
 ```
 
-<<<<<<< Updated upstream
-=======
-### Pest dynamics simulation
-
-```bash
-uv run --with matplotlib python examples/pest_dynamics_demo.py
-```
-
-Animates `WorldTick` pest growth, spread, and spontaneous spawn on the coarse field grid. Use `--seed` for reproducible runs, or write PNG frames headlessly with:
-
-```bash
-uv run --with matplotlib python examples/pest_dynamics_demo.py --frames 120 --save frames/pests
-```
-
-### Renderer demonstration (C.1)
-
-```bash
-uv run --with matplotlib python examples/renderer_demo.py
-```
-
-Draws a running scenario through the `Renderer` port: each `WorldState.snapshot` is rendered as read-only data, covering the field cells (crop growth, infestation severity, obstacles), the robots, and their movement targets. The demo runs an all-scout roster over a fully cropped field with infestation patches of different severities.
-
-Write frames as PNGs instead of opening a window:
-
-```bash
-uv run --with matplotlib python examples/renderer_demo.py --frames 60 --save frames
-```
-
->>>>>>> Stashed changes
 ## Current demonstration limitations
 
 - The exploration behavior is currently a simple baseline and is not yet a dedicated coverage/exploration algorithm.
