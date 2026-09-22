@@ -499,7 +499,7 @@ Owns ground truth, drives time, delivers messages, defines scenarios, records me
 - **Requirements (from mind map C.1):** draw the grid (type, state, occupancy), robots, infestations and spread; on clicking a robot, show its state / memory / current action (via `inspect()`); control time (pause, speed up; rewind optional); interactively inject an infestation and, optionally, add robots / obstacles / move plants.
 - **Consumes:** `WorldSnapshot` (read‑only) + `AgentInspection`. **Provides:** `Command`s to B.
 - **NOT its concern:** any simulation logic; it must not mutate state except via `Command`.
-- **Open decision (team):** Python‑native or a different rendering tool (per the brief) — but it talks only through `WorldSnapshot` / `Command`, so the choice is isolated.
+- **Decision (implemented):** Python‑native matplotlib, drawn behind the `Renderer` port — but it talks only through `WorldSnapshot` / `Command`, so the choice is isolated.
 
 ---
 

@@ -83,6 +83,20 @@ For an even larger test:
 uv run --with matplotlib python examples/mass_swarm_visualization.py --robots 1000 --seed 7
 ```
 
+### Renderer demonstration (C.1)
+
+```bash
+uv run --with matplotlib python examples/renderer_demo.py
+```
+
+Draws a running scenario through the `Renderer` port: each `WorldState.snapshot` is rendered as read-only data, covering the field cells (crop growth, infestation severity, obstacles), the robots, and their movement targets. The demo runs an all-scout roster over a fully cropped field with infestation patches of different severities.
+
+Write frames as PNGs instead of opening a window:
+
+```bash
+uv run --with matplotlib python examples/renderer_demo.py --frames 60 --save frames
+```
+
 ## Current demonstration limitations
 
 - The exploration behavior is currently a simple baseline and is not yet a dedicated coverage/exploration algorithm.
@@ -90,6 +104,7 @@ uv run --with matplotlib python examples/mass_swarm_visualization.py --robots 10
 - Robot-to-robot communication has not been implemented yet.
 - Infestation is currently static; infestation spreading and time-dependent dynamics are planned for a later layer.
 - Sensing is currently local; distant obstacles and infestations are unknown unless information is later propagated through communication.
+- The visualization adapter only renders snapshots so far; interactive inspection, time control, and injecting infestations are not implemented yet.
 
 ## Project layout
 
