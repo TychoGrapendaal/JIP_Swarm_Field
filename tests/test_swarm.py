@@ -11,6 +11,7 @@ from swarm_field.contracts import (
     Move,
     ObstacleObservation,
     ObservationBase,
+    PeerObservation,
     Perception,
     RobotSelfState,
     Turn,
@@ -173,11 +174,12 @@ def test_potential_field_rebuilds_transient_maps_from_observations() -> None:
     field.update(_context(time=0, position=(0, 0), sensed=[infestation]))
 
     assert field.infestation_observations == [infestation]
-    assert field.infestation[(1, 0)] < 0.0
+    assert field.potential_map[(1, 0)] < 0.0
 
     field.update(_context(time=1, position=(0, 0), sensed=[]))
 
-    assert field.infestation[(1, 0)] < 0.0
+    assert field.infestation_observations == [infestation]
+    assert field.potential_map[(1, 0)] < 0.0
 
     obstacle = ObstacleObservation(
         cell=(0, 1),
@@ -187,9 +189,9 @@ def test_potential_field_rebuilds_transient_maps_from_observations() -> None:
         is_obstacle=True,
     )
     field.update(_context(time=2, position=(0, 0), sensed=[obstacle]))
-    assert field.obstacles[(0, 1)] == -0.6
-    assert field.obstacles[(1, 1)] == field.obstacles[(-1, 1)]
-    assert field.obstacles[(1, 1)] < field.obstacles[(0, 0)] < 0.0
+    assert field.potential_map[(1, 0)] == field.potential_map[(-1, 0)]
+    assert field.potential_map[(1, 0)] > 0.0
+    assert field.potential_map[(0, 1)] == field.potential_map[(0, -1)]
 
     clear_obstacle = ObstacleObservation(
         cell=(0, 1),
@@ -199,4 +201,65 @@ def test_potential_field_rebuilds_transient_maps_from_observations() -> None:
         is_obstacle=False,
     )
     field.update(_context(time=3, position=(0, 0), sensed=[clear_obstacle]))
-    assert (0, 1) not in field.obstacles
+    assert field.obstacle_observations == []
+    assert (0, 1) not in field.potential_map
+
+
+def test_potential_field_updates_infestation_and_peer_observations() -> None:
+    field = PotentialField(radius=2)
+    infestation = InfestationObservation(
+        cell=(1, 0),
+        confidence=1.0,
+        observed_at=0,
+        source=2,
+        severity=0.5,
+        pest=None,
+    )
+    peer = PeerObservation(
+        cell=(0, 1),
+        confidence=1.0,
+        observed_at=0,
+        source=2,
+        peer=3,
+    )
+    field.update(_context(time=0, position=(0, 0), sensed=[infestation, peer]))
+
+    assert field.infestation_observations == [infestation]
+    assert field.peer_observations == [peer]
+    assert field.potential_map[(1, 0)] < 0.0
+    assert field.potential_map[(0, 1)] > 0.0
+
+    updated_infestation = InfestationObservation(
+        cell=(1, 0),
+        confidence=1.0,
+        observed_at=1,
+        source=2,
+        severity=1.0,
+        pest=None,
+    )
+    field.update(_context(time=1, position=(0, 0), sensed=[updated_infestation]))
+
+    assert field.infestation_observations == [updated_infestation]
+    assert field.potential_map[(1, 0)] < 0.0
+    assert field.peer_observations == [peer]
+
+    absent_infestation = InfestationObservation(
+        cell=(1, 0),
+        confidence=1.0,
+        observed_at=2,
+        source=2,
+        severity=0.0,
+        pest=None,
+    )
+    absent_peer = PeerObservation(
+        cell=(0, 1),
+        confidence=0.0,
+        observed_at=2,
+        source=2,
+        peer=None,
+    )
+    field.update(_context(time=2, position=(0, 0), sensed=[absent_infestation, absent_peer]))
+
+    assert field.infestation_observations == []
+    assert field.peer_observations == []
+    assert field.potential_map == {}
