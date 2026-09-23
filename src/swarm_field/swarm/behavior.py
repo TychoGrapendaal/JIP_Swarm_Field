@@ -11,7 +11,7 @@ avoid-crowding, ...) are added as they are built, each as its own small class.
 
 from dataclasses import dataclass, field
 from random import Random
-from typing import Protocol, TypeVar, cast
+from typing import Protocol, TypeVar
 from math import exp
 
 from swarm_field.contracts import (
@@ -189,44 +189,27 @@ class PotentialField:
         This is called after updating the individual maps, and after shifting them when
         the robot moves.
         """
-        observation_type = type(obs).__name__
-        
-        if observation_type not in {
-            "ObservationBase",
-            "CropObservation",
-            "InfestationObservation",
-            "ObstacleObservation",
-            "PeerObservation",
-        }:
-            raise ValueError(f"unexpected observation type: {observation_type}")
-        
-        if observation_type == "ObservationBase":
+        if isinstance(obs, CropObservation):
+            self._potential_crop(obs)
+            return
+
+        if isinstance(obs, InfestationObservation):
+            self._store_observation(self.infestation_observations, obs)
+            return
+
+        if isinstance(obs, ObstacleObservation):
+            self._store_observation(self.obstacle_observations, obs)
+            return
+
+        if isinstance(obs, PeerObservation):
+            self._store_observation(self.peer_observations, obs)
+            return
+
+        if isinstance(obs, ObservationBase):
             self._potential_observation(cell)
             return
-        
-        if observation_type == "CropObservation":
-            self._potential_crop(cast(CropObservation, obs))
-            return
-        
-        elif observation_type == "InfestationObservation":
-            self._store_observation(
-                self.infestation_observations,
-                cast(InfestationObservation, obs),
-            )
-        
-        elif observation_type == "ObstacleObservation":
-            self._store_observation(
-                self.obstacle_observations,
-                cast(ObstacleObservation, obs),
-            )
-            return
-        
-        elif observation_type == "PeerObservation":
-            self._store_observation(
-                self.peer_observations,
-                cast(PeerObservation, obs),
-            )
-            return
+
+        raise TypeError(f"unexpected observation type: {type(obs).__name__}")
 
     @staticmethod
     def _store_observation(
@@ -281,11 +264,56 @@ class PotentialField:
                 value = amplitude * exp(-distance_squared / (2 * sigma_squared))
                 self.infestation[target] = self.infestation.get(target, 0.0) + value
     
-    def _potential_obstacle(self, cell: tuple[int, int]) -> None:
-        """Return the potential for an obstacle at the given cell.
+    def _potential_obstacle(self, center: tuple[int, int]) -> None:
+        """Spread a negative, sideways-oriented Gaussian around an obstacle.
+
+        The narrow axis points toward the obstacle and the broad axis is rotated 90
+        degrees from it. This gives nearby cells a lateral gradient to steer around
+        the obstacle instead of only penalising the occupied cell.
         """
-        self.obstacles[cell] = -0.6
-        return
+        sigma_forward = 0.75
+        sigma_sideways = 1.5
+        amplitude = -0.6
+        center_distance = (center[0] ** 2 + center[1] ** 2) ** 0.5
+        support = 3 * sigma_sideways
+        if center_distance > self.radius + support:
+            return
+
+        forward_squared = center[0] * center[0] + center[1] * center[1]
+        for x in range(-self.radius, self.radius + 1):
+            for y in range(-self.radius, self.radius + 1):
+                target = (x, y)
+                if not self._in_radius(target):
+                    continue
+
+                offset = (x - center[0], y - center[1])
+                along_obstacle_axis = (
+                    offset[0] * center[0] + offset[1] * center[1]
+                )
+                if forward_squared == 0:
+                    along_obstacle_axis = offset[0]
+                    across_obstacle_axis = offset[1]
+                else:
+                    across_obstacle_axis = (
+                        offset[0] * center[1] - offset[1] * center[0]
+                    )
+
+                exponent = -0.5 * (
+                    (along_obstacle_axis * along_obstacle_axis)
+                    / (forward_squared * sigma_forward * sigma_forward)
+                    if forward_squared > 0
+                    else (along_obstacle_axis * along_obstacle_axis)
+                    / (sigma_forward * sigma_forward)
+                )
+                exponent -= 0.5 * (
+                    (across_obstacle_axis * across_obstacle_axis)
+                    / (forward_squared * sigma_sideways * sigma_sideways)
+                    if forward_squared > 0
+                    else (across_obstacle_axis * across_obstacle_axis)
+                    / (sigma_sideways * sigma_sideways)
+                )
+                value = amplitude * exp(exponent)
+                self.obstacles[target] = self.obstacles.get(target, 0.0) + value
     
     def _potential_peer(self, obs: PeerObservation, center: tuple[int, int]) -> None:
         """Return the potential for a peer at the given cell.
@@ -353,6 +381,8 @@ class PotentialField:
             )
             self._potential_infestation(observation, center)
         for observation in self.obstacle_observations:
+            if not observation.is_obstacle:
+                continue
             center = (
                 observation.cell[0] - self._position[0],
                 observation.cell[1] - self._position[1],

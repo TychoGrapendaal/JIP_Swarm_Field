@@ -7,12 +7,21 @@ from swarm_field.contracts import (
     BodyType,
     Direction,
     Idle,
+    InfestationObservation,
     Move,
+    ObstacleObservation,
+    ObservationBase,
     Perception,
     RobotSelfState,
     Turn,
 )
-from swarm_field.swarm import ActionCandidate, ComposedAgent, DecisionContext, Explore
+from swarm_field.swarm import (
+    ActionCandidate,
+    ComposedAgent,
+    DecisionContext,
+    Explore,
+    PotentialField,
+)
 
 
 def _perception() -> Perception:
@@ -111,3 +120,83 @@ def test_agent_idles_without_candidates() -> None:
 
     assert decision.action == Idle()
     assert agent.inspect().current_goal is None
+
+
+def _context(
+    time: int,
+    position: tuple[int, int],
+    sensed: list[ObservationBase | InfestationObservation | ObstacleObservation],
+) -> DecisionContext:
+    return DecisionContext(
+        time=time,
+        self_state=RobotSelfState(
+            robot_id=1,
+            position=position,
+            facing=Direction.N,
+            battery=1.0,
+            body=BodyType.SCOUT,
+            consumable=1.0,
+            health=1.0,
+        ),
+        sensed=sensed,
+    )
+
+
+def test_potential_field_shifts_persistent_exploration() -> None:
+    field = PotentialField(radius=2)
+    field.update(
+        _context(
+            time=0,
+            position=(0, 0),
+            sensed=[ObservationBase(cell=(1, 0), confidence=1.0, observed_at=0, source=2)],
+        )
+    )
+
+    assert field.exploration == {(1, 0): 1.0}
+
+    field.update(_context(time=1, position=(1, 0), sensed=[]))
+
+    assert field.exploration == {(0, 0): 1.0}
+    assert field.potential_map[(0, 0)] == 1.0
+
+
+def test_potential_field_rebuilds_transient_maps_from_observations() -> None:
+    field = PotentialField(radius=2)
+    infestation = InfestationObservation(
+        cell=(1, 0),
+        confidence=1.0,
+        observed_at=0,
+        source=2,
+        severity=0.5,
+        pest=None,
+    )
+    field.update(_context(time=0, position=(0, 0), sensed=[infestation]))
+
+    assert field.infestation_observations == [infestation]
+    assert field.infestation[(1, 0)] < 0.0
+
+    field.update(_context(time=1, position=(0, 0), sensed=[]))
+
+    assert field.infestation[(1, 0)] < 0.0
+
+    obstacle = ObstacleObservation(
+        cell=(0, 1),
+        confidence=1.0,
+        observed_at=2,
+        source=2,
+        is_obstacle=True,
+    )
+    field.update(_context(time=2, position=(0, 0), sensed=[obstacle]))
+    assert field.obstacles[(0, 1)] == -0.6
+    assert field.obstacles[(1, 1)] == field.obstacles[(-1, 1)]
+    assert field.obstacles[(1, 1)] < field.obstacles[(0, 0)] < 0.0
+
+    clear_obstacle = ObstacleObservation(
+        cell=(0, 1),
+        confidence=1.0,
+        observed_at=3,
+        source=2,
+        is_obstacle=False,
+    )
+    field.update(_context(time=3, position=(0, 0), sensed=[clear_obstacle]))
+    assert (0, 1) not in field.obstacles
