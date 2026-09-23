@@ -106,8 +106,7 @@ class Explore:
         self.force_peer         : dict[tuple[int, int], tuple[float, float]] = {}
 
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
-        field = PotentialField(radius=self.radius)
-        self.PotentialField = field
+        field = self.PotentialField
         field._update(ctx)
         self._compute_force(field.exploration, self.force_exploration, False)
         self._compute_force(field.crop, self.force_crop, False)
@@ -121,7 +120,7 @@ class Explore:
             self.force_obstacle,
             self.force_peer,
         ])
-        # field.initiate()
+        field.initiate()
         #TODO: Implement the logic to convert the net force into a set of ActionCandidates based on the robot's current state and the net force vector.
     
     def _compute_force(
@@ -136,51 +135,61 @@ class Explore:
         local coordinates; the force is computed as a sum of vectors from each cell to
         the robot, weighted by the cell's potential.
         """
-        for (x, y) in potential:
-            # dU/dx
-            if (x - 1, y) in potential and (x + 1, y) in potential:
-                dU_dx = (
-                    potential[(x + 1, y)]
-                    - potential[(x - 1, y)]
-                ) / 2.0
-            elif (x + 1, y) in potential:
-                dU_dx = (
-                    potential[(x + 1, y)]
-                    - potential[(x, y)]
-                )
-            elif (x - 1, y) in potential:
-                dU_dx = (
-                    potential[(x, y)]
-                    - potential[(x - 1, y)]
-                )
-            else:
-                dU_dx = 0.0
+        for x in range(-self.radius, self.radius + 1):
+            for y in range(-self.radius, self.radius + 1):
 
-            # dU/dy
-            if (x, y - 1) in potential and (x, y + 1) in potential:
-                dU_dy = (
-                    potential[(x, y + 1)]
-                    - potential[(x, y - 1)]
-                ) / 2.0
-            elif (x, y + 1) in potential:
-                dU_dy = (
-                    potential[(x, y + 1)]
-                    - potential[(x, y)]
-                )
-            elif (x, y - 1) in potential:
-                dU_dy = (
-                    potential[(x, y)]
-                    - potential[(x, y - 1)]
-                )
-            else:
-                dU_dy = 0.0
+                # Only include points inside the circular area
+                if x * x + y * y > self.radius * self.radius:
+                    continue
 
-            fx = -dU_dx
-            fy = -dU_dy
-            if is_rotated:
-                fx, fy = self._rotate_vector((fx, fy), angle)
+                # No potential at this location -> zero force
+                if (x, y) not in potential:
+                    force_map[(x, y)] = (0.0, 0.0)
+                    continue
+                # dU/dx
+                if (x - 1, y) in potential and (x + 1, y) in potential:
+                    dU_dx = (
+                        potential[(x + 1, y)]
+                        - potential[(x - 1, y)]
+                    ) / 2.0
+                elif (x + 1, y) in potential:
+                    dU_dx = (
+                        potential[(x + 1, y)]
+                        - potential[(x, y)]
+                    )
+                elif (x - 1, y) in potential:
+                    dU_dx = (
+                        potential[(x, y)]
+                        - potential[(x - 1, y)]
+                    )
+                else:
+                    dU_dx = 0.0
 
-            force_map[(x, y)] = (fx, fy)
+                # dU/dy
+                if (x, y - 1) in potential and (x, y + 1) in potential:
+                    dU_dy = (
+                        potential[(x, y + 1)]
+                        - potential[(x, y - 1)]
+                    ) / 2.0
+                elif (x, y + 1) in potential:
+                    dU_dy = (
+                        potential[(x, y + 1)]
+                        - potential[(x, y)]
+                    )
+                elif (x, y - 1) in potential:
+                    dU_dy = (
+                        potential[(x, y)]
+                        - potential[(x, y - 1)]
+                    )
+                else:
+                    dU_dy = 0.0
+
+                fx = -dU_dx
+                fy = -dU_dy
+                if is_rotated:
+                    fx, fy = self._rotate_vector((fx, fy), angle)
+
+                force_map[(x, y)] = (fx, fy)
                 
     def _rotate_vector(self, vector: tuple[float, float], angle: float) -> tuple[float, float]:
         """Rotate a 2D vector by a given angle in radians."""

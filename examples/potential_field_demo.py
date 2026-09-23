@@ -98,7 +98,8 @@ def _explored_observations(
 
 
 def render(
-    field: Explore,
+    explore: Explore,
+    field: PotentialField,
     axis: plt.Axes,
     position: tuple[int, int],
     infestation_cell: tuple[int, int],
@@ -110,20 +111,20 @@ def render(
     coordinates = range(-radius, radius + 1)
     values = np.full((2 * radius + 1, 2 * radius + 1), np.nan)
     if show == 1:
-        maps = field.PotentialField.exploration
-        force_map = field.force_exploration
+        maps = field.exploration
+        force_map = explore.force_exploration
     elif show == 2:
-        maps = field.PotentialField.infestation
-        force_map = field.force_infestation
+        maps = field.infestation
+        force_map = explore.force_infestation
     elif show == 3:
-        maps = field.PotentialField.obstacle
-        force_map = field.force_obstacle
+        maps = field.obstacle
+        force_map = explore.force_obstacle
     elif show == 4:
-        maps = field.PotentialField.peer
-        force_map = field.force_peer
+        maps = field.peer
+        force_map = explore.force_peer
     elif show == 5:
         maps = {}
-        force_map = field.net_force
+        force_map = explore.net_force
     for x in coordinates:
         for y in coordinates:
             if (x, y) in maps:
@@ -206,16 +207,19 @@ def render(
 
 def main() -> None:
     explore_radius = 3
-    explore = Explore(radius=5)
-    SHOW = 5 # 1 : exploration, 2 : infestation, 3 : obstacle, 4 : peer, 5 : combined
+    radius = 5
+    field = PotentialField(radius=radius)
+    explore = Explore(radius=radius)
+    SHOW = 1 # 1 : exploration, 2 : infestation, 3 : obstacle, 4 : peer, 5 : combined
     for time in (0, 1):
         figure = plt.figure(figsize=(7, 6))
         axis = figure.add_subplot(1, 1, 1)
         figure.suptitle("PotentialField prototype: robot moves north")
         position = (0, time)
         infestation_cell = (4, 2) if time == 0 else (-4, 4)
+        field._update(make_context(time=time, position=position, sensed=observations(time, position, explore_radius)))
         explore.propose(make_context(time, position, observations(time, position, explore_radius)))
-        image = render(explore, axis, position, infestation_cell, explore_radius, SHOW)
+        image = render(explore, field, axis, position, infestation_cell, explore_radius, SHOW)
         axis.set_title(f"time={time}: robot at {position}")
         figure.colorbar(image, ax=axis, label="potential")
         figure.tight_layout()
