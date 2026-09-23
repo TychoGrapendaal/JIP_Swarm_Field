@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from math import hypot
 
 from swarm_field.contracts import (
-    Direction,
     HopFieldEntry,
     Idle,
     NavGoal,
@@ -125,7 +124,7 @@ def test_max_hop_filters_the_field() -> None:
 
 def test_chase_drives_utility_robot_to_the_pest_row_edge() -> None:
     world = crop_field()
-    harness = Harness(world, start=(11, 4), facing=Direction.N)
+    harness = Harness(world, start=(11, 4))
     navigator = Navigator(GridSensing(harness))
     hop_field = _HopField(_walkthrough_swarm(), radio_range=3.0)
     goal = NavGoal(mode=NavMode.CHASE, max_hop=2)
@@ -140,7 +139,7 @@ def test_chase_drives_utility_robot_to_the_pest_row_edge() -> None:
         if resolved is None:
             raise AssertionError("no beacon heard at the start of the walkthrough")
         pilots.append(resolved.holder_hop)
-        action = harness.take(navigator.steer_goal(goal, heard, harness.facing))
+        action = harness.take(navigator.steer_goal(goal, heard, harness.position))
         if isinstance(action, Idle) and resolved.holder_hop == 0:
             stood = True
             break
@@ -158,11 +157,11 @@ def test_chase_drives_utility_robot_to_the_pest_row_edge() -> None:
 
 
 def test_chase_stands_at_the_hop_zero_row_edge() -> None:
-    harness = Harness(crop_field(), start=(5, 4), facing=Direction.N)
+    harness = Harness(crop_field(), start=(5, 4))
     navigator = Navigator(GridSensing(harness))
     field = [HopFieldEntry(holder_hop=0, parent_vector=(0.0, 1.0), to_holder=(0.0, 0.0), seen_at=0)]
 
-    action = navigator.steer_chase(field, max_hop=2, facing=Direction.N)
+    action = navigator.steer_chase(field, max_hop=2, position=harness.position)
 
     assert isinstance(action, Idle)
     assert not navigator.is_stalled
@@ -170,20 +169,20 @@ def test_chase_stands_at_the_hop_zero_row_edge() -> None:
 
 
 def test_chase_idles_when_no_beacon_speaks() -> None:
-    harness = Harness(crop_field(), start=(11, 4), facing=Direction.N)
+    harness = Harness(crop_field(), start=(11, 4))
     navigator = Navigator(GridSensing(harness))
 
-    action = navigator.steer_chase([], max_hop=2, facing=Direction.N)
+    action = navigator.steer_chase([], max_hop=2, position=harness.position)
 
     assert isinstance(action, Idle)
     assert not navigator.is_stalled
 
 
 def test_hold_goal_stands_still() -> None:
-    harness = Harness(crop_field(), start=(11, 4), facing=Direction.N)
+    harness = Harness(crop_field(), start=(11, 4))
     navigator = Navigator(GridSensing(harness))
 
-    action = navigator.steer_goal(NavGoal(mode=NavMode.HOLD), [], facing=Direction.N)
+    action = navigator.steer_goal(NavGoal(mode=NavMode.HOLD), [], position=harness.position)
 
     assert isinstance(action, Idle)
     assert harness.position == (11, 4)
@@ -191,12 +190,12 @@ def test_hold_goal_stands_still() -> None:
 
 def test_spread_goal_moves_along_drift_without_entering_crops() -> None:
     world = crop_field()
-    harness = Harness(world, start=(11, 2), facing=Direction.N)
+    harness = Harness(world, start=(11, 2))
     navigator = Navigator(GridSensing(harness))
     goal = NavGoal(mode=NavMode.SPREAD, drift=(0.0, 10.0))
 
     for _ in range(20):
-        harness.take(navigator.steer_goal(goal, [], facing=harness.facing))
+        harness.take(navigator.steer_goal(goal, [], position=harness.position))
         if navigator.is_stalled:
             break
 

@@ -1,12 +1,11 @@
-"""A.3 Navigation — turn a goal into concrete ``Move`` / ``Turn`` actions.
+"""A.3 Navigation — turn a goal into a concrete ``Move`` action.
 
 The navigator is the movement policy of component A (the brain). It resolves a goal — a
 relative displacement vector, a fixed drift, or a resolved pest-gradient target — into one
-physical action per decision point: heading changes are ``Turn``, steps along the current
-heading are ``Move``. It never sees an absolute position — spatial knowledge arrives only
-through a ``Sensing`` port that reports whether each adjacent grid cell is clear to enter.
-That keeps the policy honest about what a robot can actually know (see
-``docs/navigation-module.md``).
+physical action per decision point: a ``Move`` naming the adjacent target cell to enter
+(the world has no turn/facing model; movement is a direct target-cell command). It hands in
+its absolute ``position`` each decision point, and spatial knowledge arrives only through a
+``Sensing`` port that reports whether each adjacent grid cell is clear to enter.
 
 Obstacle avoidance is a committed right-hand wall-follow (Bug-algorithm style). When the
 goal heading is blocked the navigator picks the most goal-aligned clear heading (ties to
@@ -31,13 +30,13 @@ from math import hypot
 from typing import Protocol
 
 from swarm_field.contracts import (
+    CellId,
     Direction,
     HopFieldEntry,
     Idle,
     Move,
     NavGoal,
     NavMode,
-    Turn,
     Vector2,
 )
 
@@ -48,7 +47,7 @@ class Sensing(Protocol):
     The robot can ask, per compass heading, whether the grid cell one step in that direction
     is free to move into. A real implementation (backed by memory / perception) is future
     work; tests supply fakes driven by a hidden grid, so the navigator itself stays free of
-    any absolute geometry.
+    any absolute geometry beyond the robot's own position.
     """
 
     def clear(self, direction: Direction) -> bool: ...
@@ -114,12 +113,12 @@ class Navigator:
         self._stuck_ticks = 0
         self._stalled = False
 
-    def steer(self, target: Vector2, facing: Direction) -> Move | Turn | Idle:
+    def steer(self, target: Vector2, position: CellId) -> Move | Idle:
         """Pick this tick's action for a goal at relative offset ``target``.
 
         Args:
             target: Relative displacement from the robot to the goal, in cells.
-            facing: The robot's current heading, read from its self view.
+            position: The robot's current cell, needed to name the target cell of ``Move``.
         """
         dx, dy = target
         goal_dist = hypot(dx, dy)
@@ -131,18 +130,18 @@ class Navigator:
         if self._stalled:
             return Idle()
 
-        desired = self._best_aligned(target, facing)
+        desired = self._best_aligned(target)
 
         if self._detour_ticks == 0:
             if self._sensing.clear(desired):
-                return self._head(desired, facing)
+                return self._head(desired, position)
             tangent = self._choose_tangent(desired)
             if tangent is None:
                 self._stalled = True
                 return Idle()
             self._tangent = tangent
             self._detour_ticks = 1
-            return self._track_progress(goal_dist, tangent, facing)
+            return self._track_progress(goal_dist, tangent, position)
 
         tangent = self._tangent
         assert tangent is not None
@@ -162,14 +161,14 @@ class Navigator:
             goal_dist <= self._config.near_goal or self._level_along(tangent, target)
         ):
             self._end_detour()
-            return self._head(desired, facing)
+            return self._head(desired, position)
 
         self._detour_ticks += 1
-        return self._track_progress(goal_dist, tangent, facing)
+        return self._track_progress(goal_dist, tangent, position)
 
     def steer_goal(
-        self, goal: NavGoal, field: Sequence[HopFieldEntry], facing: Direction
-    ) -> Move | Turn | Idle:
+        self, goal: NavGoal, field: Sequence[HopFieldEntry], position: CellId
+    ) -> Move | Idle:
         """Resolve one ``NavGoal`` into this decision point's movement action.
 
         ``HOLD`` stands still; ``SPREAD`` steers along the fixed drift vector; ``CHASE``
@@ -179,19 +178,19 @@ class Navigator:
         Args:
             goal: The goal A.1 issued for this decision point.
             field: The decoded hop-field (A.4) — ignored by every mode but CHASE.
-            facing: The robot's current heading, read from its self view.
+            position: The robot's current cell, needed to name the target cell of ``Move``.
         """
         if goal.mode is NavMode.HOLD:
             return Idle()
         if goal.mode is NavMode.SPREAD:
             assert goal.drift is not None
-            return self.steer(goal.drift, facing)
+            return self.steer(goal.drift, position)
         assert goal.max_hop is not None
-        return self.steer_chase(field, goal.max_hop, facing)
+        return self.steer_chase(field, goal.max_hop, position)
 
     def steer_chase(
-        self, field: Sequence[HopFieldEntry], max_hop: int, facing: Direction
-    ) -> Move | Turn | Idle:
+        self, field: Sequence[HopFieldEntry], max_hop: int, position: CellId
+    ) -> Move | Idle:
         """Pursue the pest gradient: steer toward the freshest qualifying beacon.
 
         Re-reads ``field`` every decision point (reactive pursuit, never a memorised
@@ -202,17 +201,17 @@ class Navigator:
         Args:
             field: The decoded hop-field (A.4), one entry per in-range explorer.
             max_hop: Pursue only beacons at this hop level or lower.
-            facing: The robot's current heading, read from its self view.
+            position: The robot's current cell, needed to name the target cell of ``Move``.
         """
         resolved = resolve_chase_target(field, max_hop)
         if resolved is None:
             return Idle()
-        if resolved.holder_hop == 0 and self._pest_row_edge(resolved, facing):
+        if resolved.holder_hop == 0 and self._pest_row_edge(resolved):
             self.reset()
             return Idle()
-        return self.steer(resolved.target, facing)
+        return self.steer(resolved.target, position)
 
-    def _pest_row_edge(self, resolved: ChaseTarget, facing: Direction) -> bool:
+    def _pest_row_edge(self, resolved: ChaseTarget) -> bool:
         """True when the chase has resolved at the pest's row edge and must STAND.
 
         The robot has reached the hop-0 explorer's hover cell and the composed tail — the
@@ -224,12 +223,12 @@ class Navigator:
         holder_dx, holder_dy = resolved.to_holder
         if hypot(holder_dx, holder_dy) > self._config.target_tolerance:
             return False
-        desired = self._best_aligned(resolved.target, facing)
+        desired = self._best_aligned(resolved.target)
         return not self._sensing.clear(desired)
 
     def _track_progress(
-        self, goal_dist: float, tangent: Direction, facing: Direction
-    ) -> Move | Turn | Idle:
+        self, goal_dist: float, tangent: Direction, position: CellId
+    ) -> Move | Idle:
         if (
             self._min_goal_dist is None
             or goal_dist < self._min_goal_dist - self._config.progress_epsilon
@@ -241,12 +240,12 @@ class Navigator:
             if self._stuck_ticks >= self._config.stuck_ticks:
                 self._stalled = True
                 return Idle()
-        return self._head(tangent, facing)
+        return self._head(tangent, position)
 
-    def _head(self, direction: Direction, facing: Direction) -> Move | Turn:
-        if facing == direction:
-            return Move(direction=direction)
-        return Turn(facing=direction)
+    def _head(self, direction: Direction, position: CellId) -> Move:
+        """The ``Move`` one step ``direction`` away from ``position``."""
+        dx, dy = direction.offset
+        return Move(to=(position[0] + dx, position[1] + dy))
 
     def _end_detour(self) -> None:
         """Leave the wall: the goal is reachable, or we are handed a new goal."""
@@ -268,24 +267,21 @@ class Navigator:
             return abs(dx) <= tolerance
         return False
 
-    def _best_aligned(self, target: Vector2, facing: Direction) -> Direction:
-        """The compass heading closest to the goal direction, ties broken by heading change.
+    def _best_aligned(self, target: Vector2) -> Direction:
+        """The compass heading closest to the goal direction, ties by enum order.
 
-        Candidates are ranked by alignment score (max), then by the number of 45-degree
-        turns from ``facing`` (min, to keep the robot from spinning), then by enum order as
-        the final, deterministic tie-break.
+        Candidates are ranked by alignment score (max); ties fall back to enum order so the
+        result stays deterministic across ticks without a turn/facing model to break them.
         """
         dx, dy = target
         goal_dist = hypot(dx, dy)
         order = list(Direction)
-        rows: list[tuple[float, int, int, Direction]] = []
+        rows: list[tuple[float, int, Direction]] = []
         for d in order:
             ux, uy = _unit_offset(d)
             score = (dx * ux + dy * uy) / goal_dist
-            span = abs(order.index(d) - order.index(facing))
-            turn_cost = min(span, len(order) - span)
-            rows.append((-score, turn_cost, order.index(d), d))
-        return min(rows)[3]
+            rows.append((-score, order.index(d), d))
+        return min(rows)[2]
 
     def _choose_tangent(self, desired: Direction) -> Direction | None:
         """The clear heading to start a detour with, when ``desired`` is blocked.

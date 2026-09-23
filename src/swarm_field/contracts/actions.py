@@ -1,12 +1,4 @@
-
-"""Actions — a tagged union of the physical things a robot can do in one tick.
-
-Exactly one physical action per tick (each consumes the tick). Communication is not an
-action; it rides on ``Decision.outbox``.
-
-Movement and treatment are parameterised as the simulation models them: ``Move`` carries a
-compass heading chosen by the navigator, ``Turn`` a new heading. ``Treat`` stays an empty
-placeholder — how treatment is parameterised is decided later."""
+"""Actions crossing from the robot brain into the high-level world model."""
 
 from dataclasses import dataclass
 
@@ -15,14 +7,14 @@ from swarm_field.contracts.ids import CellId
 
 @dataclass(frozen=True)
 class Move:
-    """Move one cell along a compass heading this tick.
+    """Move directly toward a target cell.
+
+    The robot does not turn first or execute one heading-relative step. The target is a
+    field cell selected by the navigation / potential-field layer.
 
     Attributes:
-        direction: The compass heading of the move — an absolute grid direction, using the
-            same convention as ``Turn.facing``.
+        to: Target field cell.
     """
-
-    direction: Direction
 
     to: CellId
 

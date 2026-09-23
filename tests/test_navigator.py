@@ -2,29 +2,29 @@
 
 Uses the shared fake world defined in ``nav_harness``: a tiny grid world keeps hidden ground
 truth, ``GridSensing`` answers the navigator's proximity questions from that world, and
-``Harness`` integrates ``Turn`` / ``Move`` the way the future Act stage would.
+``Harness`` integrates ``Move`` the way the future Act stage would.
 """
 
-from swarm_field.contracts import Direction, Idle, Move, Turn
+from swarm_field.contracts import Idle, Move
 from swarm_field.swarm import Navigator, SteeringConfig
 from tests.nav_harness import GridSensing, GridWorld, Harness, crop_field, drive
 
 
 def test_reaches_goal_across_open_field() -> None:
     world = GridWorld(width=5, height=5, blocked=frozenset())
-    harness = Harness(world, start=(0, 0), facing=Direction.N)
+    harness = Harness(world, start=(0, 0))
     navigator = Navigator(GridSensing(harness))
 
     ticks = drive(navigator, harness, goal=(3, 2), max_ticks=20)
 
     assert harness.position == (3, 2)
     assert ticks <= 20
-    assert isinstance(harness.actions[0], Turn)
+    assert isinstance(harness.actions[0], Move)
 
 
 def test_detours_around_a_single_crop_cell() -> None:
     world = GridWorld(width=5, height=5, blocked=frozenset({(2, 1)}))
-    harness = Harness(world, start=(2, 0), facing=Direction.N)
+    harness = Harness(world, start=(2, 0))
     navigator = Navigator(GridSensing(harness))
 
     ticks = drive(navigator, harness, goal=(2, 2), max_ticks=30)
@@ -36,7 +36,7 @@ def test_detours_around_a_single_crop_cell() -> None:
 
 def test_rounds_a_crop_row_to_reach_a_goal_aisle_cell() -> None:
     world = crop_field()
-    harness = Harness(world, start=(5, 2), facing=Direction.N)
+    harness = Harness(world, start=(5, 2))
     navigator = Navigator(GridSensing(harness))
 
     ticks = drive(navigator, harness, goal=(5, 4), max_ticks=200)
@@ -58,7 +58,7 @@ def test_finds_the_single_hole_in_a_closed_crop_wall() -> None:
     """
     wall = frozenset({(0, y) for y in range(9)} | {(5, y) for y in range(9)} - {(5, 8)})
     world = GridWorld(width=13, height=9, blocked=wall)
-    harness = Harness(world, start=(10, 5), facing=Direction.N)
+    harness = Harness(world, start=(10, 5))
     navigator = Navigator(GridSensing(harness))
 
     ticks = drive(navigator, harness, goal=(1, 5), max_ticks=400)
@@ -86,7 +86,7 @@ def test_is_trapped_by_a_u_shaped_crop_wall() -> None:
         | {(2, y) for y in range(3, 8)}
     )
     world = GridWorld(width=13, height=9, blocked=u)
-    harness = Harness(world, start=(10, 5), facing=Direction.N)
+    harness = Harness(world, start=(10, 5))
     navigator = Navigator(GridSensing(harness))
 
     for _ in range(300):
@@ -102,7 +102,7 @@ def test_is_trapped_by_a_u_shaped_crop_wall() -> None:
 def test_reports_stalled_when_fully_surrounded() -> None:
     pocket = frozenset({(x, y) for x in range(1, 4) for y in range(1, 4)} - {(2, 2)})
     world = GridWorld(width=5, height=5, blocked=pocket)
-    harness = Harness(world, start=(2, 2), facing=Direction.N)
+    harness = Harness(world, start=(2, 2))
     navigator = Navigator(GridSensing(harness))
 
     action = harness.apply(navigator, goal=(0, 4))
@@ -114,7 +114,7 @@ def test_reports_stalled_when_fully_surrounded() -> None:
 def test_reports_stalled_after_circling_in_a_dead_end() -> None:
     wall = frozenset({(1, 3), (2, 3), (3, 3), (1, 1), (2, 1), (3, 1), (3, 2)})
     world = GridWorld(width=7, height=5, blocked=wall)
-    harness = Harness(world, start=(0, 2), facing=Direction.E)
+    harness = Harness(world, start=(0, 2))
     navigator = Navigator(GridSensing(harness), SteeringConfig(stuck_ticks=12))
 
     for _ in range(300):
@@ -128,7 +128,7 @@ def test_reports_stalled_after_circling_in_a_dead_end() -> None:
 
 def test_idles_when_goal_is_already_reached() -> None:
     world = GridWorld(width=3, height=3, blocked=frozenset())
-    harness = Harness(world, start=(0, 0), facing=Direction.N)
+    harness = Harness(world, start=(0, 0))
     navigator = Navigator(GridSensing(harness))
 
     action = harness.apply(navigator, goal=(0, 0))
@@ -139,9 +139,9 @@ def test_idles_when_goal_is_already_reached() -> None:
 
 def test_steering_is_deterministic() -> None:
     world = crop_field()
-    harnesses = [Harness(world, start=(5, 2), facing=Direction.N) for _ in range(2)]
+    harnesses = [Harness(world, start=(5, 2)) for _ in range(2)]
     navigators = [Navigator(GridSensing(h)) for h in harnesses]
-    traces: list[list[Move | Turn | Idle]] = [[], []]
+    traces: list[list[Move | Idle]] = [[], []]
     for i in range(2):
         for _ in range(200):
             traces[i].append(harnesses[i].apply(navigators[i], (5, 4)))

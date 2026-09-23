@@ -73,10 +73,6 @@ def test_explore_mock_proposes_direct_target_moves() -> None:
 
     actions = {explore.propose(ctx)[0].action for _ in range(20)}
 
-    # Straight ahead is Move(direction=facing); 45 degrees left of North is North-West.
-    assert actions <= {Move(direction=Direction.N), Turn(Direction.NW)}
-    assert Move(direction=Direction.N) in actions
-    assert Turn(Direction.NW) in actions
     assert actions <= {Move((1, 0)), Move((0, 1)), Move((-1, 0)), Move((0, -1))}
     assert len(actions) > 1
 

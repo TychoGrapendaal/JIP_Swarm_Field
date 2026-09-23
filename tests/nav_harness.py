@@ -3,12 +3,12 @@
 The simulation's world, perception and Act stage do not exist yet, so every navigator test
 uses this kit to stand in for them: a tiny grid world keeps hidden ground truth, a
 ``GridSensing`` answers the navigator's proximity questions from that world, and a
-``Harness`` integrates ``Turn`` / ``Move`` the way the future Act stage would.
+``Harness`` integrates ``Move`` the way the future Act stage would.
 """
 
 from dataclasses import dataclass
 
-from swarm_field.contracts import Direction, Idle, Move, Turn
+from swarm_field.contracts import CellId, Direction, Idle, Move
 from swarm_field.swarm import Navigator
 
 
@@ -24,53 +24,49 @@ class GridWorld:
 
     width: int
     height: int
-    blocked: frozenset[tuple[int, int]]
+    blocked: frozenset[CellId]
 
-    def clear_cell(self, position: tuple[int, int], direction: Direction) -> bool:
+    def can_enter(self, position: CellId) -> bool:
+        """Whether ``position`` lies inside the world and is not blocked."""
+        x, y = position
+        if not (0 <= x < self.width and 0 <= y < self.height):
+            return False
+        return position not in self.blocked
+
+    def clear_cell(self, position: CellId, direction: Direction) -> bool:
         """Whether the cell one ``direction`` step from ``position`` is clear to enter."""
         x, y = position
         dx, dy = direction.offset
-        nx, ny = x + dx, y + dy
-        if not (0 <= nx < self.width and 0 <= ny < self.height):
-            return False
-        return (nx, ny) not in self.blocked
+        return self.can_enter((x + dx, y + dy))
 
 
 class Harness:
     """Mock movement — the quiet stand-in for the sim's Perceive / Act stages.
 
-    Applies one action to a book-kept position and heading, and refuses to step into a
-    blocked cell: if the navigator ever tries, the test blows up.
+    Applies one action to a book-kept position, and refuses to step into a blocked cell:
+    if the navigator ever tries, the test blows up.
     """
 
-    def __init__(self, world: GridWorld, start: tuple[int, int], facing: Direction) -> None:
+    def __init__(self, world: GridWorld, start: CellId) -> None:
         self.world: GridWorld = world
-        self.position: tuple[int, int] = start
-        self.facing: Direction = facing
-        self.visited: list[tuple[int, int]] = [start]
-        self.actions: list[Move | Turn | Idle] = []
+        self.position: CellId = start
+        self.visited: list[CellId] = [start]
+        self.actions: list[Move | Idle] = []
 
-    def take(self, action: Move | Turn | Idle) -> Move | Turn | Idle:
+    def take(self, action: Move | Idle) -> Move | Idle:
         """Integrate one action, asserting it never steps into a blocked cell."""
         self.actions.append(action)
-        if isinstance(action, Turn):
-            assert self.world.clear_cell(self.position, action.facing)
-            self.facing = action.facing
         if isinstance(action, Move):
-            assert self.world.clear_cell(self.position, action.direction), (
-                "move into a blocked cell"
-            )
-            x, y = self.position
-            dx, dy = action.direction.offset
-            self.position = (x + dx, y + dy)
+            assert self.world.can_enter(action.to), "move into a blocked cell"
+            self.position = action.to
             self.visited.append(self.position)
         return action
 
-    def apply(self, navigator: Navigator, goal: tuple[int, int]) -> Move | Turn | Idle:
+    def apply(self, navigator: Navigator, goal: CellId) -> Move | Idle:
         """Ask the navigator for a step toward an absolute ``goal`` and integrate it."""
         dx = float(goal[0] - self.position[0])
         dy = float(goal[1] - self.position[1])
-        return self.take(navigator.steer((dx, dy), self.facing))
+        return self.take(navigator.steer((dx, dy), self.position))
 
 
 class GridSensing:
@@ -83,9 +79,7 @@ class GridSensing:
         return self._harness.world.clear_cell(self._harness.position, direction)
 
 
-def drive(
-    navigator: Navigator, harness: Harness, goal: tuple[int, int], max_ticks: int = 400
-) -> int:
+def drive(navigator: Navigator, harness: Harness, goal: CellId, max_ticks: int = 400) -> int:
     """Drive ``harness`` toward ``goal`` until reached, stalled, or ``max_ticks``."""
     for tick in range(1, max_ticks + 1):
         harness.apply(navigator, goal)
