@@ -15,6 +15,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "matplotlib>=3.8",
     "pyrefly>=1.3.0",
     "pytest>=9.1.1",
     "ruff>=0.16.7",
@@ -44,6 +45,9 @@ select = [
 project-includes = ["src", "tests"]
 search-path = ["src", "."]
 python-version = "3.12"
+# Visualization is an optional technology behind the Renderer port (examples use
+# `uv run --with matplotlib`); treat it as untyped so checks stay green either way.
+replace-imports-with-any = ["matplotlib", "matplotlib.*"]
 # Strict type checking. On top of the strict preset we require fully-typed public
 # surface: every parameter, every return type, and every attribute must be annotated.
 # (Local variables remain inferred — that is standard even under strict typing.)
