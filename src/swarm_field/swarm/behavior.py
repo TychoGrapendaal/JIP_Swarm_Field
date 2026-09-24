@@ -104,7 +104,7 @@ class Explore:
         self.force_obstacle     : dict[tuple[int, int], tuple[float, float]] = {}
         self.force_peer         : dict[tuple[int, int], tuple[float, float]] = {}
 
-    def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
+    def propose(self, ctx: DecisionContext) -> None:
         field = self.PotentialField
         field._update(ctx)
         self._compute_force(field.exploration, self.force_exploration, False)
@@ -201,7 +201,7 @@ class Explore:
     def _superimpose_forces(
         self,
         force_maps: list[dict[tuple[int, int], tuple[float, float]]]
-    ) -> dict[tuple[int, int], tuple[float, float]]:
+    ) -> None:
         """Combine multiple force maps into a single net force map."""
         for force_map in force_maps:
             for cell, (fx, fy) in force_map.items():
