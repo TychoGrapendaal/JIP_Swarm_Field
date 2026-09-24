@@ -6,6 +6,7 @@ Run from the repository root with:
 
 from __future__ import annotations
 
+import argparse
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Circle
@@ -73,7 +74,7 @@ def observations(
             source=1,
             peer=2,
         ),
-        *_explored_observations(time, position, explore_radius)
+        *_explored_observations(time, position, explore_radius),
     ]
 
 
@@ -104,7 +105,7 @@ def render(
     position: tuple[int, int],
     infestation_cell: tuple[int, int],
     explore_radius: int,
-    show: int = 1
+    show: int = 1,
 ) -> plt.AxesImage:
     """Render the robot-relative combined field and its component sources."""
     radius = field.radius
@@ -205,21 +206,22 @@ def render(
     return image
 
 
-def main() -> None:
+def main(show: int) -> None:
     explore_radius = 3
     radius = 5
     field = PotentialField(radius=radius)
     explore = Explore(radius=radius)
-    show = 1 # 1 : exploration, 2 : infestation, 3 : obstacle, 4 : peer, 5 : combined
     for time in (0, 1):
         figure = plt.figure(figsize=(7, 6))
         axis = figure.add_subplot(1, 1, 1)
         figure.suptitle("PotentialField prototype: robot moves north")
         position = (0, time)
         infestation_cell = (4, 2) if time == 0 else (-4, 4)
-        field._update(make_context(time=time, 
-                                   position=position, 
-                                   sensed=observations(time, position, explore_radius)))
+        field._update(
+            make_context(
+                time=time, position=position, sensed=observations(time, position, explore_radius)
+            )
+        )
         explore.propose(make_context(time, position, observations(time, position, explore_radius)))
         image = render(explore, field, axis, position, infestation_cell, explore_radius, show)
         axis.set_title(f"time={time}: robot at {position}")
@@ -230,4 +232,14 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Visualize a local potential-field component.")
+    parser.add_argument(
+        "-s",
+        "--show",
+        type=int,
+        choices=range(1, 6),
+        default=1,
+        metavar="{1,2,3,4,5}",
+        help="1: exploration, 2: infestation, 3: obstacle, 4: peer, 5: combined",
+    )
+    main(parser.parse_args().show)

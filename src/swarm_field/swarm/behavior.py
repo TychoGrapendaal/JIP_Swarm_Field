@@ -96,13 +96,13 @@ class Explore:
         if radius <= 0:
             raise ValueError(f"radius must be positive, got {radius}")
         self.radius: int = radius
-        self.PotentialField     : PotentialField = PotentialField(radius=self.radius)
-        self.net_force          : dict[tuple[int, int], tuple[float, float]] = {}
-        self.force_exploration  : dict[tuple[int, int], tuple[float, float]] = {}
-        self.force_crop         : dict[tuple[int, int], tuple[float, float]] = {}
-        self.force_infestation  : dict[tuple[int, int], tuple[float, float]] = {}
-        self.force_obstacle     : dict[tuple[int, int], tuple[float, float]] = {}
-        self.force_peer         : dict[tuple[int, int], tuple[float, float]] = {}
+        self.PotentialField: PotentialField = PotentialField(radius=self.radius)
+        self.net_force: dict[tuple[int, int], tuple[float, float]] = {}
+        self.force_exploration: dict[tuple[int, int], tuple[float, float]] = {}
+        self.force_crop: dict[tuple[int, int], tuple[float, float]] = {}
+        self.force_infestation: dict[tuple[int, int], tuple[float, float]] = {}
+        self.force_obstacle: dict[tuple[int, int], tuple[float, float]] = {}
+        self.force_peer: dict[tuple[int, int], tuple[float, float]] = {}
 
     def propose(self, ctx: DecisionContext) -> None:
         field = self.PotentialField
@@ -112,15 +112,17 @@ class Explore:
         self._compute_force(field.infestation, self.force_infestation, False)
         self._compute_force(field.obstacle, self.force_obstacle, True, np.pi / 2)
         self._compute_force(field.peer, self.force_peer, False)
-        self._superimpose_forces([
-            self.force_exploration,
-            self.force_crop,
-            self.force_infestation,
-            self.force_obstacle,
-            self.force_peer,
-        ])
+        self._superimpose_forces(
+            [
+                self.force_exploration,
+                self.force_crop,
+                self.force_infestation,
+                self.force_obstacle,
+                self.force_peer,
+            ]
+        )
         field.initiate()
-        #TODO: Implement the logic to convert the net force into a set of ActionCandidates
+        # TODO: Implement the logic to convert the net force into a set of ActionCandidates
         # based on the robot's current state and the net force vector.
 
     def _compute_force(
@@ -128,7 +130,8 @@ class Explore:
         potential: dict[tuple[int, int], float],
         force_map: dict[tuple[int, int], tuple[float, float]],
         is_rotated: bool = False,
-        angle: float = 0.0) -> None:
+        angle: float = 0.0,
+    ) -> None:
         """Compute the net force vector from the potential map.
 
         The force is the negative gradient of the potential. The robot is at (0, 0) in
@@ -137,7 +140,6 @@ class Explore:
         """
         for x in range(-self.radius, self.radius + 1):
             for y in range(-self.radius, self.radius + 1):
-
                 # Only include points inside the circular area
                 if x * x + y * y > self.radius * self.radius:
                     continue
@@ -148,39 +150,21 @@ class Explore:
                     continue
                 # dU/dx
                 if (x - 1, y) in potential and (x + 1, y) in potential:
-                    du_dx = (
-                        potential[(x + 1, y)]
-                        - potential[(x - 1, y)]
-                    ) / 2.0
+                    du_dx = (potential[(x + 1, y)] - potential[(x - 1, y)]) / 2.0
                 elif (x + 1, y) in potential:
-                    du_dx = (
-                        potential[(x + 1, y)]
-                        - potential[(x, y)]
-                    )
+                    du_dx = potential[(x + 1, y)] - potential[(x, y)]
                 elif (x - 1, y) in potential:
-                    du_dx = (
-                        potential[(x, y)]
-                        - potential[(x - 1, y)]
-                    )
+                    du_dx = potential[(x, y)] - potential[(x - 1, y)]
                 else:
                     du_dx = 0.0
 
                 # dU/dy
                 if (x, y - 1) in potential and (x, y + 1) in potential:
-                    du_dy = (
-                        potential[(x, y + 1)]
-                        - potential[(x, y - 1)]
-                    ) / 2.0
+                    du_dy = (potential[(x, y + 1)] - potential[(x, y - 1)]) / 2.0
                 elif (x, y + 1) in potential:
-                    du_dy = (
-                        potential[(x, y + 1)]
-                        - potential[(x, y)]
-                    )
+                    du_dy = potential[(x, y + 1)] - potential[(x, y)]
                 elif (x, y - 1) in potential:
-                    du_dy = (
-                        potential[(x, y)]
-                        - potential[(x, y - 1)]
-                    )
+                    du_dy = potential[(x, y)] - potential[(x, y - 1)]
                 else:
                     du_dy = 0.0
 
@@ -199,8 +183,7 @@ class Explore:
         return (x * cos_a - y * sin_a, x * sin_a + y * cos_a)
 
     def _superimpose_forces(
-        self,
-        force_maps: list[dict[tuple[int, int], tuple[float, float]]]
+        self, force_maps: list[dict[tuple[int, int], tuple[float, float]]]
     ) -> None:
         """Combine multiple force maps into a single net force map."""
         for force_map in force_maps:
@@ -222,15 +205,15 @@ class PotentialField:
     def __init__(self, radius: int) -> None:
         if radius <= 0:
             raise ValueError(f"radius must be positive, got {radius}")
-        self.radius         : int = radius
-        self.exploration    : dict[tuple[int, int], float] = {}
-        self.crop           : dict[tuple[int, int], float] = {}
-        self.infestation    : dict[tuple[int, int], float] = {}
-        self.obstacle       : dict[tuple[int, int], float] = {}
-        self.peer           : dict[tuple[int, int], float] = {}
-        self.timemap        : dict[tuple[int, int], Time ] = {}
-        self._current_time  : Time = 0
-        self._position      : tuple[int, int] | None = None
+        self.radius: int = radius
+        self.exploration: dict[tuple[int, int], float] = {}
+        self.crop: dict[tuple[int, int], float] = {}
+        self.infestation: dict[tuple[int, int], float] = {}
+        self.obstacle: dict[tuple[int, int], float] = {}
+        self.peer: dict[tuple[int, int], float] = {}
+        self.timemap: dict[tuple[int, int], Time] = {}
+        self._current_time: Time = 0
+        self._position: tuple[int, int] | None = None
 
     def initiate(self) -> None:
         """Clear only the derived combined view before rebuilding it."""
@@ -255,7 +238,7 @@ class PotentialField:
                 self.timemap[cell] = ctx.time
 
     def _update(self, ctx: DecisionContext) -> None:
-        """Construct the potential maps from the robot's current state, 
+        """Construct the potential maps from the robot's current state,
         observations and peer messages.
 
         Exploration is persistent. Infestation, obstacle, and peer maps are constructed
@@ -276,7 +259,6 @@ class PotentialField:
             self._generate_potentialmap(obs, cell)
 
         # TODO: include the peer's observations. Implement after the relative positions are handled.
-
 
     def _generate_potentialmap(
         self, obs: ObservationBase | Observation, cell: tuple[int, int]
@@ -304,21 +286,20 @@ class PotentialField:
 
         raise TypeError(f"unexpected observation type: {type(obs).__name__}")
 
-
     def _potential_observation(self, cell: tuple[int, int]) -> None:
-        """Return the potential for an observation at the given cell.
-        """
+        """Return the potential for an observation at the given cell."""
         if self.exploration.get(cell, 0.0) <= 4.0:
             self.exploration[cell] = self.exploration.get(cell, 0.0) + 1.0
         return
 
-    def _potential_crop(self,
-                        obs: CropObservation,
-                        potentials: dict[tuple[int, int], float]) -> None:
-        """"Return the potential for a crop at the given cell.
-        """
-        raise NotImplementedError("Potential for crops is not yet implemented\
-                                  in PotentialField._potential_crop()")
+    def _potential_crop(
+        self, obs: CropObservation, potentials: dict[tuple[int, int], float]
+    ) -> None:
+        """Return the potential for a crop at the given cell."""
+        raise NotImplementedError(
+            "Potential for crops is not yet implemented in\
+                PotentialField._potential_crop()"
+        )
 
     def _potential_infestation(
         self,
@@ -384,8 +365,7 @@ class PotentialField:
         center: tuple[int, int],
         potentials: dict[tuple[int, int], float],
     ) -> None:
-        """Return the potential for a peer at the given cell.
-        """
+        """Return the potential for a peer at the given cell."""
         sigma = 1.0
         sigma_squared = sigma * sigma
         amplitude = obs.confidence * 0.7
@@ -404,8 +384,7 @@ class PotentialField:
         return
 
     def _move_map_to(self, position: tuple[int, int]) -> None:
-        """Shift stored local coordinates when the robot changes position.
-        """
+        """Shift stored local coordinates when the robot changes position."""
         if self._position is None:
             self._position = position
             return
@@ -432,8 +411,10 @@ class PotentialField:
 
     def _transform_map(self, peer_position: tuple[int, int]) -> None:
         """Transform the peer's observations to the robot's local coordinates."""
-        raise NotImplementedError("PotentialField._transform_map() is not yet implemented.\
-            The relative positions are not yet handled.")
+        raise NotImplementedError(
+            "PotentialField._transform_map() is not yet implemented.\
+            The relative positions are not yet handled."
+        )
 
     def _in_radius(self, cell: tuple[int, int]) -> bool:
         """Return whether a local cell belongs to the circular field."""
