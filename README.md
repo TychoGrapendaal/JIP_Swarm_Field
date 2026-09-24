@@ -97,6 +97,29 @@ Write frames as PNGs instead of opening a window:
 uv run --with matplotlib python examples/renderer_demo.py --frames 60 --save frames
 ```
 
+### Interactive console (C.1)
+
+```bash
+uv run python examples/interactive_demo.py
+```
+
+An interactive running scenario: robots act through the discrete-event loop (`RobotDecision`
+events drive `SwarmAgent.decide`) while pests spread via `WorldTick`. The window is steerable:
+
+- Click an empty cell to inject an infestation (`InjectInfestation` command).
+- Click a robot to inspect its brain state via `SwarmAgent.inspect()` — a read-only
+  `AgentInspection` panel shows the robot's current goal and belief.
+- `space` / `p` pause and resume, `s` advances exactly one simulation event, `+` / `-` and `0`
+  change the simulation speed.
+
+The interactions flow through the typed `Command` port (`InjectInfestation` is applied by the
+simulation; `Pause` / `StepOnce` / `SetTimeScale` pace the render clock). Headless frame
+generation works like the renderer demo:
+
+```bash
+uv run python examples/interactive_demo.py --frames 240 --save frames/interactive
+```
+
 ## Current demonstration limitations
 
 - The exploration behavior is currently a simple baseline and is not yet a dedicated coverage/exploration algorithm.
@@ -104,7 +127,7 @@ uv run --with matplotlib python examples/renderer_demo.py --frames 60 --save fra
 - Robot-to-robot communication has not been implemented yet.
 - Infestation is currently static; infestation spreading and time-dependent dynamics are planned for a later layer.
 - Sensing is currently local; distant obstacles and infestations are unknown unless information is later propagated through communication.
-- The visualization adapter only renders snapshots so far; interactive inspection, time control, and injecting infestations are not implemented yet.
+- The visualization adapter renders read-only snapshots; interactive time control, infestation injection and robot inspection are demonstrated in `examples/interactive_demo.py` (C.1).
 
 ## Project layout
 

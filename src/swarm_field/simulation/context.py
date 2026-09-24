@@ -6,7 +6,7 @@ Events read and mutate this and schedule follow-ups through it; they never call 
 from dataclasses import dataclass, field
 from random import Random
 
-from swarm_field.contracts import RobotId, SwarmAgent, Time
+from swarm_field.contracts import Command, InjectInfestation, RobotId, SwarmAgent, Time
 from swarm_field.simulation.event import Event, EventQueue
 from swarm_field.simulation.world import WorldState
 
@@ -32,3 +32,13 @@ class SimulationContext:
     def schedule(self, event: Event) -> None:
         """Schedule a future event."""
         self.queue.schedule(event)
+
+    def apply_command(self, command: Command) -> None:
+        """Apply one visualization command (C → B port).
+
+        World-affecting commands mutate ground truth. Time-pacing commands (``Pause``,
+        ``StepOnce``, ``SetTimeScale``) carry no simulation state to change here: the render
+        loop of the frontend interprets them and decides how far to advance the clock.
+        """
+        if isinstance(command, InjectInfestation):
+            self.world.cell(command.cell).infestation = command.severity

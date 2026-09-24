@@ -12,7 +12,7 @@ import heapq
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
-from swarm_field.contracts import CellId, RobotId, Time
+from swarm_field.contracts import CellId, Perception, RobotId, Time
 
 if TYPE_CHECKING:
     from swarm_field.simulation.context import SimulationContext
@@ -70,13 +70,29 @@ class RobotDecision:
     While moving the follow-up is the next cell arrival; while stationary it is the next
     decision at a fixed interval. Actions are not interrupted, so no scheduled event is ever
     cancelled.
+
+    Attributes:
+        time: When the robot receives its next perception and decides.
+        robot: Which robot acts.
+        dwell: Stationary decision interval used when the chosen action does not start a move.
     """
 
     time: Time
     robot: RobotId
+    dwell: Time = 5_000
 
     def handle(self, ctx: SimulationContext) -> None:
-        raise NotImplementedError
+        """Build the robot's perception, apply its decision, and schedule the follow-up."""
+        perception = Perception(
+            time=ctx.now,
+            self_state=ctx.world.perceived_self(self.robot),
+            sensed=ctx.world.observe_for(self.robot, ctx.now),
+            inbox=[],  # message delivery is added with the comms channel
+        )
+        decision = ctx.agents[self.robot].decide(perception)
+        arrival = ctx.world.apply_action(self.robot, decision.action, ctx.now)
+        follow_up = arrival if arrival is not None else ctx.now + self.dwell
+        ctx.schedule(RobotDecision(time=follow_up, robot=self.robot, dwell=self.dwell))
 
 
 @dataclass(frozen=True)

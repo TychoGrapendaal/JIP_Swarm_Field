@@ -10,6 +10,13 @@ from swarm_field.contracts.agent import (
     RobotSelfState,
     SwarmAgent,
 )
+from swarm_field.contracts.command import (
+    Command,
+    InjectInfestation,
+    Pause,
+    SetTimeScale,
+    StepOnce,
+)
 from swarm_field.contracts.ids import CellId, CropType, Direction, PestType, RobotId, Time
 from swarm_field.contracts.messages import Message, MessageKind
 from swarm_field.contracts.observations import (
@@ -31,6 +38,7 @@ __all__ = [
     "CellId",
     "CellState",
     "Charge",
+    "Command",
     "CropObservation",
     "CropType",
     "Decision",
@@ -38,12 +46,14 @@ __all__ = [
     "FieldGeometry",
     "Idle",
     "InfestationObservation",
+    "InjectInfestation",
     "Message",
     "MessageKind",
     "Move",
     "Observation",
     "ObservationBase",
     "ObstacleObservation",
+    "Pause",
     "PeerObservation",
     "Perception",
     "PestType",
@@ -52,6 +62,8 @@ __all__ = [
     "RobotSelfState",
     "RobotSpec",
     "ScenarioConfig",
+    "SetTimeScale",
+    "StepOnce",
     "SwarmAgent",
     "Time",
     "Treat",
