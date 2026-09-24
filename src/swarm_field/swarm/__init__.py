@@ -13,12 +13,16 @@ from swarm_field.swarm.behavior import (
     TreatInfestation,
 )
 from swarm_field.swarm.brain import ComposedAgent
+from swarm_field.swarm.memory import AgentMemory, DecayConfig, MemoryView
 
 __all__ = [
     "ActionCandidate",
+    "AgentMemory",
     "Behavior",
     "ComposedAgent",
+    "DecayConfig",
     "DecisionContext",
     "Explore",
+    "MemoryView",
     "TreatInfestation",
 ]

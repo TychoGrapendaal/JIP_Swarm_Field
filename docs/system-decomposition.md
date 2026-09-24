@@ -133,15 +133,16 @@ class InfestationObservation(ObservationBase):
     pest: PestType | None       # may be None when confidence is low
 
 @dataclass(frozen=True)
-class ObstacleObservation(ObservationBase):
-    is_obstacle: bool
+class TerrainObservation(ObservationBase):
+    terrain: Terrain            # FREE | OBSTACLE | OUTSIDE; no observation = unknown
 
 @dataclass(frozen=True)
 class PeerObservation(ObservationBase):
     peer: RobotId | None        # identity if resolvable, else an anonymous sighting
+    body: BodyType
 
 Observation = (
-    CropObservation | InfestationObservation | ObstacleObservation | PeerObservation
+    CropObservation | InfestationObservation | TerrainObservation | PeerObservation
 )
 ```
 
