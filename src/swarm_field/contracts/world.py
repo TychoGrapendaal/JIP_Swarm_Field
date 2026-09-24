@@ -1,25 +1,26 @@
 """Field geometry and per-cell ground-truth state.
 
-``CellState`` is ground truth owned by the simulation (B.1); it is never read directly by
-the algorithm, only surfaced to visualization via ``WorldSnapshot``.
+A cell represents a patch or area of the field rather than one individual plant. Multiple
+robots may occupy the same cell; robot poses are stored separately in ``WorldState``.
 """
 
 from dataclasses import dataclass
 
-from swarm_field.contracts.ids import CropType, RobotId
+from swarm_field.contracts.ids import CropType
 
 
 @dataclass
 class FieldGeometry:
-    """Physical layout of the field. All distances are in metres.
+    """Physical layout of the high-level field grid. All distances are in metres.
 
     Attributes:
         width: Field width in cells.
         height: Field height in cells.
-        cell_size: Side length of one square cell.
-        row_sp: Row spacing — distance between crop rows (the drivable aisle pitch).
-        in_row_sp: In-row spacing — distance between plants along a single row.
-        headland: Width of the turning strip at the ends of the rows.
+        cell_size: Side length of one square field patch.
+        row_sp: Optional crop-row spacing retained for scenario metadata.
+        in_row_sp: Optional within-row spacing retained for scenario metadata.
+        headland: Width of the field's headland in metres.
+        connectivity: Candidate-neighbour connectivity, either 4 or 8.
     """
 
     width: int
@@ -28,22 +29,21 @@ class FieldGeometry:
     row_sp: float
     in_row_sp: float
     headland: float
+    connectivity: int = 8
 
 
 @dataclass
 class CellState:
-    """Ground-truth state of one grid cell.
+    """Ground-truth state of one field patch.
 
     Attributes:
-        crop: Crop growing here, or ``None`` if there is no plant.
-        growth_stage: Crop maturity, 0..1.
-        infestation: TRUE pest severity, 0..1.
-        obstacle: Whether the cell blocks movement.
-        occupant: The robot currently in the cell, if any.
+        crop: Crop species represented by this patch, or ``None`` when unset.
+        growth_stage: Aggregate crop maturity for the patch, 0..1.
+        infestation: TRUE pest severity for this patch, 0..1.
+        obstacle: Whether the cell is blocked by a river, pond, fence, or similar obstacle.
     """
 
     crop: CropType | None
     growth_stage: float
     infestation: float
     obstacle: bool
-    occupant: RobotId | None

@@ -1,48 +1,43 @@
-"""Actions — a tagged union of the physical things a robot can do in one tick.
-
-Exactly one physical action per tick (each consumes the tick). Communication is not an
-action; it rides on ``Decision.outbox``.
-
-Most variants are intentionally empty placeholders: how movement and treatment are
-parameterised depends on how motion is modelled in the discrete simulation (e.g. the
-robot may command a direction or speed rather than an absolute cell — a ``CellId`` is an
-environment concept the robot cannot be certain of). Those shapes are decided later.
-"""
+"""Actions crossing from the robot brain into the high-level world model."""
 
 from dataclasses import dataclass
 
-from swarm_field.contracts.ids import Direction
+from swarm_field.contracts.ids import CellId
 
 
 @dataclass(frozen=True)
 class Move:
-    """Move for this tick. Parameters deferred until movement modelling is decided."""
+    """Move directly toward a target cell.
 
-
-@dataclass(frozen=True)
-class Turn:
-    """Reorient in place; cheap, but changes what is sensed next tick.
+    The robot does not turn first or execute one heading-relative step. The target is a
+    field cell selected by the navigation / potential-field layer.
 
     Attributes:
-        facing: The new heading to adopt.
+        to: Target field cell.
     """
 
-    facing: Direction
+    to: CellId
 
 
 @dataclass(frozen=True)
 class Treat:
-    """Treat the target at the robot's current location. Parameters deferred."""
+    """Treat an infested field patch.
+
+    Attributes:
+        cell: Target field cell to treat.
+    """
+
+    cell: CellId
 
 
 @dataclass(frozen=True)
 class Charge:
-    """Recharge in place; only meaningful at a charging point / for a battery body."""
+    """Recharge in place."""
 
 
 @dataclass(frozen=True)
 class Idle:
-    """Do nothing this tick."""
+    """Do nothing until the next decision point."""
 
 
-Action = Move | Turn | Treat | Charge | Idle
+Action = Move | Treat | Charge | Idle

@@ -1,18 +1,10 @@
-"""The ``Behavior`` port and a couple of example behaviors.
-
-A behavior is one composable piece of decision logic: given a read-only view of the robot
-at a decision point, it proposes scored candidate actions. The brain combines several
-behaviors and picks between their candidates.
-
-The two examples below are still unimplemented: ``Explore`` drives field coverage and
-``TreatInfestation`` reacts to sensed pests. More behaviors (return-to-charge,
-avoid-crowding, ...) are added as they are built, each as its own small class.
-"""
+"""Composable robot behaviours for the high-level cell model."""
 
 from dataclasses import dataclass, field
 from math import exp
 from typing import Protocol
 import numpy as np
+
 
 from swarm_field.contracts import (
     Action,
@@ -26,19 +18,12 @@ from swarm_field.contracts import (
     PeerObservation,
     RobotSelfState,
     Time,
-    Turn,
 )
 
 
 @dataclass(frozen=True)
 class ActionCandidate:
-    """A scored action proposed by a behavior.
-
-    Attributes:
-        action: The action being proposed.
-        score: How strongly the behavior wants it; the highest score wins.
-        source: Name of the proposing behavior, for inspection / debugging.
-    """
+    """A scored action proposed by a behaviour."""
 
     action: Action
     score: float
@@ -47,16 +32,7 @@ class ActionCandidate:
 
 @dataclass(frozen=True)
 class DecisionContext:
-    """Read-only view handed to every behavior at a decision point.
-
-    Minimal for now — a memory view (accumulated belief) and the message inbox are added
-    when those parts are built.
-
-    Attributes:
-        time: The current simulation time.
-        self_state: The robot's view of itself.
-        sensed: What the robot's sensors picked up at this decision point.
-    """
+    """Read-only view handed to every behaviour at a decision point."""
 
     time: Time
     self_state: RobotSelfState
@@ -65,16 +41,7 @@ class DecisionContext:
 
 
 class Behavior(Protocol):
-    """A single, composable piece of decision logic.
-
-    ``propose`` returns a single candidate, a tuple of candidates, or an empty tuple to
-    propose nothing. Returning several candidates only matters to arbiters that
-    fuse or fall back between them; the current brain simply takes the highest-scoring
-    candidate across all behaviors, so returning your single best is usually enough.
-
-    Attributes:
-        name: A short identifier, used as the candidate's ``source``.
-    """
+    """A single composable piece of decision logic."""
 
     name: str
 
@@ -82,11 +49,7 @@ class Behavior(Protocol):
 
 
 class Explore:
-    """Propose a move that improves field coverage.
-
-    A real implementation would return several scored directions for a fusion arbiter (hence
-    the tuple return type). This one is a MOCK that ignores coverage entirely.
-    """
+    """Mock exploration behaviour using direct target-cell moves."""
 
     name: str = "explore"
 
@@ -422,11 +385,7 @@ class PotentialField:
 
 
 class TreatInfestation:
-    """Propose treating a sensed infestation, scored by severity and proximity.
-
-    Returns a single candidate (narrowing the protocol's return type to just
-    ``ActionCandidate``), since it commits to one target at a time.
-    """
+    """Placeholder for the future pest-response behaviour."""
 
     name: str = "treat-infestation"
 

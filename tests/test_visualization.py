@@ -12,10 +12,10 @@ def _snapshot() -> WorldSnapshot:
         field=FieldGeometry(
             width=3,
             height=2,
-            cell_size=1.0,
-            row_sp=1.0,
+            cell_size=5.0,
+            row_sp=2.0,
             in_row_sp=1.0,
-            headland=1.0,
+            headland=5.0,
         ),
         cells={},
         robots=[],
