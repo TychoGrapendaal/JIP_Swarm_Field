@@ -10,24 +10,23 @@ avoid-crowding, ...) are added as they are built, each as its own small class.
 """
 
 from dataclasses import dataclass, field
-from random import Random
+from math import exp
 from typing import Protocol
 import numpy as np
-from math import exp
 
 from swarm_field.contracts import (
     Action,
-    Move,
-    ObservationBase,
-    Observation,
     CropObservation,
     InfestationObservation,
+    Message,
+    Move,
+    Observation,
+    ObservationBase,
     ObstacleObservation,
     PeerObservation,
     RobotSelfState,
     Time,
     Turn,
-    Message
 )
 
 
@@ -111,7 +110,7 @@ class Explore:
         self._compute_force(field.exploration, self.force_exploration, False)
         self._compute_force(field.crop, self.force_crop, False)
         self._compute_force(field.infestation, self.force_infestation, False)
-        self._compute_force(field.obstacle, self.force_obstacle, True, np.pi / 2)  # rotate obstacle force by 90 degrees
+        self._compute_force(field.obstacle, self.force_obstacle, True, np.pi / 2)
         self._compute_force(field.peer, self.force_peer, False)
         self._superimpose_forces([
             self.force_exploration,
@@ -121,8 +120,9 @@ class Explore:
             self.force_peer,
         ])
         field.initiate()
-        #TODO: Implement the logic to convert the net force into a set of ActionCandidates based on the robot's current state and the net force vector.
-    
+        #TODO: Implement the logic to convert the net force into a set of ActionCandidates
+        # based on the robot's current state and the net force vector.
+
     def _compute_force(
         self,
         potential: dict[tuple[int, int], float],
@@ -148,56 +148,56 @@ class Explore:
                     continue
                 # dU/dx
                 if (x - 1, y) in potential and (x + 1, y) in potential:
-                    dU_dx = (
+                    du_dx = (
                         potential[(x + 1, y)]
                         - potential[(x - 1, y)]
                     ) / 2.0
                 elif (x + 1, y) in potential:
-                    dU_dx = (
+                    du_dx = (
                         potential[(x + 1, y)]
                         - potential[(x, y)]
                     )
                 elif (x - 1, y) in potential:
-                    dU_dx = (
+                    du_dx = (
                         potential[(x, y)]
                         - potential[(x - 1, y)]
                     )
                 else:
-                    dU_dx = 0.0
+                    du_dx = 0.0
 
                 # dU/dy
                 if (x, y - 1) in potential and (x, y + 1) in potential:
-                    dU_dy = (
+                    du_dy = (
                         potential[(x, y + 1)]
                         - potential[(x, y - 1)]
                     ) / 2.0
                 elif (x, y + 1) in potential:
-                    dU_dy = (
+                    du_dy = (
                         potential[(x, y + 1)]
                         - potential[(x, y)]
                     )
                 elif (x, y - 1) in potential:
-                    dU_dy = (
+                    du_dy = (
                         potential[(x, y)]
                         - potential[(x, y - 1)]
                     )
                 else:
-                    dU_dy = 0.0
+                    du_dy = 0.0
 
-                fx = -dU_dx
-                fy = -dU_dy
+                fx = -du_dx
+                fy = -du_dy
                 if is_rotated:
                     fx, fy = self._rotate_vector((fx, fy), angle)
 
                 force_map[(x, y)] = (fx, fy)
-                
+
     def _rotate_vector(self, vector: tuple[float, float], angle: float) -> tuple[float, float]:
         """Rotate a 2D vector by a given angle in radians."""
         x, y = vector
         cos_a = np.cos(angle)
         sin_a = np.sin(angle)
         return (x * cos_a - y * sin_a, x * sin_a + y * cos_a)
-    
+
     def _superimpose_forces(
         self,
         force_maps: list[dict[tuple[int, int], tuple[float, float]]]
@@ -255,8 +255,9 @@ class PotentialField:
                 self.timemap[cell] = ctx.time
 
     def _update(self, ctx: DecisionContext) -> None:
-        """Construct the potential maps from the robot's current state, observations and peer messages.
-        
+        """Construct the potential maps from the robot's current state, 
+        observations and peer messages.
+
         Exploration is persistent. Infestation, obstacle, and peer maps are constructed
         from their observation lists for this update and folded into the combined view.
         """
@@ -271,12 +272,12 @@ class PotentialField:
             if cell in self.timemap and obs.observed_at < self.timemap[cell]:
                 continue
             self.timemap[cell] = obs.observed_at
-            
+
             self._generate_potentialmap(obs, cell)
-        
+
         # TODO: include the peer's observations. Implement after the relative positions are handled.
 
-    
+
     def _generate_potentialmap(
         self, obs: ObservationBase | Observation, cell: tuple[int, int]
     ) -> None:
@@ -309,13 +310,16 @@ class PotentialField:
         """
         if self.exploration.get(cell, 0.0) <= 4.0:
             self.exploration[cell] = self.exploration.get(cell, 0.0) + 1.0
-        return 
+        return
 
-    def _potential_crop(self, obs: CropObservation, potentials: dict[tuple[int, int], float]) -> None:
+    def _potential_crop(self,
+                        obs: CropObservation,
+                        potentials: dict[tuple[int, int], float]) -> None:
         """"Return the potential for a crop at the given cell.
         """
-        raise NotImplementedError("Potential for crops is not yet implemented in PotentialField._potential_crop()")
-    
+        raise NotImplementedError("Potential for crops is not yet implemented\
+                                  in PotentialField._potential_crop()")
+
     def _potential_infestation(
         self,
         obs: InfestationObservation,
@@ -345,7 +349,7 @@ class PotentialField:
                 distance_squared = (x - center[0]) ** 2 + (y - center[1]) ** 2
                 value = amplitude * exp(-distance_squared / (2 * sigma_squared))
                 potentials[target] = potentials.get(target, 0.0) + value
-    
+
     def _potential_obstacle(
         self,
         obs: ObstacleObservation,
@@ -373,7 +377,7 @@ class PotentialField:
                 distance_squared = (x - center[0]) ** 2 + (y - center[1]) ** 2
                 value = amplitude * exp(-distance_squared / (2 * sigma_squared))
                 potentials[target] = potentials.get(target, 0.0) + value
-    
+
     def _potential_peer(
         self,
         obs: PeerObservation,
@@ -385,7 +389,7 @@ class PotentialField:
         sigma = 1.0
         sigma_squared = sigma * sigma
         amplitude = obs.confidence * 0.7
-        
+
         center_distance = (center[0] ** 2 + center[1] ** 2) ** 0.5
         if center_distance > self.radius + 3 * sigma:
             return
@@ -398,7 +402,7 @@ class PotentialField:
                 value = amplitude * exp(-distance_squared / (2 * sigma_squared))
                 potentials[target] = potentials.get(target, 0.0) + value
         return
-    
+
     def _move_map_to(self, position: tuple[int, int]) -> None:
         """Shift stored local coordinates when the robot changes position.
         """
@@ -428,8 +432,9 @@ class PotentialField:
 
     def _transform_map(self, peer_position: tuple[int, int]) -> None:
         """Transform the peer's observations to the robot's local coordinates."""
-        raise NotImplementedError("PotentialField._transform_map() is not yet implemented.\nThe relative positions are not yet handled.")
-                
+        raise NotImplementedError("PotentialField._transform_map() is not yet implemented.\
+            The relative positions are not yet handled.")
+
     def _in_radius(self, cell: tuple[int, int]) -> bool:
         """Return whether a local cell belongs to the circular field."""
         return cell[0] * cell[0] + cell[1] * cell[1] <= self.radius * self.radius

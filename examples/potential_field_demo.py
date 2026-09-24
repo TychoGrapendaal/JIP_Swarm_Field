@@ -21,7 +21,7 @@ from swarm_field.contracts import (
     PeerObservation,
     RobotSelfState,
 )
-from swarm_field.swarm import DecisionContext, PotentialField, Explore
+from swarm_field.swarm import DecisionContext, Explore, PotentialField
 
 
 def make_context(
@@ -134,15 +134,15 @@ def render(
         for col_index, x in enumerate(coordinates):
             if x * x + y * y <= radius * radius and np.isnan(values[row_index, col_index]):
                 values[row_index, col_index] = 0.0
-                
-    X = [pos[0] for pos in force_map]
-    Y = [pos[1] for pos in force_map]
+
+    x = [pos[0] for pos in force_map]
+    y = [pos[1] for pos in force_map]
 
     fx = [force[0] for force in force_map.values()]
     fy = [force[1] for force in force_map.values()]
 
     axis.clear()
-    axis.quiver(X, Y, fx, fy, color="black", scale=1, scale_units="xy", angles="xy", width=0.005)
+    axis.quiver(x, y, fx, fy, color="black", scale=1, scale_units="xy", angles="xy", width=0.005)
     axis.add_patch(
         Circle(
             (0, 0),
@@ -210,16 +210,18 @@ def main() -> None:
     radius = 5
     field = PotentialField(radius=radius)
     explore = Explore(radius=radius)
-    SHOW = 1 # 1 : exploration, 2 : infestation, 3 : obstacle, 4 : peer, 5 : combined
+    show = 1 # 1 : exploration, 2 : infestation, 3 : obstacle, 4 : peer, 5 : combined
     for time in (0, 1):
         figure = plt.figure(figsize=(7, 6))
         axis = figure.add_subplot(1, 1, 1)
         figure.suptitle("PotentialField prototype: robot moves north")
         position = (0, time)
         infestation_cell = (4, 2) if time == 0 else (-4, 4)
-        field._update(make_context(time=time, position=position, sensed=observations(time, position, explore_radius)))
+        field._update(make_context(time=time, 
+                                   position=position, 
+                                   sensed=observations(time, position, explore_radius)))
         explore.propose(make_context(time, position, observations(time, position, explore_radius)))
-        image = render(explore, field, axis, position, infestation_cell, explore_radius, SHOW)
+        image = render(explore, field, axis, position, infestation_cell, explore_radius, show)
         axis.set_title(f"time={time}: robot at {position}")
         figure.colorbar(image, ax=axis, label="potential")
         figure.tight_layout()
