@@ -84,6 +84,8 @@ class Quadtree:
     Attributes:
         traversable: Whether a robot can be in each cell.
         leaf_size: The size of the leaf whose corner is at each cell; 0 inside a bigger leaf.
+        max_leaf_side: The largest leaf size. Every leaf lies inside one aligned block of
+            this many cells per side.
     """
 
     def __init__(
@@ -94,7 +96,7 @@ class Quadtree:
             raise ValueError(f"max_leaf_side must be a power of two, got {max_leaf_side}")
         self.traversable = traversable.copy()
         self.leaf_size = find_leaves(self.traversable, max_leaf_side)
-        self._max_leaf_side = max_leaf_side
+        self.max_leaf_side = max_leaf_side
         self._directions: tuple[Direction, ...] = _STRAIGHT_DIRECTIONS
         if connectivity == 8:
             self._directions = _STRAIGHT_DIRECTIONS + _DIAGONAL_DIRECTIONS
@@ -113,7 +115,7 @@ class Quadtree:
         Every leaf lies inside one aligned block of ``max_leaf_side`` cells, so a change can
         only affect the leaves of the block it falls in; the other blocks stay as they are.
         """
-        side = self._max_leaf_side
+        side = self.max_leaf_side
         blocks: set[CellId] = set()
         for (x, y), traversable in changes.items():
             self.traversable[x, y] = traversable
@@ -206,7 +208,7 @@ class Quadtree:
         the first rounded cell with a non-zero leaf size.
         """
         x, y = cell
-        for level in range(self._max_leaf_side.bit_length()):
+        for level in range(self.max_leaf_side.bit_length()):
             if self.leaf_size[x, y] != 0:
                 return Leaf(x, y, int(self.leaf_size[x, y]))
             # `-1 << k` is all ones except the lowest k bits, so the AND clears those bits:
@@ -257,13 +259,17 @@ def traversable_cells(terrain: TerrainView, flies: bool) -> NDArray[np.bool_]:
     traversable = np.zeros((terrain.width, terrain.height), dtype=np.bool_)
     for x in range(terrain.width):
         for y in range(terrain.height):
-            # v1 cost model: every cell costs the same to enter, except that no robot can enter
-            # the outside of the field, and robots that don't fly can't enter obstacles.
-            terrain_at_x_y = terrain.terrain_at((x, y))
-            traversable[x, y] = terrain_at_x_y is not Terrain.OUTSIDE and (
-                flies or terrain_at_x_y is not Terrain.OBSTACLE
-            )
+            traversable[x, y] = can_enter(terrain.terrain_at((x, y)), flies)
     return traversable
+
+
+def can_enter(terrain: Terrain | None, flies: bool) -> bool:
+    """Whether a robot can enter a cell of the given terrain (``None``: unknown).
+
+    v1 cost model: every cell costs the same to enter, except that no robot can enter the
+    outside of the field, and robots that don't fly can't enter obstacles.
+    """
+    return terrain is not Terrain.OUTSIDE and (flies or terrain is not Terrain.OBSTACLE)
 
 
 def find_leaves(traversable: NDArray[np.bool_], max_leaf_side: int) -> NDArray[np.uint16]:
