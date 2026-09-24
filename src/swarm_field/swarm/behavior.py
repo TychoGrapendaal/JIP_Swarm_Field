@@ -3,15 +3,14 @@
 from dataclasses import dataclass, field
 from math import exp
 from typing import Protocol
-import numpy as np
 
+import numpy as np
 
 from swarm_field.contracts import (
     Action,
     CropObservation,
     InfestationObservation,
     Message,
-    Move,
     Observation,
     ObservationBase,
     ObstacleObservation,
@@ -36,7 +35,7 @@ class DecisionContext:
 
     time: Time
     self_state: RobotSelfState
-    sensed: list[ObservationBase | Observation]
+    sensed: list[Observation]
     inbox: list[Message] = field(default_factory=list)
 
 

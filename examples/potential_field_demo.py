@@ -7,6 +7,7 @@ Run from the repository root with:
 from __future__ import annotations
 
 import argparse
+
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Circle
@@ -14,7 +15,6 @@ from matplotlib.ticker import MultipleLocator
 
 from swarm_field.contracts import (
     BodyType,
-    Direction,
     InfestationObservation,
     Observation,
     ObservationBase,
@@ -28,7 +28,7 @@ from swarm_field.swarm import DecisionContext, Explore, PotentialField
 def make_context(
     time: int,
     position: tuple[int, int],
-    sensed: list[ObservationBase | Observation],
+    sensed: list[Observation],
 ) -> DecisionContext:
     """Build the small read-only input handed to the potential field."""
     return DecisionContext(
@@ -36,9 +36,9 @@ def make_context(
         self_state=RobotSelfState(
             robot_id=1,
             position=position,
-            facing=Direction.N,
             battery=1.0,
             body=BodyType.SCOUT,
+            speed_mps=2.0,
             consumable=1.0,
             health=1.0,
         ),
