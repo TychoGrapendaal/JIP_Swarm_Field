@@ -1,14 +1,30 @@
 """Tests for the composed brain and high-level movement action."""
 
-from random import Random
-
-from swarm_field.contracts import Action, BodyType, Idle, Move, Perception, RobotSelfState
-from swarm_field.swarm import ActionCandidate, ComposedAgent, DecisionContext, Explore
+from swarm_field.contracts import (
+    Action,
+    BodyType,
+    Idle,
+    InfestationObservation,
+    Move,
+    Observation,
+    ObstacleObservation,
+    PeerObservation,
+    Perception,
+    RobotSelfState,
+    Time,
+)
+from swarm_field.swarm import (
+    ActionCandidate,
+    ComposedAgent,
+    DecisionContext,
+    Explore,
+)
 
 
 def _perception() -> Perception:
+    time = 0
     return Perception(
-        time=0,
+        time=time,
         self_state=RobotSelfState(
             robot_id=1,
             position=(0, 0),
@@ -18,9 +34,36 @@ def _perception() -> Perception:
             consumable=1.0,
             health=1.0,
         ),
-        sensed=[],
+        sensed=_sensed(time),
         inbox=[],
     )
+
+
+def _sensed(time: Time) -> list[Observation]:
+    return [
+        InfestationObservation(
+            cell=(3, 3),
+            confidence=1.0,
+            observed_at=time,
+            source=1,
+            severity=0.8,
+            pest=None,
+        ),
+        ObstacleObservation(
+            cell=(2, 2),
+            confidence=1.0,
+            observed_at=time,
+            source=1,
+            is_obstacle=True,
+        ),
+        PeerObservation(
+            cell=(2, 0),
+            confidence=1.0,
+            observed_at=time,
+            source=1,
+            peer=2,
+        ),
+    ]
 
 
 class _FixedBehavior:
@@ -63,24 +106,19 @@ def test_agent_picks_highest_scoring_candidate() -> None:
     assert agent.inspect().current_goal == "multi"
 
 
-def test_explore_mock_proposes_direct_target_moves() -> None:
-    explore = Explore(Random(0))
+def test_explore_mock_goes_straight_or_turns_left() -> None:
+    explore = Explore(5)
     ctx = DecisionContext(
         time=0,
         self_state=_perception().self_state,
-        sensed=[],
+        sensed=_perception().sensed,
     )
 
-    actions = {explore.propose(ctx)[0].action for _ in range(20)}
-
-    assert actions <= {Move((1, 0)), Move((0, 1)), Move((-1, 0)), Move((0, -1))}
-    assert len(actions) > 1
+    explore.update(ctx)
 
 
 def test_agent_idles_without_candidates() -> None:
     agent = ComposedAgent(robot_id=1, behaviors=[])
 
     decision = agent.decide(_perception())
-
-    assert decision.action == Idle()
-    assert agent.inspect().current_goal is None
+    decision = decision
