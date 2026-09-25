@@ -37,6 +37,7 @@ from swarm_field.contracts import (
     Command,
     FieldGeometry,
     InjectInfestation,
+    Move,
     Pause,
     RobotId,
     SetTimeScale,
@@ -51,7 +52,7 @@ from swarm_field.simulation import (
     WorldState,
     WorldTick,
 )
-from swarm_field.swarm import ComposedAgent, Explore
+from swarm_field.swarm import ActionCandidate, ComposedAgent, DecisionContext
 from swarm_field.visualization import MatplotlibRenderer
 
 FIELD_WIDTH = 24
@@ -65,6 +66,24 @@ SPEED_BY_BODY = {
     BodyType.KILLER: 1.2,
     BodyType.BATTERY: 0.8,
 }
+
+
+class WanderBehavior:
+    """A minimal exploration behavior: propose a move to a random walkable neighbour.
+
+    The world owns boundary handling: an out-of-field target resolves to ``Idle`` and the
+    robot decides again after the stationary interval.
+    """
+
+    name: str = "wander"
+
+    def __init__(self, rng: Random) -> None:
+        self._rng: Random = rng
+
+    def propose(self, ctx: DecisionContext) -> ActionCandidate:
+        dx, dy = self._rng.choice(((1, 0), (0, 1), (-1, 0), (0, -1)))
+        x, y = ctx.self_state.position
+        return ActionCandidate(action=Move(to=(x + dx, y + dy)), score=1.0, source=self.name)
 
 
 def build_context(seed: int) -> SimulationContext:
@@ -105,7 +124,7 @@ def build_context(seed: int) -> SimulationContext:
         now=0,
         rng=rng,
         agents={
-            robot_id: ComposedAgent(robot_id=robot_id, behaviors=[Explore(rng)])
+            robot_id: ComposedAgent(robot_id=robot_id, behaviors=[WanderBehavior(rng)])
             for robot_id in range(len(robots))
         },
         world=world,

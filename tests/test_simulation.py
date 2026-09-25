@@ -9,6 +9,7 @@ from swarm_field.contracts import (
     BodyType,
     FieldGeometry,
     InjectInfestation,
+    Move,
     Pause,
     SetTimeScale,
     StepOnce,
@@ -23,7 +24,7 @@ from swarm_field.simulation import (
     WorldState,
     WorldTick,
 )
-from swarm_field.swarm import ComposedAgent, Explore
+from swarm_field.swarm import ActionCandidate, ComposedAgent, DecisionContext
 
 
 def _context() -> SimulationContext:
@@ -42,6 +43,18 @@ def _context() -> SimulationContext:
         agents={},
         world=WorldState(field),
     )
+
+
+class _FixedMoveBehavior:
+    """A minimal fake behavior that always proposes one direct move."""
+
+    name: str = "fixed-move"
+
+    def __init__(self, target: tuple[int, int]) -> None:
+        self._target: tuple[int, int] = target
+
+    def propose(self, ctx: DecisionContext) -> ActionCandidate:
+        return ActionCandidate(action=Move(to=self._target), score=1.0, source=self.name)
 
 
 @dataclass
@@ -215,7 +228,7 @@ def test_robot_decision_drives_an_agent() -> None:
     ctx = SimulationContext(
         now=0,
         rng=Random(0),
-        agents={0: ComposedAgent(robot_id=0, behaviors=[Explore(Random(0))])},
+        agents={0: ComposedAgent(robot_id=0, behaviors=[_FixedMoveBehavior((2, 3))])},
         world=WorldState(
             FieldGeometry(
                 width=5,
