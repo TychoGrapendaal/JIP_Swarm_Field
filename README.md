@@ -83,6 +83,24 @@ For an even larger test:
 uv run --with matplotlib python examples/mass_swarm_visualization.py --robots 1000 --seed 7
 ```
 
+### Potential field and force demonstration
+
+```bash
+uv run --with matplotlib python examples/potential_field_demo.py --show 1
+```
+
+Available modes:
+
+```bash
+1 exploration
+2 infestation
+3 obstacle
+4 peer
+5 combined
+```
+
+A visualization showing the potential field and potential force map from different observations.
+
 ### Renderer demonstration (C.1)
 
 ```bash
