@@ -10,6 +10,7 @@ from swarm_field.swarm.behavior import (
     Behavior,
     DecisionContext,
     Explore,
+    PotentialField,
     TreatInfestation,
 )
 from swarm_field.swarm.brain import ComposedAgent
@@ -20,5 +21,6 @@ __all__ = [
     "ComposedAgent",
     "DecisionContext",
     "Explore",
+    "PotentialField",
     "TreatInfestation",
 ]
