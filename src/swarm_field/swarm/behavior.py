@@ -66,7 +66,7 @@ class Explore:
         self.force_obstacle: dict[tuple[int, int], tuple[float, float]] = {}
         self.force_peer: dict[tuple[int, int], tuple[float, float]] = {}
 
-    def propose(self, ctx: DecisionContext) -> None:
+    def update(self, ctx: DecisionContext) -> None:
         field = self.PotentialField
         field._update(ctx)
         self._compute_force(field.exploration, self.force_exploration, False)

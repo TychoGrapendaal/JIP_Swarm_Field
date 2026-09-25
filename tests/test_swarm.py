@@ -4,9 +4,14 @@ from swarm_field.contracts import (
     Action,
     BodyType,
     Idle,
+    InfestationObservation,
     Move,
+    Observation,
+    ObstacleObservation,
+    PeerObservation,
     Perception,
     RobotSelfState,
+    Time,
 )
 from swarm_field.swarm import (
     ActionCandidate,
@@ -17,8 +22,9 @@ from swarm_field.swarm import (
 
 
 def _perception() -> Perception:
+    time = 0
     return Perception(
-        time=0,
+        time=time,
         self_state=RobotSelfState(
             robot_id=1,
             position=(0, 0),
@@ -28,9 +34,36 @@ def _perception() -> Perception:
             consumable=1.0,
             health=1.0,
         ),
-        sensed=[],
+        sensed=_sensed(time),
         inbox=[],
     )
+
+
+def _sensed(time: Time) -> list[Observation]:
+    return [
+        InfestationObservation(
+            cell=(3, 3),
+            confidence=1.0,
+            observed_at=time,
+            source=1,
+            severity=0.8,
+            pest=None,
+        ),
+        ObstacleObservation(
+            cell=(2, 2),
+            confidence=1.0,
+            observed_at=time,
+            source=1,
+            is_obstacle=True,
+        ),
+        PeerObservation(
+            cell=(2, 0),
+            confidence=1.0,
+            observed_at=time,
+            source=1,
+            peer=2,
+        ),
+    ]
 
 
 class _FixedBehavior:
@@ -78,11 +111,10 @@ def test_explore_mock_goes_straight_or_turns_left() -> None:
     ctx = DecisionContext(
         time=0,
         self_state=_perception().self_state,
-        sensed=[],
+        sensed=_perception().sensed,
     )
 
-    actions = explore.propose(ctx)
-    actions = actions
+    explore.update(ctx)
 
 
 def test_agent_idles_without_candidates() -> None:

@@ -222,7 +222,7 @@ def main(show: int) -> None:
                 time=time, position=position, sensed=observations(time, position, explore_radius)
             )
         )
-        explore.propose(make_context(time, position, observations(time, position, explore_radius)))
+        explore.update(make_context(time, position, observations(time, position, explore_radius)))
         image = render(explore, field, axis, position, infestation_cell, explore_radius, show)
         axis.set_title(f"time={time}: robot at {position}")
         figure.colorbar(image, ax=axis, label="potential")
