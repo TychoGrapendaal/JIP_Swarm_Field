@@ -1,20 +1,20 @@
-"""Potential fields: a coarse pass over a quadtree, then a fine pass around the robot."""
+"""Grid potential fields: one Dijkstra over the cells around the robot and quadtree leaves."""
 
 from swarm_field.swarm.field.builder import (
     BoundingBox,
-    PotentialField,
+    GridPotentialField,
     Seed,
-    build_potential_field,
+    build_grid_potential_field,
 )
 from swarm_field.swarm.field.quadtree import Leaf, Quadtree, TerrainView, traversable_cells
 
 __all__ = [
     "BoundingBox",
+    "GridPotentialField",
     "Leaf",
-    "PotentialField",
     "Quadtree",
     "Seed",
     "TerrainView",
-    "build_potential_field",
+    "build_grid_potential_field",
     "traversable_cells",
 ]

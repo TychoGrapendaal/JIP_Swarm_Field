@@ -8,7 +8,7 @@ from swarm_field.swarm.memory import MemoryView
 
 
 class Objective(Protocol):
-    """Turns memory into the targets of one potential field (TREAT, EXPLORE, RECHARGE, ...)."""
+    """Turns memory into the targets of one grid potential field (TREAT, EXPLORE, ...)."""
 
     name: str
 

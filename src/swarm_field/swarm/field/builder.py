@@ -1,4 +1,4 @@
-"""Build potential fields with one multi-source Dijkstra over a graph of mixed resolution.
+"""Build grid potential fields with one multi-source Dijkstra over a mixed-resolution graph.
 
 Around the robot the graph has single cells; everywhere else it has the leaves of the
 quadtree. The window of single cells is made of whole blocks of ``max_leaf_side`` cells, the
@@ -162,8 +162,8 @@ class MixedGraph:
                 self._cells_bordering.setdefault(leaf, []).append((edge, crossing.cost))
 
 
-class PotentialField:
-    """A solved potential field over a ``MixedGraph``.
+class GridPotentialField:
+    """A solved grid potential field over a ``MixedGraph``.
 
     Inside the window every cell has its own value. Outside it, a cell has the value of its
     leaf, which is measured from the leaf's centre.
@@ -210,12 +210,12 @@ class PotentialField:
         return self.settled.get(node)
 
 
-def build_potential_field(
+def build_grid_potential_field(
     seeds: tuple[Seed, ...],
     quadtree: Quadtree,
     robot: CellId,
     window_blocks: int = 2,
-) -> PotentialField:
+) -> GridPotentialField:
     """Solve the field with one multi-source Dijkstra from the targets.
 
     The window of single cells covers the robot's block of ``quadtree.max_leaf_side`` cells
@@ -241,7 +241,7 @@ def build_potential_field(
 
     # Hops and their costs are symmetric, so the hops into a node are the hops out of it.
     settled = multi_source_dijkstra(node_seeds, graph.neighbours)
-    return PotentialField(graph, settled)
+    return GridPotentialField(graph, settled)
 
 
 def _window_around(robot: CellId, quadtree: Quadtree, window_blocks: int) -> BoundingBox:

@@ -30,7 +30,7 @@ class ComposedAgent:
         robot_id: The robot this brain drives.
         behaviors: The composable pieces of decision logic, combined at each decision point.
         memory: The robot's facts about the field and its peers.
-        navigator: The robot's quadtree, and the potential fields built on it.
+        navigator: The robot's quadtree, and the grid potential fields built on it.
     """
 
     def __init__(

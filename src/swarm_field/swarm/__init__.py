@@ -2,7 +2,7 @@
 
 A brain is a ``ComposedAgent`` assembled from a memory, a navigator and a list of behaviors,
 each a small piece of decision logic proposing scored candidate actions. Behaviors that move
-towards targets follow the potential field of an objective, built by the navigator.
+towards targets follow the grid potential field of an objective, built by the navigator.
 """
 
 from swarm_field.swarm.behavior import (

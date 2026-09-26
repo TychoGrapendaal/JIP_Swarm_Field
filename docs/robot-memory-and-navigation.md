@@ -1,6 +1,6 @@
 # Robot memory and navigation (v1)
 
-This document describes what was built for the robot's local memory and for navigation by potential fields, and where the implementation differs from the *Field-level swarm design* document. It stays at a high level: for the details, read the classes and functions it names, whose docstrings explain the rules and show small diagrams.
+This document describes what was built for the robot's local memory and for navigation by grid potential fields, and where the implementation differs from the *Field-level swarm design* document. It stays at a high level: for the details, read the classes and functions it names, whose docstrings explain the rules and show small diagrams.
 
 ```mermaid
 flowchart TD
@@ -9,19 +9,19 @@ flowchart TD
     M -->|"MemoryView: pests, peers, confidence"| O["Objective (TreatObjective is a mock)"]
     M -->|"terrain of the changed cells"| N["Navigator, which owns the Quadtree"]
     O -->|"tuple of Seed"| N
-    N -->|build_potential_field| F["PotentialField"]
+    N -->|build_grid_potential_field| F["GridPotentialField"]
     F -->|"next cell, value, target"| H["Behaviour (TreatInfestation is a skeleton)"]
     H -->|ActionCandidate| A["ComposedAgent picks the best"]
 ```
 
-Memory holds facts and nothing else. The quadtree says where a robot can be and where it can move, and knows nothing about costs or targets. The builder turns targets and the quadtree into a potential field, and knows nothing about pests or objectives. An *objective* is the small piece of code that connects them: it reads memory and decides which cells are targets and how attractive each one is. Only a mock objective exists; writing the real ones is the next step (see the examples below).
+Memory holds facts and nothing else. The quadtree says where a robot can be and where it can move, and knows nothing about costs or targets. The builder turns targets and the quadtree into a grid potential field, and knows nothing about pests or objectives. An *objective* is the small piece of code that connects them: it reads memory and decides which cells are targets and how attractive each one is. Only a mock objective exists; writing the real ones is the next step (see the examples below).
 
 | Module | Contents |
 | --- | --- |
 | `swarm/memory.py` | `AgentMemory`, `MemoryView`, `DecayConfig` |
 | `swarm/field/quadtree.py` | `Quadtree`, `Leaf`, `find_leaves`, `TerrainView`, `traversable_cells` |
 | `swarm/field/dijkstra.py` | `multi_source_dijkstra`, `SettledNode` |
-| `swarm/field/builder.py` | `Seed`, `build_potential_field`, `PotentialField`, `MixedGraph` |
+| `swarm/field/builder.py` | `Seed`, `build_grid_potential_field`, `GridPotentialField`, `MixedGraph` |
 | `swarm/navigator.py` | `Navigator` |
 | `swarm/objective.py` | `Objective`, `TreatObjective` (mock) |
 | `swarm/behavior.py`, `swarm/brain.py` | `DecisionContext`, `TreatInfestation` (skeleton), `ComposedAgent` |
@@ -50,13 +50,15 @@ Because every leaf is uniform, two leaves are neighbours exactly when a robot ca
 
 **v1 cost rule.** Every cell costs the same to enter; unknown cells cost the same as known free ones (the design document's 1.5 for unknown cells was dropped). No robot can enter cells outside the field, and ground robots cannot enter obstacles; drones fly over them. A straight move between cells costs 1, a diagonal move 1.4.
 
-## Potential fields
+## Grid potential fields
 
-The design document computes a field in two passes: coarse over the whole field, then fine around the robot, seeded at the edge of the fine window from the coarse result. A two-pass version was built and replaced by a single search over a graph of mixed resolution, which is simpler and at least as accurate.
+A `GridPotentialField` is not the `PotentialField` in `swarm/behavior.py`, which is the local force field of the exploration behaviour (#9).
 
-`build_potential_field` takes the targets as a tuple of `Seed`s (a cell and a start value, lower is more attractive, typically `-beta * value` as in the design document), the robot's `Quadtree`, and the robot's cell. Around the robot, the graph has single cells: the window is the robot's 16 × 16 block and the blocks within `window_blocks` of it (default 2, so 80 × 80 cells). Everywhere else the graph has the quadtree's leaves, and a move between leaves costs the distance between their centres. Since every leaf lies inside one 16 × 16 block, each leaf is entirely inside the window (its cells are used) or entirely outside it (the leaf itself is used). `MixedGraph` links the two kinds of nodes at the window's border. One multi-source Dijkstra (`multi_source_dijkstra`) then spreads from all targets at once, and records for every node its value, the target whose wave reached it first, and the next node towards that target.
+The design document computes a potential field in two passes: coarse over the whole field, then fine around the robot, seeded at the edge of the fine window from the coarse result. A two-pass version was built and replaced by a single search over a graph of mixed resolution, which is simpler and at least as accurate.
 
-The result is a `PotentialField` with three queries:
+`build_grid_potential_field` takes the targets as a tuple of `Seed`s (a cell and a start value, lower is more attractive, typically `-beta * value` as in the design document), the robot's `Quadtree`, and the robot's cell. Around the robot, the graph has single cells: the window is the robot's 16 × 16 block and the blocks within `window_blocks` of it (default 2, so 80 × 80 cells). Everywhere else the graph has the quadtree's leaves, and a move between leaves costs the distance between their centres. Since every leaf lies inside one 16 × 16 block, each leaf is entirely inside the window (its cells are used) or entirely outside it (the leaf itself is used). `MixedGraph` links the two kinds of nodes at the window's border. One multi-source Dijkstra (`multi_source_dijkstra`) then spreads from all targets at once, and records for every node its value, the target whose wave reached it first, and the next node towards that target.
+
+The result is a `GridPotentialField` with three queries:
 
 - `value_at(cell)`: the potential at a cell, `inf` if no target is reachable. Inside the window each cell has its own value; outside it, a cell gets the value of its leaf, measured from the leaf's centre.
 - `next_cell(cell)`: the neighbouring cell to move to, for a cell inside the window. `None` means the robot stands on the winning target, or no target is reachable.

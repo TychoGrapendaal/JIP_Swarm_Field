@@ -1,4 +1,4 @@
-"""Tests for the potential-field builder, using the worked examples of the field-level design."""
+"""Tests for the grid potential field, using the worked examples of the field-level design."""
 
 from itertools import pairwise
 from math import inf, isclose
@@ -6,11 +6,11 @@ from math import inf, isclose
 from swarm_field.contracts import CellId, FieldGeometry, Terrain, TerrainObservation
 from swarm_field.swarm import AgentMemory
 from swarm_field.swarm.field import (
-    PotentialField,
+    GridPotentialField,
     Quadtree,
     Seed,
     TerrainView,
-    build_potential_field,
+    build_grid_potential_field,
     traversable_cells,
 )
 
@@ -57,7 +57,7 @@ def _walk(
     """Follow the field from ``start``, rebuilding it around the robot after every step."""
     path = [start]
     while len(path) <= 10_000:
-        field = build_potential_field(seeds, quadtree, path[-1], window_blocks)
+        field = build_grid_potential_field(seeds, quadtree, path[-1], window_blocks)
         step = field.next_cell(path[-1])
         if step is None:
             return path
@@ -91,7 +91,7 @@ def test_treat_example_prefers_the_fresh_far_pest() -> None:
     seeds = (Seed(p1, -8.28), Seed(p2, -1.74))
     quadtree = Quadtree(traversable_cells(terrain, flies=False))
 
-    field = build_potential_field(seeds, quadtree, k, _WHOLE_FIELD)
+    field = build_grid_potential_field(seeds, quadtree, k, _WHOLE_FIELD)
     path = _walk(seeds, quadtree, k, _WHOLE_FIELD)
 
     assert isclose(field.value_at(k), -0.48)
@@ -116,7 +116,7 @@ def test_wavefront_flows_around_a_cup_and_never_enters_it() -> None:
     )
     goal = (9, 3)
     quadtree = Quadtree(traversable_cells(terrain, flies=False), connectivity=4)
-    field = build_potential_field((Seed(goal, 0.0),), quadtree, goal, _WHOLE_FIELD)
+    field = build_grid_potential_field((Seed(goal, 0.0),), quadtree, goal, _WHOLE_FIELD)
     cup = {(4, 2), (4, 3), (4, 4), (5, 2), (5, 3), (5, 4)}
 
     path = [(0, 3)]
@@ -136,7 +136,7 @@ def test_small_window_finds_a_near_optimal_route_on_an_open_field() -> None:
     seeds = (Seed((75, 62), 0.0),)
 
     windowed = _walk(seeds, quadtree, (2, 2), window_blocks=1)
-    optimal = build_potential_field(seeds, quadtree, (2, 2), _WHOLE_FIELD).value_at((2, 2))
+    optimal = build_grid_potential_field(seeds, quadtree, (2, 2), _WHOLE_FIELD).value_at((2, 2))
 
     assert windowed[-1] == (75, 62)
     assert _route_cost(windowed) <= 1.05 * optimal
@@ -148,7 +148,7 @@ def test_field_leads_to_a_bridge_outside_the_window() -> None:
     seeds = (Seed((30, 5), 0.0),)
     start = (10, 5)
 
-    field = build_potential_field(seeds, quadtree, start, window_blocks=1)
+    field = build_grid_potential_field(seeds, quadtree, start, window_blocks=1)
     path = _walk(seeds, quadtree, start, window_blocks=1)
 
     assert not field.graph.window.contains((20, 35))
@@ -167,7 +167,7 @@ def test_no_reachable_target_means_infinite_potential() -> None:
     )
     quadtree = Quadtree(traversable_cells(terrain, flies=False))
 
-    field = build_potential_field((Seed((2, 0), 0.0),), quadtree, (0, 0))
+    field = build_grid_potential_field((Seed((2, 0), 0.0),), quadtree, (0, 0))
 
     assert field.value_at((0, 0)) == inf
     assert field.next_cell((0, 0)) is None
@@ -178,10 +178,12 @@ def test_drones_fly_over_obstacles() -> None:
     terrain = DrawnTerrain([". # ."])
     seeds = (Seed((2, 0), 0.0),)
 
-    walking = build_potential_field(
+    walking = build_grid_potential_field(
         seeds, Quadtree(traversable_cells(terrain, flies=False)), (0, 0)
     )
-    flying = build_potential_field(seeds, Quadtree(traversable_cells(terrain, flies=True)), (0, 0))
+    flying = build_grid_potential_field(
+        seeds, Quadtree(traversable_cells(terrain, flies=True)), (0, 0)
+    )
 
     assert walking.value_at((0, 0)) == inf
     assert flying.value_at((0, 0)) == 2.0
@@ -201,7 +203,7 @@ def test_agent_memory_is_a_terrain_view() -> None:
     )
     terrain: TerrainView = memory
 
-    field: PotentialField = build_potential_field(
+    field: GridPotentialField = build_grid_potential_field(
         (Seed((2, 0), 0.0),), Quadtree(traversable_cells(terrain, flies=False)), (0, 0)
     )
 

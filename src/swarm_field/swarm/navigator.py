@@ -1,21 +1,22 @@
-"""The robot's navigator: its quadtree, kept in sync with memory, and the fields built on it."""
+"""The robot's navigator: its quadtree, kept in sync with memory, and the grid potential fields
+built on it."""
 
 from collections.abc import Iterable
 
 from swarm_field.contracts import CellId
 from swarm_field.swarm.field import (
-    PotentialField,
+    GridPotentialField,
     Quadtree,
     Seed,
     TerrainView,
-    build_potential_field,
+    build_grid_potential_field,
     traversable_cells,
 )
 from swarm_field.swarm.field.quadtree import can_enter
 
 
 class Navigator:
-    """Builds potential fields for one robot, over a quadtree of the cells it can enter.
+    """Builds grid potential fields for one robot, over a quadtree of the cells it can enter.
 
     Attributes:
         quadtree: Where this robot can be and move, read from its memory's terrain.
@@ -32,8 +33,8 @@ class Navigator:
         if changes:
             self.quadtree.update(changes)
 
-    def field_for(self, seeds: tuple[Seed, ...], robot: CellId) -> PotentialField:
-        """The potential field towards ``seeds``, fine around the robot's cell."""
+    def field_for(self, seeds: tuple[Seed, ...], robot: CellId) -> GridPotentialField:
+        """The grid potential field towards ``seeds``, fine around the robot's cell."""
         # TODO: cache fields. A field can be reused while the seeds, the terrain and the
         # robot's block of the quadtree stay the same; for now every call builds a new one.
-        return build_potential_field(seeds, self.quadtree, robot)
+        return build_grid_potential_field(seeds, self.quadtree, robot)
