@@ -63,6 +63,7 @@ class ComposedAgent:
             sensed=perception.sensed,
             memory=self.memory,
             navigator=self.navigator,
+            inbox=perception.inbox,
         )
         candidates: list[ActionCandidate] = []
         for behavior in self.behaviors:

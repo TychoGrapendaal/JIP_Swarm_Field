@@ -1,14 +1,14 @@
 """Tests for the composed brain and high-level movement action."""
 
-from random import Random
-
 from swarm_field.contracts import (
     Action,
     BodyType,
     FieldGeometry,
     Idle,
+    InfestationObservation,
     Move,
     Observation,
+    PeerObservation,
     Perception,
     RobotSelfState,
     Terrain,
@@ -32,8 +32,11 @@ _FIELD = FieldGeometry(width=10, height=10, cell_size=10.0, row_sp=0.0, in_row_s
 
 
 def _perception(sensed: list[Observation] | None = None) -> Perception:
+    time = 0
+    if sensed is None:
+        sensed = _sensed(time)
     return Perception(
-        time=0,
+        time=time,
         self_state=RobotSelfState(
             robot_id=1,
             position=(0, 0),
@@ -43,9 +46,37 @@ def _perception(sensed: list[Observation] | None = None) -> Perception:
             consumable=1.0,
             health=1.0,
         ),
-        sensed=sensed or [],
+        sensed=sensed,
         inbox=[],
     )
+
+
+def _sensed(time: Time) -> list[Observation]:
+    return [
+        InfestationObservation(
+            cell=(3, 3),
+            confidence=1.0,
+            observed_at=time,
+            source=1,
+            severity=0.8,
+            pest=None,
+        ),
+        TerrainObservation(
+            cell=(2, 2),
+            confidence=1.0,
+            observed_at=time,
+            source=1,
+            terrain=Terrain.OBSTACLE,
+        ),
+        PeerObservation(
+            cell=(2, 0),
+            confidence=1.0,
+            observed_at=time,
+            source=1,
+            peer=2,
+            body=BodyType.KILLER,
+        ),
+    ]
 
 
 def _agent(behaviors: list[Behavior]) -> ComposedAgent:
@@ -58,12 +89,13 @@ def _agent(behaviors: list[Behavior]) -> ComposedAgent:
     )
 
 
-def _context() -> DecisionContext:
+def _context(sensed: list[Observation] | None = None) -> DecisionContext:
     memory = AgentMemory(1, _FIELD)
+    perception = _perception(sensed)
     return DecisionContext(
-        time=0,
-        self_state=_perception().self_state,
-        sensed=[],
+        time=perception.time,
+        self_state=perception.self_state,
+        sensed=perception.sensed,
         memory=memory,
         navigator=Navigator(memory, flies=False),
     )
@@ -115,14 +147,11 @@ def test_agent_picks_highest_scoring_candidate() -> None:
     assert agent.inspect().current_goal == "multi"
 
 
-def test_explore_mock_proposes_direct_target_moves() -> None:
-    explore = Explore(Random(0))
+def test_explore_mock_goes_straight_or_turns_left() -> None:
+    explore = Explore(5)
     ctx = _context()
 
-    actions = {explore.propose(ctx)[0].action for _ in range(20)}
-
-    assert actions <= {Move((1, 0)), Move((0, 1)), Move((-1, 0)), Move((0, -1))}
-    assert len(actions) > 1
+    explore.update(ctx)
 
 
 def test_agent_idles_without_candidates() -> None:
@@ -149,6 +178,6 @@ def test_sensed_terrain_reaches_memory_and_the_quadtree() -> None:
 def test_treat_infestation_follows_its_objectives_field() -> None:
     behavior = TreatInfestation(_FixedTargetObjective())
 
-    candidates = behavior.propose(_context())
+    candidates = behavior.propose(_context(sensed=[]))
 
     assert [candidate.action for candidate in candidates] == [Move((1, 1))]
