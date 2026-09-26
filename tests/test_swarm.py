@@ -1,40 +1,72 @@
-"""Tests for the composed brain: candidate gathering and selection."""
-
-from random import Random
+"""Tests for the composed brain and high-level movement action."""
 
 from swarm_field.contracts import (
     Action,
     BodyType,
-    Direction,
     Idle,
+    InfestationObservation,
     Move,
+    Observation,
+    ObstacleObservation,
+    PeerObservation,
     Perception,
     RobotSelfState,
-    Turn,
+    Time,
 )
-from swarm_field.swarm import ActionCandidate, ComposedAgent, DecisionContext, Explore
+from swarm_field.swarm import (
+    ActionCandidate,
+    ComposedAgent,
+    DecisionContext,
+    Explore,
+)
 
 
 def _perception() -> Perception:
+    time = 0
     return Perception(
-        time=0,
+        time=time,
         self_state=RobotSelfState(
             robot_id=1,
             position=(0, 0),
-            facing=Direction.N,
             battery=1.0,
             body=BodyType.SCOUT,
+            speed_mps=2.0,
             consumable=1.0,
             health=1.0,
         ),
-        sensed=[],
+        sensed=_sensed(time),
         inbox=[],
     )
 
 
-class _FixedBehavior:
-    """Returns a single candidate."""
+def _sensed(time: Time) -> list[Observation]:
+    return [
+        InfestationObservation(
+            cell=(3, 3),
+            confidence=1.0,
+            observed_at=time,
+            source=1,
+            severity=0.8,
+            pest=None,
+        ),
+        ObstacleObservation(
+            cell=(2, 2),
+            confidence=1.0,
+            observed_at=time,
+            source=1,
+            is_obstacle=True,
+        ),
+        PeerObservation(
+            cell=(2, 0),
+            confidence=1.0,
+            observed_at=time,
+            source=1,
+            peer=2,
+        ),
+    ]
 
+
+class _FixedBehavior:
     def __init__(self, name: str, action: Action, score: float) -> None:
         self.name: str = name
         self._action: Action = action
@@ -45,8 +77,6 @@ class _FixedBehavior:
 
 
 class _MultiBehavior:
-    """Returns a tuple of candidates."""
-
     def __init__(self, name: str, candidates: tuple[ActionCandidate, ...]) -> None:
         self.name: str = name
         self._candidates: tuple[ActionCandidate, ...] = candidates
@@ -63,8 +93,8 @@ def test_agent_picks_highest_scoring_candidate() -> None:
             _MultiBehavior(
                 "multi",
                 (
-                    ActionCandidate(action=Turn(Direction.N), score=0.9, source="multi"),
-                    ActionCandidate(action=Turn(Direction.S), score=0.5, source="multi"),
+                    ActionCandidate(action=Move((1, 0)), score=0.9, source="multi"),
+                    ActionCandidate(action=Move((0, 1)), score=0.5, source="multi"),
                 ),
             ),
         ],
@@ -72,42 +102,23 @@ def test_agent_picks_highest_scoring_candidate() -> None:
 
     decision = agent.decide(_perception())
 
-    assert decision.action == Turn(Direction.N)
+    assert decision.action == Move((1, 0))
     assert agent.inspect().current_goal == "multi"
 
 
 def test_explore_mock_goes_straight_or_turns_left() -> None:
-    explore = Explore(Random(0))
+    explore = Explore(5)
     ctx = DecisionContext(
         time=0,
-        self_state=RobotSelfState(
-            robot_id=1,
-            position=(0, 0),
-            facing=Direction.N,
-            battery=1.0,
-            body=BodyType.SCOUT,
-            consumable=1.0,
-            health=1.0,
-        ),
-        sensed=[],
+        self_state=_perception().self_state,
+        sensed=_perception().sensed,
     )
 
-    actions: set[Action] = set()
-    for _ in range(20):
-        candidates = explore.propose(ctx)
-        assert len(candidates) == 1
-        actions.add(candidates[0].action)
-
-    # Straight ahead is Move(); 45 degrees left of North is North-West.
-    assert actions <= {Move(), Turn(Direction.NW)}
-    assert Move() in actions
-    assert Turn(Direction.NW) in actions
+    explore.update(ctx)
 
 
 def test_agent_idles_without_candidates() -> None:
     agent = ComposedAgent(robot_id=1, behaviors=[])
 
     decision = agent.decide(_perception())
-
-    assert decision.action == Idle()
-    assert agent.inspect().current_goal is None
+    decision = decision

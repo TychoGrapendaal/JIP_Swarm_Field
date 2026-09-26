@@ -77,8 +77,8 @@ def run_experiment(
         spec.robot_id: build_agent(brain_spec, spec.body, rng)   # A, assembled
         for spec in scenario.robots
     }
-    ctx = SimulationContext(now=0, rng=rng, agents=agents, queue=EventQueue())
-    seed_initial_events(ctx, world, scenario)   # first decision per robot + a recurring world tick
+    ctx = SimulationContext(now=0, rng=rng, agents=agents, world=world, queue=EventQueue())
+    seed_initial_events(ctx, scenario)   # first decision per robot + a recurring world tick
     SimulationLoop().run(ctx, until)
     return summarize(ctx)
 ```
@@ -108,7 +108,7 @@ The pluggable ports inside the brain:
 | `Memory` | hold + decay the local belief map and self‑state | grid‑cell map, continuous markers, bounded LRU map |
 | `Behavior` | propose scored action candidates from a read‑only context | scout‑coverage, treat‑nearest‑pest, return‑to‑charge, avoid‑crowding |
 | `Arbiter` | fuse candidates into one chosen action | max‑utility, weighted sum, priority with hysteresis |
-| `Navigator` | turn a target cell into a concrete `Move` / `Turn` | potential‑field, coverage‑control, greedy‑grid |
+| `Navigator` | turn a target cell into a concrete `Move` | potential‑field, coverage‑control, greedy‑grid |
 | `CommsStrategy` | decode inbox → memory, encode memory → outbox | map‑merge, vicinity‑vector, stigmergy marks |
 | `CapabilitySet` | declare which action types the body can perform | scout (senses), killer (Treat), battery (Charge) |
 
@@ -123,7 +123,7 @@ class Memory(Protocol):
     def snapshot(self) -> object: ...            # for AgentInspection.belief
 
 class Navigator(Protocol):
-    def step_towards(self, target: CellId, ctx: "DecisionContext") -> Action: ...  # Move | Turn
+    def step_towards(self, target: CellId, ctx: "DecisionContext") -> Action: ...  # direct Move(to=target)
 
 @dataclass(frozen=True)
 class ActionCandidate:
@@ -253,6 +253,8 @@ Everything the decomposition doc deferred (shared vs. body‑specific engine, ma
 
 ### B.1 The idea
 
+**Current B.1 simplification.** The world is coarse-grained: cells are field patches, robot occupancy is unlimited, and a robot command is a direct `Move(to=CellId)`. There is no turn/facing model. Robot speed determines the simulated travel time between cells, while the navigation algorithm is responsible for choosing target cells from potential-field or other local rules.
+
 The simulation is discrete-event: an event queue holds timestamped events, and the loop pops the earliest, advances the clock to it, and handles it. Each distinct concern — a robot deciding, a robot arriving at a cell, pests spreading, a metric sample — is its own event type with its own handler, and a handler may schedule follow-up events. There is **no fixed timestep and no global frame**: each robot acts at its own event times on its own latest information. Pest spreading is just a recurring world event, uncoupled from everything else.
 
 ### B.2 The ports
@@ -275,7 +277,6 @@ class SimulationContext:
     world: WorldState                      # B.1 ground truth, behind a read-only port
     queue: EventQueue
     channel: Channel                       # B.3; handlers hand it an outbox, it delivers by range
-    # metrics (B.5) are added as that piece is built
     def schedule(self, event: Event) -> None: ...
 
 class SimulationLoop:

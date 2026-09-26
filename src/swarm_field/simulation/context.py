@@ -20,7 +20,7 @@ class SimulationContext:
         now: The current simulation time (advanced to each event as it is processed).
         rng: The single seeded random source; events draw from it in event order.
         agents: The robot brains, keyed by id (the boundary with the algorithm).
-        world: Ground truth — where everything really is.
+        world: Ground-truth field state owned by the simulation.
         queue: Pending events; schedule follow-ups with ``schedule``.
         channel: The radio; hand a robot's outbox to it to reach the robots in range.
     """
