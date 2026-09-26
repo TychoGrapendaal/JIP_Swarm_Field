@@ -16,12 +16,14 @@ from swarm_field.contracts import (
     InfestationObservation,
     Move,
     Observation,
-    ObstacleObservation,
     PeerObservation,
     RobotId,
     RobotPublicState,
     RobotSelfState,
+    Terrain,
+    TerrainObservation,
     Time,
+    TimeUnit,
     Treat,
     WorldSnapshot,
 )
@@ -198,13 +200,16 @@ class WorldState:
                     pest=None,
                 )
             )
+            terrain = Terrain.FREE
+            if state.obstacle:
+                terrain = Terrain.OBSTACLE
             observations.append(
-                ObstacleObservation(
+                TerrainObservation(
                     cell=cell,
                     confidence=1.0,
                     observed_at=time,
                     source=robot_id,
-                    is_obstacle=state.obstacle,
+                    terrain=terrain,
                 )
             )
 
@@ -217,6 +222,7 @@ class WorldState:
                             observed_at=time,
                             source=robot_id,
                             peer=peer,
+                            body=self._robot(peer).body,
                         )
                     )
 
@@ -289,7 +295,7 @@ class WorldState:
             hypot(target[0] - robot.position[0], target[1] - robot.position[1])
             * self.field.cell_size
         )
-        return max(1, ceil(distance_m / robot.speed_mps * 1000))
+        return max(1, ceil(distance_m / robot.speed_mps * TimeUnit.SECOND))
 
     def public_states(self) -> list[RobotPublicState]:
         """Return ground-truth robot state for visualization."""

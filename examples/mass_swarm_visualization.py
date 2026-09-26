@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from matplotlib.colors import ListedColormap
 
-from swarm_field.contracts import BodyType, FieldGeometry, Move, Treat
+from swarm_field.contracts import BodyType, FieldGeometry, Move, Terrain, Treat
 from swarm_field.simulation import RobotState, WorldState
 
 FIELD_WIDTH = 50
@@ -72,7 +72,7 @@ class PotentialFieldController:
             cell = getattr(observation, "cell", None)
             if cell is None:
                 continue
-            if hasattr(observation, "is_obstacle") and observation.is_obstacle:
+            if getattr(observation, "terrain", None) is Terrain.OBSTACLE:
                 memory.obstacle_repulsion[cell] = 100.0
             if hasattr(observation, "severity"):
                 severity = float(observation.severity)
