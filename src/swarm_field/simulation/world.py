@@ -36,6 +36,7 @@ class RobotState:
         position: Current discrete field cell.
         body: Robot body class.
         speed_mps: Maximum travel speed in metres per second.
+        radio_range_m: Broadcast radius in metres; robots within it hear this robot.
         battery: Remaining battery level, 0..1.
         consumable: Remaining treatment consumable, 0..1.
         health: Robot health, 0..1.
@@ -49,6 +50,7 @@ class RobotState:
     position: CellId
     body: BodyType
     speed_mps: float
+    radio_range_m: float = 0.0
     battery: float = 1.0
     consumable: float = 1.0
     health: float = 1.0
