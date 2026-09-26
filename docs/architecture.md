@@ -272,8 +272,10 @@ class SimulationContext:
     now: Time
     rng: Random                            # the single seeded source; handlers draw in event order
     agents: dict[RobotId, SwarmAgent]      # A, behind the port
+    world: WorldState                      # B.1 ground truth, behind a read-only port
     queue: EventQueue
-    # a world (B.1), a channel (B.3) and metrics (B.5) are added as those pieces are built
+    channel: Channel                       # B.3; handlers hand it an outbox, it delivers by range
+    # metrics (B.5) are added as that piece is built
     def schedule(self, event: Event) -> None: ...
 
 class SimulationLoop:
