@@ -1,11 +1,11 @@
 """Scenario 2 tests: the utility robot chasing the swarm's pest gradient.
 
-Replays the walkthrough of ``docs/navigation-module.md`` §8.1. Three explorers hover over
+Replays the walkthrough of ``docs/navigation-module.md`` Â§8.1. Three explorers hover over
 the y=4 aisle of the 13-by-9 crop field and broadcast hop beacons; a small ``_HopField``
 stands in for A.4, decoding each decision point into the ``HopFieldEntry`` list a real
 comms layer would produce from the radio: the robot's relative vector to every in-range
-explorer plus that explorer's ``parent_vector``. The navigator composes ``to_holder +
-parent_vector`` and steers — the "swarm gives the vectors" claim, end to end.
+explorer plus that explorer's ``parent_vector``. The steerer composes ``to_holder +
+parent_vector`` and steers â€” the "swarm gives the vectors" claim, end to end.
 """
 
 from collections.abc import Sequence
@@ -19,7 +19,7 @@ from swarm_field.contracts import (
     NavMode,
     Vector2,
 )
-from swarm_field.swarm import Navigator, resolve_chase_target
+from swarm_field.swarm import Steerer, resolve_chase_target
 from tests.nav_harness import GridSensing, Harness, crop_field
 
 
@@ -39,7 +39,7 @@ class _Explorer:
 
 
 def _walkthrough_swarm() -> tuple[_Explorer, _Explorer, _Explorer]:
-    """The three explorers of ``docs/navigation-module.md`` §8.1, on the y=4 aisle."""
+    """The three explorers of ``docs/navigation-module.md`` Â§8.1, on the y=4 aisle."""
     return (
         _Explorer(hover_cell=(9, 4), hop=2, parent_vector=(-2.0, 0.0)),
         _Explorer(hover_cell=(7, 4), hop=1, parent_vector=(-2.0, 0.0)),
@@ -51,7 +51,7 @@ class _HopField:
     """A.4 stand-in: what the utility robot hears from a static swarm right now.
 
     Each call recomputes the robot's radio vector to every explorer in range and dresses it
-    with that explorer's beacon — the decoded values a real A.4 would produce from the
+    with that explorer's beacon â€” the decoded values a real A.4 would produce from the
     channel and the robot's radio sensing. Freshness is fixed so the tie-breaks stay
     deterministic.
     """
@@ -125,7 +125,7 @@ def test_max_hop_filters_the_field() -> None:
 def test_chase_drives_utility_robot_to_the_pest_row_edge() -> None:
     world = crop_field()
     harness = Harness(world, start=(11, 4))
-    navigator = Navigator(GridSensing(harness))
+    steerer = Steerer(GridSensing(harness.world))
     hop_field = _HopField(_walkthrough_swarm(), radio_range=3.0)
     goal = NavGoal(mode=NavMode.CHASE, max_hop=2)
     max_hop = goal.max_hop
@@ -139,16 +139,16 @@ def test_chase_drives_utility_robot_to_the_pest_row_edge() -> None:
         if resolved is None:
             raise AssertionError("no beacon heard at the start of the walkthrough")
         pilots.append(resolved.holder_hop)
-        action = harness.take(navigator.steer_goal(goal, heard, harness.position))
+        action = harness.take(steerer.steer_goal(goal, heard, harness.position))
         if isinstance(action, Idle) and resolved.holder_hop == 0:
             stood = True
             break
-        if navigator.is_stalled:
-            raise AssertionError(f"navigator stalled at {harness.position}")
+        if steerer.is_stalled:
+            raise AssertionError(f"steerer stalled at {harness.position}")
 
     assert stood
     assert harness.position == (5, 4)
-    assert not navigator.is_stalled
+    assert not steerer.is_stalled
     assert pilots[0] == 2
     first_seen = [pilots.index(hop) for hop in (2, 1, 0)]
     assert first_seen == sorted(first_seen)
@@ -158,31 +158,31 @@ def test_chase_drives_utility_robot_to_the_pest_row_edge() -> None:
 
 def test_chase_stands_at_the_hop_zero_row_edge() -> None:
     harness = Harness(crop_field(), start=(5, 4))
-    navigator = Navigator(GridSensing(harness))
+    steerer = Steerer(GridSensing(harness.world))
     field = [HopFieldEntry(holder_hop=0, parent_vector=(0.0, 1.0), to_holder=(0.0, 0.0), seen_at=0)]
 
-    action = navigator.steer_chase(field, max_hop=2, position=harness.position)
+    action = steerer.steer_chase(field, max_hop=2, position=harness.position)
 
     assert isinstance(action, Idle)
-    assert not navigator.is_stalled
+    assert not steerer.is_stalled
     assert harness.position == (5, 4)
 
 
 def test_chase_idles_when_no_beacon_speaks() -> None:
     harness = Harness(crop_field(), start=(11, 4))
-    navigator = Navigator(GridSensing(harness))
+    steerer = Steerer(GridSensing(harness.world))
 
-    action = navigator.steer_chase([], max_hop=2, position=harness.position)
+    action = steerer.steer_chase([], max_hop=2, position=harness.position)
 
     assert isinstance(action, Idle)
-    assert not navigator.is_stalled
+    assert not steerer.is_stalled
 
 
 def test_hold_goal_stands_still() -> None:
     harness = Harness(crop_field(), start=(11, 4))
-    navigator = Navigator(GridSensing(harness))
+    steerer = Steerer(GridSensing(harness.world))
 
-    action = navigator.steer_goal(NavGoal(mode=NavMode.HOLD), [], position=harness.position)
+    action = steerer.steer_goal(NavGoal(mode=NavMode.HOLD), [], position=harness.position)
 
     assert isinstance(action, Idle)
     assert harness.position == (11, 4)
@@ -191,12 +191,12 @@ def test_hold_goal_stands_still() -> None:
 def test_spread_goal_moves_along_drift_without_entering_crops() -> None:
     world = crop_field()
     harness = Harness(world, start=(11, 2))
-    navigator = Navigator(GridSensing(harness))
+    steerer = Steerer(GridSensing(harness.world))
     goal = NavGoal(mode=NavMode.SPREAD, drift=(0.0, 10.0))
 
     for _ in range(20):
-        harness.take(navigator.steer_goal(goal, [], position=harness.position))
-        if navigator.is_stalled:
+        harness.take(steerer.steer_goal(goal, [], position=harness.position))
+        if steerer.is_stalled:
             break
 
     assert harness.position != (11, 2)

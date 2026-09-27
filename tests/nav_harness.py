@@ -1,15 +1,15 @@
-"""Shared harness for navigator tests: a hidden grid world the tests stand in for the sim.
+"""Shared harness for steering tests: a hidden grid world the tests stand in for the sim.
 
-The simulation's world, perception and Act stage do not exist yet, so every navigator test
-uses this kit to stand in for them: a tiny grid world keeps hidden ground truth, a
-``GridSensing`` answers the navigator's proximity questions from that world, and a
-``Harness`` integrates ``Move`` the way the future Act stage would.
+The simulation's world, perception and Act stage do not exist yet, so every steering test uses
+this kit to stand in for them: a tiny grid world keeps hidden ground truth, a ``GridSensing``
+answers the steerer's proximity questions from that world, and a ``Harness`` integrates ``Move``
+the way the future Act stage would.
 """
 
 from dataclasses import dataclass
 
 from swarm_field.contracts import CellId, Direction, Idle, Move
-from swarm_field.swarm import Navigator
+from swarm_field.swarm import Steerer
 
 
 @dataclass(frozen=True)
@@ -44,7 +44,7 @@ class Harness:
     """Mock movement — the quiet stand-in for the sim's Perceive / Act stages.
 
     Applies one action to a book-kept position, and refuses to step into a blocked cell:
-    if the navigator ever tries, the test blows up.
+    if the steerer ever tries, the test blows up.
     """
 
     def __init__(self, world: GridWorld, start: CellId) -> None:
@@ -62,31 +62,31 @@ class Harness:
             self.visited.append(self.position)
         return action
 
-    def apply(self, navigator: Navigator, goal: CellId) -> Move | Idle:
-        """Ask the navigator for a step toward an absolute ``goal`` and integrate it."""
+    def apply(self, steerer: Steerer, goal: CellId) -> Move | Idle:
+        """Ask the steerer for a step toward an absolute ``goal`` and integrate it."""
         dx = float(goal[0] - self.position[0])
         dy = float(goal[1] - self.position[1])
-        return self.take(navigator.steer((dx, dy), self.position))
+        return self.take(steerer.steer((dx, dy), self.position))
 
 
+@dataclass(frozen=True)
 class GridSensing:
-    """A fake ``Sensing`` backed by the hidden grid via the harness's true position."""
+    """A fake ``Sensing`` backed by the hidden grid of a harness."""
 
-    def __init__(self, harness: Harness) -> None:
-        self._harness: Harness = harness
+    world: GridWorld
 
-    def clear(self, direction: Direction) -> bool:
-        return self._harness.world.clear_cell(self._harness.position, direction)
+    def clear(self, origin: CellId, direction: Direction) -> bool:
+        return self.world.clear_cell(origin, direction)
 
 
-def drive(navigator: Navigator, harness: Harness, goal: CellId, max_ticks: int = 400) -> int:
+def drive(steerer: Steerer, harness: Harness, goal: CellId, max_ticks: int = 400) -> int:
     """Drive ``harness`` toward ``goal`` until reached, stalled, or ``max_ticks``."""
     for tick in range(1, max_ticks + 1):
-        harness.apply(navigator, goal)
+        harness.apply(steerer, goal)
         if harness.position == goal:
             return tick
-        if navigator.is_stalled:
-            raise AssertionError(f"navigator got stuck at {harness.position}")
+        if steerer.is_stalled:
+            raise AssertionError(f"steerer got stuck at {harness.position}")
     raise AssertionError(f"did not reach {goal}; ended at {harness.position}")
 
 

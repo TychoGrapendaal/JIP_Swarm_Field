@@ -7,8 +7,7 @@ are introduced.
 
 from dataclasses import dataclass
 
-from swarm_field.contracts.agent import BodyType
-from swarm_field.contracts.ids import CellId, CropType, RobotId
+from swarm_field.contracts.ids import BodyType, CellId, CropType, RobotId
 from swarm_field.contracts.world import FieldGeometry
 
 

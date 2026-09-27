@@ -4,7 +4,7 @@
 >
 > **Scope.** The module **receives** goals from the Decision Engine (A.1); whether a pest is "close enough" to chase is a decision, not a navigation concern. The explorer *hop numbers* are defined here because navigation consumes them, but computing them is the job of A.4 (Communication & Knowledge). As in the decomposition doc, the type sketches are real contract shapes but field lists may grow — they fix the seam between A.1 (what is wanted) and A.3 (how to move), never the internals of other modules.
 >
-> **A note on the architecture's `Navigator` port.** [`architecture.md`](./architecture.md) sketches a `Navigator.step_towards(target: CellId) -> Action` whose target is an absolute grid cell. This module steers by relative vectors instead: a utility robot's *goal* is composed from perceived neighbours as a displacement, never from trusted absolute cell addresses (it has no ground truth); only the resulting one-step `Move(to=CellId)` names an absolute cell, derived from the robot's own position plus the chosen heading's offset. The change is internal to component A; the A.1 ↔ A.3 boundary is the `NavGoal` defined below.
+> **A note on the architecture's `Navigator` port.** [`architecture.md`](./architecture.md) sketches a `Navigator.step_towards(target: CellId) -> Action`. The port in the code is `step_towards(seeds: tuple[Seed, ...], robot: CellId) -> Action`: an objective hands over the targets it scored, not a single trusted cell address, and gets back one `Move` (or `Idle`). This document designs the *reactive* half of that seam — the policy that turns a goal into a step with no map — as the `Steerer` of `swarm/steering.py`. It steers by relative vectors: a utility robot's *goal* is composed from perceived neighbours as a displacement, never from trusted absolute cell addresses (it has no ground truth); only the resulting one-step `Move(to=CellId)` names an absolute cell, derived from the robot's own position plus the chosen heading's offset. Where the robot *does* have a map of believed terrain — the quadtree of its own memory — the `Navigator` in front of it prefers a Dijkstra potential field and only calls the `Steerer` when that field cannot guide, so everything below still holds as the fallback path (see "Where the field takes over" below). The change is internal to component A; the A.1 ↔ A.3 boundary is the `NavGoal` defined below.
 
 ---
 
@@ -57,7 +57,7 @@ The implementation keeps vectors grid-native: a `Vector2` is a displacement in *
 
 ### 3.1 Core assumption: goals are relative, only the final cell is absolute
 
-The steering policy works on *relative* vectors and never consults the field layout: a goal arrives as a displacement (the `SPREAD` drift, or a composed `r + v` for CHASE), and clearance is probed per compass heading through the `Sensing` port. The one absolute value the navigator needs is its own `RobotSelfState.position` — not to reason about the field, but to name the target cell of the direct `Move(to=CellId)` the high-level world model requires (movement is a direct target-cell command; there is no turn/facing, per `README.md`).
+The steering policy works on *relative* vectors and never consults the field layout: a goal arrives as a displacement (the `SPREAD` drift, or a composed `r + v` for CHASE), and clearance is probed per compass heading through the `Sensing` port. The one absolute value the steerer needs is its own `RobotSelfState.position` — not to reason about the field, but to name the target cell of the direct `Move(to=CellId)` the high-level world model requires (movement is a direct target-cell command; there is no turn/facing, per `README.md`).
 
 All spatial knowledge comes from two sources only:
 
@@ -319,7 +319,7 @@ Summary of the chase, per step:
 | 3 | (7, 4) | E0: hop 0, `(0, +1)` | `(-2, 0) + (0, +1) = (-2, 1)` | West then North |
 | 4 | (5, 4) | — (arrived) | — | Stop; Treat from the aisle |
 
-**Implementation status — §8.1 is real, tested code.** `contracts.navigation` provides `Vector2`, `NavMode` / `NavGoal` and the decoded `HopFieldEntry` (the per-explorer hop-field entry A.4 hands to navigation: `holder_hop`, `parent_vector`, `to_holder`, `seen_at`); `swarm_field.swarm.navigator.resolve_chase_target` composes `to_holder + parent_vector` for the best pilot (the hop / closeness / freshness tie-breaks of decision #2), and `Navigator.steer_chase` / `steer_goal` turn that into `Move(to=CellId)` / `Idle` while applying the row-edge `STAND` at the tail (decision #5). `tests/test_chase_scenario.py` replays this walkthrough end to end: a fabricated A.4 re-derives every explorer's `to_holder` from a live utility-robot position and a `radio_range` of 3, the composed targets come out `(-4,0) → (-4,0) → (-2,1) → (0,1)`, and the utility robot ends `STAND`-idle at (5, 4) without ever entering a crop cell, its pilot hop descending 2 → 1 → 0. The other `NavGoal` modes of Section 4 are implemented and exercised too: `HOLD` → `Idle`, SPREAD's fixed drift (which detours around crops), and CHASE's "no resolvable gradient" → `Idle` fallback.
+**Implementation status — §8.1 is real, tested code.** `contracts.navigation` provides `Vector2`, `NavMode` / `NavGoal` and the decoded `HopFieldEntry` (the per-explorer hop-field entry A.4 hands to navigation: `holder_hop`, `parent_vector`, `to_holder`, `seen_at`); `swarm_field.swarm.steering.resolve_chase_target` composes `to_holder + parent_vector` for the best pilot (the hop / closeness / freshness tie-breaks of decision #2), and `Steerer.steer_chase` / `steer_goal` turn that into `Move(to=CellId)` / `Idle` while applying the row-edge `STAND` at the tail (decision #5). `tests/test_chase_scenario.py` replays this walkthrough end to end: a fabricated A.4 re-derives every explorer's `to_holder` from a live utility-robot position and a `radio_range` of 3, the composed targets come out `(-4,0) → (-4,0) → (-2,1) → (0,1)`, and the utility robot ends `STAND`-idle at (5, 4) without ever entering a crop cell, its pilot hop descending 2 → 1 → 0. The other `NavGoal` modes of Section 4 are implemented and exercised too: `HOLD` → `Idle`, SPREAD's fixed drift (which detours around crops), and CHASE's "no resolvable gradient" → `Idle` fallback.
 
 ---
 
@@ -388,13 +388,23 @@ flowchart LR
 The navigation module does not move anything; it emits the concrete one-step action, which the Act stage (B.2) applies on the discrete grid. Because the world model is a direct `Move(to=CellId)` (no turn/facing), the output seam is the contracts `Action` union and needs no module-scoped shape:
 
 ```python
-# the navigator's output each decision point — exactly one physical action per tick:
+# the steerer's output each decision point — exactly one physical action per tick:
 Move(to=position + best_aligned.offset)  # goal reachable and the target cell clear
 Move(to=position + tangent.offset)       # wall-following detour, committed tangent
 Idle()                                   # goal reached, no gradient, or stalled
 ```
 
-The policy, one physical action per tick (Section 9): the goal is re-resolved every tick; when the best goal-aligned cell is clear the action is `Move(to=...)` into it, when it is blocked the action follows the committed wall-follow tangent (Section 5), and when the goal is reached, no gradient resolves, or the navigator is stalled the action is `Idle`. The Act stage only validates that `to` is the adjacent cell the navigator intended and applies it.
+The policy, one physical action per tick (Section 9): the goal is re-resolved every tick; when the best goal-aligned cell is clear the action is `Move(to=...)` into it, when it is blocked the action follows the committed wall-follow tangent (Section 5), and when the goal is reached, no gradient resolves, or the steerer is stalled the action is `Idle`. The Act stage only validates that `to` is the adjacent cell the steerer intended and applies it. The `Navigator` seam returns the same two actions from a different policy: a `Move` into the cell a potential field points at when that field can guide, and the steerer's action when it cannot.
+
+### 11.1 Where the field takes over
+
+Everything above assumes the robot has no map, only the clearance ring. A robot that also builds a local map does better with one: a Dijkstra potential field over the quadtree of its believed terrain (`swarm/field/`) gives a near-optimal route around every obstacle it knows, at any distance, and one step of that route is still just a `Move(to=<adjacent cell>)`. So `swarm/navigator.py` puts the field in front of the policy described here, and the `Steerer` becomes the fallback rather than the way:
+
+- **The field guides.** `step_towards(seeds, robot)` builds (or reuses) the field for the objective's targets and returns the neighbouring cell the field points at. Distance to the target is irrelevant: a field is better than a wall-follow at every range, because it sees the whole window instead of one cell.
+- **The steerer guides when the field cannot.** Either no wave reaches the robot at all — nothing is reachable, so the steerer walks towards the objective's most attractive target and stalls if it is walled off — or the field stopped guiding: the potential at the robot's cell stopped beating its running minimum for a few ticks, which is how a robot near the edge of its window would turn back and forth over approximate leaf distances. Three ticks without progress is enough to hand over.
+- **The handover is not latched.** Every decision point the field is asked first, so the robot returns to the field route as soon as the field points forward again.
+
+Two consequences for the design above. The policy is now a *fallback* with a narrow job, and it keeps the property that made it useful in the first place — it needs no map, only clearance — so it still works over unknown ground and can be handed a live sensor ring through `Sensing`. And `QuadtreeSensing`, its map-backed implementation, asks the quadtree the same question its routing does, so the two layers never disagree about where a robot may go.
 
 ---
 
@@ -422,7 +432,7 @@ All open items below are internal to A.3 (or a B.2 translation detail), so the m
 | 2 | **Gradient freshness window.** Number of ticks a `HopBeacon` stays usable (decay), and the tie-break between same-hop beacons: prefer lower hop, then closer, then freshest | No |
 | 3 | **SPREAD behaviour on stuck detection.** Single drift per deployment vs. re-roll after a stuck timeout; who detects "stuck" | No |
 | 4 | **Robot–robot collisions.** Currently both bodies ignore the `occupant` cell field; land robots might later yield to each other | No |
-| 5 | **Arrival semantics.** Stop exactly at the pest (`STAND`) vs. continuous pursuit around it while it "lives". **Resolved: STAND.** Implemented as the row-edge rule in `Navigator.steer_chase`: when the pilot hop is 0, `to_holder` is inside `target_tolerance`, and the composed target's cell is blocked (a crop), navigation resets and emits `Idle` — the utility robot stands on the aisle and treatment proceeds from the row edge (§8.1 Step 4). | No |
+| 5 | **Arrival semantics.** Stop exactly at the pest (`STAND`) vs. continuous pursuit around it while it "lives". **Resolved: STAND.** Implemented as the row-edge rule in `Steerer.steer_chase`: when the pilot hop is 0, `to_holder` is inside `target_tolerance`, and the composed target's cell is blocked (a crop), the steerer resets and emits `Idle` — the utility robot stands on the aisle and treatment proceeds from the row edge (§8.1 Step 4). | No |
 | 6 | **Speed / energy coupling.** `MovementIntent` carries a `speed_fraction` vs. `v_max`; how battery consumption modifies it (a decision concern, surfaced here) | No |
 | 7 | **Aversion parameters.** Personal-space radius, impulse cap and decay curve for the explorer separation (scenario-tunable) | No |
 

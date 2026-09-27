@@ -1,397 +1,169 @@
-"""A.3 Navigation — turn a goal into a concrete ``Move`` action.
+"""The robot's navigator: its quadtree, kept in sync with memory, the grid potential fields
+built on it, and the one seam that turns a field into a movement action.
 
-The navigator is the movement policy of component A (the brain). It resolves a goal — a
-relative displacement vector, a fixed drift, or a resolved pest-gradient target — into one
-physical action per decision point: a ``Move`` naming the adjacent target cell to enter
-(the world has no turn/facing model; movement is a direct target-cell command). It hands in
-its absolute ``position`` each decision point, and spatial knowledge arrives only through a
-``Sensing`` port that reports whether each adjacent grid cell is clear to enter.
-
-Obstacle avoidance is a committed right-hand wall-follow (Bug-algorithm style). When the
-goal heading is blocked the navigator picks the most goal-aligned clear heading (ties to
-the fixed right hand) and commits to it for the episode: it hugs the wall, rounding corners
-toward the goal as soon as the tangent ahead gives out, and never re-consults the raw goal
-bearing while sliding (that is what turns a row's south aisle into a dead-end trap). It
-only leaves the wall when the goal is right next to it. A dead end with no route at all
-flips ``is_stalled`` — re-routing stays the brain's job (A.1), not the navigator's.
-
-Chasing the pest gradient is orchestrated on top: :meth:`Navigator.steer_chase` picks the
-freshest qualifying hop-field entry each decision point, composes its target
-(``to_holder + parent_vector``) and steers; once the tail of the chain is reached (the
-hop-0 beacon's cell, with the pest ahead blocked) it stands still so treatment takes over
-from the row edge.
+The navigator holds the robot's belief about where it can move — a ``Quadtree`` over the
+traversable cells it has learned from its memory — and the grid potential field an objective's
+targets induce on that belief. It is also where movement is decided: :meth:`Navigator.step_towards`
+follows the field, and hands over to the reactive ``Steerer`` when the field cannot guide the
+robot, which is the fallback that keeps a robot moving over ground it has no plan for.
 """
 
-from __future__ import annotations
-
-from collections.abc import Sequence
+from collections.abc import Iterable
 from dataclasses import dataclass
-from math import hypot
-from typing import Protocol
 
-from swarm_field.contracts import (
-    CellId,
-    Direction,
-    HopFieldEntry,
-    Idle,
-    Move,
-    NavGoal,
-    NavMode,
-    Vector2,
+from swarm_field.contracts import CellId, Idle, Move
+from swarm_field.swarm.field import (
+    GridPotentialField,
+    Quadtree,
+    Seed,
+    TerrainView,
+    build_grid_potential_field,
+    traversable_cells,
 )
+from swarm_field.swarm.field.quadtree import can_enter
+from swarm_field.swarm.steering import QuadtreeSensing, Steerer, SteeringConfig
 
+_PLAN_PATIENCE_TICKS = 3
+"""Field-following ticks without the potential beating its minimum before the steerer takes over.
 
-class Sensing(Protocol):
-    """Local proximity ring — is the adjacent cell in a given heading clear to enter?
-
-    The robot can ask, per compass heading, whether the grid cell one step in that direction
-    is free to move into. A real implementation (backed by memory / perception) is future
-    work; tests supply fakes driven by a hidden grid, so the navigator itself stays free of
-    any absolute geometry beyond the robot's own position.
-    """
-
-    def clear(self, direction: Direction) -> bool: ...
+The field's window makes the potential approximate, so one tick of standstill is not a loop; a
+few of them is.
+"""
 
 
 @dataclass(frozen=True)
-class SteeringConfig:
-    """Tuning knobs for the steering policy.
+class _CachedField:
+    """A field kept for reuse, valid for as long as its key still matches.
 
     Attributes:
-        target_tolerance: Cell distance below which the goal counts as reached.
-        near_goal: Cell distance at which the goal counts as right next to the robot, so a
-            wall-following episode may legitimately break off toward it.
-        stuck_ticks: Detour ticks without the goal distance beating its running minimum
-            before the navigator declares itself stuck.
-        progress_epsilon: Smallest goal-distance decrease, in cells, that counts as
-            sensible progress toward the goal.
+        seeds: The targets the field was built from.
+        version: The quadtree version it was built on.
+        block: The robot's block of ``max_leaf_side`` cells. The field's window is made of
+            whole blocks, so it stays exact for as long as the robot stays in this one.
+        field: The field itself.
     """
 
-    target_tolerance: float = 0.75
-    near_goal: float = 1.5
-    stuck_ticks: int = 40
-    progress_epsilon: float = 0.01
+    seeds: tuple[Seed, ...]
+    version: int
+    block: CellId
+    field: GridPotentialField
+
+    def matches(self, seeds: tuple[Seed, ...], version: int, block: CellId) -> bool:
+        """Whether this field still answers for ``seeds`` on terrain ``version``, in ``block``."""
+        return self.seeds == seeds and self.version == version and self.block == block
 
 
 class Navigator:
-    """One-tick steering policy: a relative goal in, a physical action out.
-
-    Public API: :meth:`steer` returns this tick's action; :pyattr:`is_stalled` reports that
-    the goal cannot be reached from here; :pyattr:`is_detouring` reports that the robot is
-    currently wall-following. State is limited to the policy's short memory (the committed
-    tangent, stuck accounting); the robot's own position and the field layout live outside
-    the navigator.
-    """
-
-    def __init__(self, sensing: Sensing, config: SteeringConfig | None = None) -> None:
-        self._sensing: Sensing = sensing
-        self._config: SteeringConfig = config if config is not None else SteeringConfig()
-        self._tangent: Direction | None = None
-        self._detour_ticks: int = 0
-        self._min_goal_dist: float | None = None
-        self._stuck_ticks: int = 0
-        self._stalled: bool = False
-
-    @property
-    def is_stalled(self) -> bool:
-        """True once the goal is unreachable from here (no clear move, or no progress).
-
-        A stalled navigator idles and keeps reporting until :meth:`reset` is called — the
-        brain reacts by re-issuing or replanning the goal.
-        """
-        return self._stalled
-
-    @property
-    def is_detouring(self) -> bool:
-        """True while the robot is wall-following around an obstruction."""
-        return self._detour_ticks > 0
-
-    def reset(self) -> None:
-        """Forget all steering state — after a stall, or when handed a new goal."""
-        self._end_detour()
-        self._min_goal_dist = None
-        self._stuck_ticks = 0
-        self._stalled = False
-
-    def steer(self, target: Vector2, position: CellId) -> Move | Idle:
-        """Pick this tick's action for a goal at relative offset ``target``.
-
-        Args:
-            target: Relative displacement from the robot to the goal, in cells.
-            position: The robot's current cell, needed to name the target cell of ``Move``.
-        """
-        dx, dy = target
-        goal_dist = hypot(dx, dy)
-
-        if goal_dist <= self._config.target_tolerance:
-            self.reset()
-            return Idle()
-
-        if self._stalled:
-            return Idle()
-
-        desired = self._best_aligned(target)
-
-        if self._detour_ticks == 0:
-            if self._sensing.clear(desired):
-                return self._head(desired, position)
-            tangent = self._choose_tangent(desired)
-            if tangent is None:
-                self._stalled = True
-                return Idle()
-            self._tangent = tangent
-            self._detour_ticks = 1
-            return self._track_progress(goal_dist, tangent, position)
-
-        tangent = self._tangent
-        assert tangent is not None
-        if not self._sensing.clear(tangent):
-            perp = _perp_toward_goal(tangent, target)
-            if perp is not None and self._sensing.clear(perp):
-                tangent = perp
-                self._tangent = tangent
-            else:
-                tangent = self._shift_tangent(tangent)
-                if tangent is None:
-                    self._stalled = True
-                    return Idle()
-                self._tangent = tangent
-
-        if self._sensing.clear(desired) and (
-            goal_dist <= self._config.near_goal or self._level_along(tangent, target)
-        ):
-            self._end_detour()
-            return self._head(desired, position)
-
-        self._detour_ticks += 1
-        return self._track_progress(goal_dist, tangent, position)
-
-    def steer_goal(
-        self, goal: NavGoal, field: Sequence[HopFieldEntry], position: CellId
-    ) -> Move | Idle:
-        """Resolve one ``NavGoal`` into this decision point's movement action.
-
-        ``HOLD`` stands still; ``SPREAD`` steers along the fixed drift vector; ``CHASE``
-        pursues the freshest qualifying beacon in ``field`` (``steer_chase``). The goal's
-        mode-specific field must be present: ``drift`` for SPREAD, ``max_hop`` for CHASE.
-
-        Args:
-            goal: The goal A.1 issued for this decision point.
-            field: The decoded hop-field (A.4) — ignored by every mode but CHASE.
-            position: The robot's current cell, needed to name the target cell of ``Move``.
-        """
-        if goal.mode is NavMode.HOLD:
-            return Idle()
-        if goal.mode is NavMode.SPREAD:
-            assert goal.drift is not None
-            return self.steer(goal.drift, position)
-        assert goal.max_hop is not None
-        return self.steer_chase(field, goal.max_hop, position)
-
-    def steer_chase(
-        self, field: Sequence[HopFieldEntry], max_hop: int, position: CellId
-    ) -> Move | Idle:
-        """Pursue the pest gradient: steer toward the freshest qualifying beacon.
-
-        Re-reads ``field`` every decision point (reactive pursuit, never a memorised
-        waypoint). An empty or stale field — no entry at or below ``max_hop`` — means "no
-        resolvable gradient": the navigator idles and leaves the decision to the brain,
-        exactly the module's single report-to-A.1 signal.
-
-        Args:
-            field: The decoded hop-field (A.4), one entry per in-range explorer.
-            max_hop: Pursue only beacons at this hop level or lower.
-            position: The robot's current cell, needed to name the target cell of ``Move``.
-        """
-        resolved = resolve_chase_target(field, max_hop)
-        if resolved is None:
-            return Idle()
-        if resolved.holder_hop == 0 and self._pest_row_edge(resolved):
-            self.reset()
-            return Idle()
-        return self.steer(resolved.target, position)
-
-    def _pest_row_edge(self, resolved: ChaseTarget) -> bool:
-        """True when the chase has resolved at the pest's row edge and must STAND.
-
-        The robot has reached the hop-0 explorer's hover cell and the composed tail — the
-        vector to the pest itself — points into a cell it cannot enter (the crop row). The
-        navigator then stands still so the brain's treat logic takes over from the aisle;
-        this resolves arrival semantics (``docs/navigation-module.md`` §13, decision 5) to
-        "STAND at the row edge".
-        """
-        holder_dx, holder_dy = resolved.to_holder
-        if hypot(holder_dx, holder_dy) > self._config.target_tolerance:
-            return False
-        desired = self._best_aligned(resolved.target)
-        return not self._sensing.clear(desired)
-
-    def _track_progress(
-        self, goal_dist: float, tangent: Direction, position: CellId
-    ) -> Move | Idle:
-        if (
-            self._min_goal_dist is None
-            or goal_dist < self._min_goal_dist - self._config.progress_epsilon
-        ):
-            self._min_goal_dist = goal_dist
-            self._stuck_ticks = 0
-        else:
-            self._stuck_ticks += 1
-            if self._stuck_ticks >= self._config.stuck_ticks:
-                self._stalled = True
-                return Idle()
-        return self._head(tangent, position)
-
-    def _head(self, direction: Direction, position: CellId) -> Move:
-        """The ``Move`` one step ``direction`` away from ``position``."""
-        dx, dy = direction.offset
-        return Move(to=(position[0] + dx, position[1] + dy))
-
-    def _end_detour(self) -> None:
-        """Leave the wall: the goal is reachable, or we are handed a new goal."""
-        self._tangent = None
-        self._detour_ticks = 0
-
-    def _level_along(self, tangent: Direction, target: Vector2) -> bool:
-        """True when the goal is level with the robot along the slide axis.
-
-        Sliding north or south the goal's north-south offset decides; sliding east or west
-        the east-west offset does. A diagonal slide has no single axis — never level.
-        """
-        ox, oy = tangent.offset
-        dx, dy = target
-        tolerance = self._config.target_tolerance
-        if oy != 0:
-            return abs(dy) <= tolerance
-        if ox != 0:
-            return abs(dx) <= tolerance
-        return False
-
-    def _best_aligned(self, target: Vector2) -> Direction:
-        """The compass heading closest to the goal direction, ties by enum order.
-
-        Candidates are ranked by alignment score (max); ties fall back to enum order so the
-        result stays deterministic across ticks without a turn/facing model to break them.
-        """
-        dx, dy = target
-        goal_dist = hypot(dx, dy)
-        order = list(Direction)
-        rows: list[tuple[float, int, Direction]] = []
-        for d in order:
-            ux, uy = _unit_offset(d)
-            score = (dx * ux + dy * uy) / goal_dist
-            rows.append((-score, order.index(d), d))
-        return min(rows)[2]
-
-    def _choose_tangent(self, desired: Direction) -> Direction | None:
-        """The clear heading to start a detour with, when ``desired`` is blocked.
-
-        Among the clear neighbours, pick the one most aligned with ``desired``; ties go to
-        whichever is closest clockwise from ``desired`` (the fixed right hand). Chosen once
-        per episode — the navigator commits to it; only the wall itself re-routes it.
-        """
-        order = list(Direction)
-        dux, duy = _unit_offset(desired)
-        rows: list[tuple[float, int, Direction]] = []
-        for d in order:
-            if not self._sensing.clear(d):
-                continue
-            ux, uy = _unit_offset(d)
-            rows.append(
-                (-(dux * ux + duy * uy), (order.index(d) - order.index(desired)) % len(order), d)
-            )
-        if not rows:
-            return None
-        return min(rows)[2]
-
-    def _shift_tangent(self, tangent: Direction) -> Direction | None:
-        """Continue the wall around a corner: first clear heading clockwise from ``tangent``.
-
-        Used mid-episode when the committed tangent is blocked again. Scanning clockwise
-        keeps the obstruction hugging the robot's right, matching the right-hand start.
-        """
-        order = list(Direction)
-        shift = order.index(tangent)
-        for step in range(1, len(order) + 1):
-            candidate = order[(shift + step) % len(order)]
-            if self._sensing.clear(candidate):
-                return candidate
-        return None
-
-
-@dataclass(frozen=True)
-class ChaseTarget:
-    """The composed pursuit target, with the hop level it was built from.
+    """Builds grid potential fields for one robot, over a quadtree of the cells it can enter.
 
     Attributes:
-        target: The composed relative vector to steer toward, in cells.
-        holder_hop: The selected beacon's hop number; 0 means the chain resolved at the
-            pest itself.
-        to_holder: The robot's measured vector to the selected holder, kept for the arrival
-            (row-edge STAND) test.
+        quadtree: Where this robot can be and move, read from its memory's terrain.
     """
 
-    target: Vector2
-    holder_hop: int
-    to_holder: Vector2
+    def __init__(
+        self, terrain: TerrainView, flies: bool, steering: SteeringConfig | None = None
+    ) -> None:
+        self._terrain: TerrainView = terrain
+        self._flies: bool = flies
+        self._config: SteeringConfig = steering if steering is not None else SteeringConfig()
+        self.quadtree: Quadtree = Quadtree(traversable_cells(terrain, flies))
+        self._steerer: Steerer = Steerer(QuadtreeSensing(self.quadtree), self._config)
+        self._cached: _CachedField | None = None
+        self._best_value: float | None = None
+        self._no_progress_ticks: int = 0
+
+    def update_terrain(self, cells: Iterable[CellId]) -> None:
+        """Re-read the given cells from the terrain, after new terrain facts about them."""
+        changes = {cell: can_enter(self._terrain.terrain_at(cell), self._flies) for cell in cells}
+        if changes:
+            self.quadtree.update(changes)
+
+    def field_for(self, seeds: tuple[Seed, ...], robot: CellId) -> GridPotentialField:
+        """The grid potential field towards ``seeds``, fine around the robot's cell.
+
+        The field is kept, and handed back unchanged, for as long as the seeds, the terrain and
+        the robot's block of the quadtree all stay the same. Following a plan therefore costs
+        one build per block travelled rather than one per step, which matters because building
+        takes tens to hundreds of milliseconds while reading the field back takes microseconds.
+        """
+        block = self._block_of(robot)
+        cached = self._cached
+        if cached is not None and cached.matches(seeds, self.quadtree.version, block):
+            return cached.field
+        field = build_grid_potential_field(seeds, self.quadtree, robot)
+        self._cached = _CachedField(
+            seeds=seeds, version=self.quadtree.version, block=block, field=field
+        )
+        self._forget_plan()
+        return field
+
+    def step_towards(self, seeds: tuple[Seed, ...], robot: CellId) -> Move | Idle:
+        """The one movement action of this decision point, on the way towards ``seeds``.
+
+        A field guides the robot while it can: the robot steps into the neighbouring cell the
+        field points at, which is one step of a route that is near-optimal around the obstacles
+        the quadtree knows. The reactive ``Steerer`` takes over when the field cannot guide —
+        no target is reachable, or following the field stopped bringing the robot closer, which
+        is how the window's edge can make a robot turn back and forth. The steerer then walks
+        towards the target the objective named, and gives way again as soon as the field points
+        forward once more.
+
+        Args:
+            seeds: The targets of the objective being pursued, as the objective scored them.
+            robot: The robot's current cell, the origin the step is taken from.
+        """
+        if not seeds:
+            self._forget_plan()
+            return Idle()
+
+        field = self.field_for(seeds, robot)
+        target = field.target_for(robot)
+        if target == robot:
+            self._forget_plan()
+            return Idle()
+        if target is None:
+            # No wave reaches this robot, so the field has no route to offer. The objective's
+            # targets are known all the same, so the steerer walks towards the most attractive
+            # one and stalls if it is walled off for good, which is how the brain hears about it.
+            return self._steer_towards(_attractive_seed(seeds).cell, robot)
+
+        step = field.next_cell(robot)
+        if step is not None and self._plan_progresses(field.value_at(robot)):
+            self._steerer.reset()
+            return Move(to=step)
+        offset = (float(target[0] - robot[0]), float(target[1] - robot[1]))
+        return self._steerer.steer(offset, robot)
+
+    def _steer_towards(self, target: CellId, robot: CellId) -> Move | Idle:
+        """The ``Steerer``'s step towards an absolute ``target``, as a relative offset."""
+        offset = (float(target[0] - robot[0]), float(target[1] - robot[1]))
+        return self._steerer.steer(offset, robot)
+
+    def _block_of(self, robot: CellId) -> CellId:
+        """The robot's block of ``max_leaf_side`` cells, the unit its field's window moves in."""
+        side = self.quadtree.max_leaf_side
+        return (robot[0] // side, robot[1] // side)
+
+    def _plan_progresses(self, value: float) -> bool:
+        """Whether following the field still brings the robot closer to its target.
+
+        ``value`` is the potential at the robot's cell, in cells of travel left to the target,
+        so a potential that keeps beating its running minimum is progress. A few ticks of
+        anything else means the plan is no longer guiding the robot.
+        """
+        if self._best_value is None or value < self._best_value - self._config.progress_epsilon:
+            self._best_value = value
+            self._no_progress_ticks = 0
+            return True
+        self._no_progress_ticks += 1
+        return self._no_progress_ticks < _PLAN_PATIENCE_TICKS
+
+    def _forget_plan(self) -> None:
+        """Drop what was tracked about the plan that is no longer in force."""
+        self._best_value = None
+        self._no_progress_ticks = 0
 
 
-def resolve_chase_target(field: Sequence[HopFieldEntry], max_hop: int) -> ChaseTarget | None:
-    """Compose the freshest qualifying beacon's gradient into one steerable target.
-
-    From the decoded hop-field pick the qualifying entry (hop at most ``max_hop``) with the
-    lowest hop, then the closest holder, then the freshest beacon, and compose its gradient:
-    the robot's measured vector to the holder plus the holder's vector onward to the next
-    hop down (``docs/navigation-module.md`` §7.2). Returns ``None`` when no entry qualifies
-    — the "no resolvable gradient" case that A.1 must react to.
-
-    Args:
-        field: The decoded hop-field, one entry per in-range explorer.
-        max_hop: Pursue only beacons at this hop level or lower.
-    """
-    qualifying = [entry for entry in field if entry.holder_hop <= max_hop]
-    if not qualifying:
-        return None
-    best = min(qualifying, key=_pilot_key)
-    target = (
-        best.to_holder[0] + best.parent_vector[0],
-        best.to_holder[1] + best.parent_vector[1],
-    )
-    return ChaseTarget(target=target, holder_hop=best.holder_hop, to_holder=best.to_holder)
-
-
-def _pilot_key(entry: HopFieldEntry) -> tuple[int, float, int]:
-    """Selection order for a pilot beacon: lower hop, then closer holder, then fresher."""
-    holder_dx, holder_dy = entry.to_holder
-    return (entry.holder_hop, hypot(holder_dx, holder_dy), -entry.seen_at)
-
-
-def _unit_offset(direction: Direction) -> tuple[float, float]:
-    """The unit (length-1) compass offset of a direction, so diagonals score fairly."""
-    ox, oy = direction.offset
-    length = hypot(ox, oy)
-    return ox / length, oy / length
-
-
-def _perp_toward_goal(tangent: Direction, target: Vector2) -> Direction | None:
-    """The cardinal perpendicular to ``tangent`` that leads toward the goal, if any.
-
-    While sliding east or west the goal's north-south offset decides; while sliding north
-    or south the east-west offset does. Diagonals have no single perpendicular axis, and a
-    goal exactly abeam has none either — both return ``None``.
-    """
-    ox, oy = tangent.offset
-    if abs(ox) == abs(oy):
-        return None
-    dx, dy = target
-    if ox != 0:
-        if dy > 0:
-            return Direction.N
-        if dy < 0:
-            return Direction.S
-        return None
-    if dx < 0:
-        return Direction.W
-    if dx > 0:
-        return Direction.E
-    return None
+def _attractive_seed(seeds: tuple[Seed, ...]) -> Seed:
+    """The seed the robot is most drawn to: the lowest start value, ties by position."""
+    return min(seeds, key=lambda seed: (seed.value, seed.cell))

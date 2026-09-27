@@ -6,7 +6,7 @@ how reliable, when, by whom) and are matched with ``match``/``case``, like ``Act
 
 from dataclasses import dataclass
 
-from swarm_field.contracts.ids import CellId, CropType, PestType, RobotId, Time
+from swarm_field.contracts.ids import BodyType, CellId, CropType, PestType, RobotId, Terrain, Time
 
 
 @dataclass(frozen=True)
@@ -53,14 +53,14 @@ class InfestationObservation(ObservationBase):
 
 
 @dataclass(frozen=True)
-class ObstacleObservation(ObservationBase):
-    """A reading of whether a cell blocks movement.
+class TerrainObservation(ObservationBase):
+    """A reading of what a cell is made of: free, an obstacle, or outside the field.
 
     Attributes:
-        is_obstacle: Whether the cell was seen to be an obstacle.
+        terrain: The observed terrain.
     """
 
-    is_obstacle: bool
+    terrain: Terrain
 
 
 @dataclass(frozen=True)
@@ -69,9 +69,11 @@ class PeerObservation(ObservationBase):
 
     Attributes:
         peer: The peer's identity if resolvable, else ``None`` for an anonymous sighting.
+        body: The peer's body type.
     """
 
     peer: RobotId | None
+    body: BodyType
 
 
-Observation = CropObservation | InfestationObservation | ObstacleObservation | PeerObservation
+Observation = CropObservation | InfestationObservation | TerrainObservation | PeerObservation

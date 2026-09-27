@@ -1,17 +1,19 @@
-"""Animated demo of the A.3 ``Navigator`` steering a land robot around an obstacle wall.
+"""Animated demo of the A.3 ``Steerer`` walking a land robot around an obstacle wall.
 
 A utility (KILLER) robot starts east of a vertical crop-wall; an infested cell lies west of
-it. The wall's only gap is at the field's top edge, so the Navigator's committed right-hand
+it. The wall's only gap is at the field's top edge, so the Steerer's committed right-hand
 wall-following climbs the wall's east face up to that gap, rounds it, and descends to the
 infested cell — then the demo treats it. Each decision point yields one direct
 ``Move(to=CellId)`` applied by ``WorldState``; the ``Sensing`` probe reads ground-truth
-walkability as a stand-in for future perception.
+walkability as a stand-in for future perception. This is the reactive layer the ``Navigator``
+falls back on when a potential field cannot guide a robot; the potential field itself is
+demonstrated in ``potential_field_demo.py``.
 
 Run from the repository root with:
-    uv run python examples/navigator_demo.py
+    uv run python examples/steering_demo.py
 
 Headless (write frames as PNGs instead of opening a window):
-    uv run python examples/navigator_demo.py --frames 300 --save frames/navigator
+    uv run python examples/steering_demo.py --frames 300 --save frames/steering
 """
 
 from __future__ import annotations
@@ -29,11 +31,10 @@ from swarm_field.contracts import (
     FieldGeometry,
     Idle,
     Move,
-    RobotId,
     Treat,
 )
 from swarm_field.simulation import RobotState, WorldState
-from swarm_field.swarm import Navigator
+from swarm_field.swarm import Steerer
 from swarm_field.visualization import MatplotlibRenderer
 
 FIELD_WIDTH = 12
@@ -52,34 +53,33 @@ WALL_TOP = 7
 class WorldSensing:
     """Per-heading walkability probe backed by the world's ground truth.
 
-    At each decision point the demo's robot is parked on a cell, so the probe can answer the
-    Navigator's ``clear(direction)`` question straight from ``WorldState`` — the same
-    ground-truth-backed stand-in the navigator tests use. A real perception layer is future
-    work; the Navigator itself stays position-agnostic about the field layout.
+    The probe answers the Steerer's ``clear(origin, direction)`` question straight from
+    ``WorldState`` — the same ground-truth-backed stand-in the steering tests use, where
+    ``QuadtreeSensing`` would answer it from believed terrain in a real brain. A real
+    perception layer is future work; the Steerer itself stays position-agnostic about the field
+    layout.
     """
 
-    def __init__(self, world: WorldState, robot_id: RobotId) -> None:
+    def __init__(self, world: WorldState) -> None:
         self._world: WorldState = world
-        self._robot_id: RobotId = robot_id
 
-    def clear(self, direction: Direction) -> bool:
-        """Whether the neighbour one ``direction`` step away is walkable."""
-        x, y = self._world.robots[self._robot_id].position
+    def clear(self, origin: CellId, direction: Direction) -> bool:
+        """Whether the neighbour one ``direction`` step from ``origin`` is walkable."""
         dx, dy = direction.offset
-        return self._world.is_walkable((x + dx, y + dy))
+        return self._world.is_walkable((origin[0] + dx, origin[1] + dy))
 
 
-class NavigatorController:
-    """One land robot driven by the A.3 Navigator toward an absolute goal.
+class SteeringController:
+    """One land robot driven by the A.3 Steerer toward an absolute goal.
 
     Makes exactly one decision per parked cell: relative goal and current cell go in, a direct
     ``Move`` comes out and is applied to the world. The visited trace and arrival/treatment
     bookkeeping live here so the demo can draw them.
     """
 
-    def __init__(self, world: WorldState, navigator: Navigator) -> None:
+    def __init__(self, world: WorldState, steerer: Steerer) -> None:
         self.world: WorldState = world
-        self.navigator: Navigator = navigator
+        self.steerer: Steerer = steerer
         self.visited: list[CellId] = [world.robots[ROBOT_ID].position]
         self.arrived: bool = False
 
@@ -101,7 +101,7 @@ class NavigatorController:
 
         dx = float(GOAL[0] - self.robot.position[0])
         dy = float(GOAL[1] - self.robot.position[1])
-        action = self.navigator.steer((dx, dy), self.robot.position)
+        action = self.steerer.steer((dx, dy), self.robot.position)
 
         if isinstance(action, Idle):
             self.arrived = True
@@ -145,7 +145,7 @@ def build_world() -> WorldState:
     return world
 
 
-def draw_overlay(renderer: MatplotlibRenderer, controller: NavigatorController, time: int) -> None:
+def draw_overlay(renderer: MatplotlibRenderer, controller: SteeringController, time: int) -> None:
     """Draw the visited trace and goal marker on top of the rendered snapshot."""
     trace_x = [cell[0] + 0.5 for cell in controller.visited]
     trace_y = [cell[1] + 0.5 for cell in controller.visited]
@@ -161,8 +161,8 @@ def draw_overlay(renderer: MatplotlibRenderer, controller: NavigatorController, 
     )
     status = "reached & treated" if controller.arrived else f"{len(controller.visited)} cells"
     renderer.axes.set_title(
-        f"Navigator demo | t={time // 1000}.{time % 1000 // 100}s | {status} | "
-        f"stalled={controller.navigator.is_stalled}"
+        f"Steering demo | t={time // 1000}.{time % 1000 // 100}s | {status} | "
+        f"stalled={controller.steerer.is_stalled}"
     )
     renderer.axes.scatter([], [], color="tab:blue", label="trace")
     renderer.axes.legend(loc="lower left", markerscale=2.0)
@@ -183,7 +183,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     world = build_world()
-    controller = NavigatorController(world, Navigator(WorldSensing(world, ROBOT_ID)))
+    controller = SteeringController(world, Steerer(WorldSensing(world)))
     renderer = MatplotlibRenderer(figsize=(10, 7), show_targets=False)
 
     if args.save is not None:
