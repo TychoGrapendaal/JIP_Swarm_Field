@@ -7,7 +7,7 @@ potential field of the terrain the robot believes in, with a reactive ``Steerer`
 on.
 """
 
-from swarm_field.contracts import HopFieldEntry, NavGoal, NavMode, Vector2
+from swarm_field.contracts import Vector2
 from swarm_field.swarm.behavior import (
     ActionCandidate,
     Behavior,
@@ -21,27 +21,21 @@ from swarm_field.swarm.memory import AgentMemory, DecayConfig, MemoryView
 from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.objective import Objective, TreatObjective
 from swarm_field.swarm.steering import (
-    ChaseTarget,
     QuadtreeSensing,
     Sensing,
     Steerer,
     SteeringConfig,
-    resolve_chase_target,
 )
 
 __all__ = [
     "ActionCandidate",
     "AgentMemory",
     "Behavior",
-    "ChaseTarget",
     "ComposedAgent",
     "DecayConfig",
     "DecisionContext",
     "Explore",
-    "HopFieldEntry",
     "MemoryView",
-    "NavGoal",
-    "NavMode",
     "Navigator",
     "Objective",
     "PotentialField",
@@ -52,5 +46,4 @@ __all__ = [
     "TreatInfestation",
     "TreatObjective",
     "Vector2",
-    "resolve_chase_target",
 ]
