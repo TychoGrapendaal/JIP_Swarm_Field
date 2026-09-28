@@ -13,6 +13,7 @@ from swarm_field.simulation.event import (
     WorldTick,
 )
 from swarm_field.simulation.loop import SimulationLoop
+from swarm_field.simulation.scenario import build_scenario, build_world
 from swarm_field.simulation.world import RobotState, WorldState
 
 __all__ = [
@@ -25,4 +26,6 @@ __all__ = [
     "SimulationLoop",
     "WorldState",
     "WorldTick",
+    "build_scenario",
+    "build_world",
 ]
