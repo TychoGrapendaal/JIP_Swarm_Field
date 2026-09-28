@@ -12,7 +12,7 @@ import heapq
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
-from swarm_field.contracts import CellId, RobotId, Time
+from swarm_field.contracts import CellId, PestDynamicsSpec, RobotId, Time
 
 if TYPE_CHECKING:
     from swarm_field.simulation.context import SimulationContext
@@ -98,6 +98,17 @@ class PestDynamicsConfig:
     growth_rate: float = 0.05
     spread_probability: float = 0.20
     spawn_severity: float = 0.10
+
+    @classmethod
+    def from_spec(cls, spec: PestDynamicsSpec) -> PestDynamicsConfig:
+        """Build simulation dynamics from the shared scenario contract."""
+        return cls(
+            period=spec.period,
+            spawn_probability=spec.spawn_probability,
+            growth_rate=spec.growth_rate,
+            spread_probability=spec.spread_probability,
+            spawn_severity=spec.spawn_severity,
+        )
 
     def __post_init__(self) -> None:
         """Validate supported pest parameter ranges."""
