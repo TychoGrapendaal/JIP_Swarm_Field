@@ -45,7 +45,7 @@ select = [
 
 [tool.pyrefly]
 project-includes = ["src", "tests"]
-search-path = ["src"]
+search-path = ["src", "."]
 python-version = "3.12"
 # Visualization is an optional technology behind the Renderer port (examples use
 # `uv run --with matplotlib`); treat it as untyped so checks stay green either way.

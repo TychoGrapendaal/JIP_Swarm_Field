@@ -101,6 +101,14 @@ Available modes:
 
 A visualization showing the potential field and potential force map from different observations.
 
+### Wall-following steering demonstration
+
+```bash
+uv run --with matplotlib python examples/steering_demo.py
+```
+
+A single land robot running the reactive A.3 `Steerer` towards a target across an obstacle wall, drawing the cells it visited. The steerer is the mapless policy: gradient alignment towards the goal, and a committed right-hand wall-follow whenever that heading is blocked. In the brain it is the fallback behind `Navigator.step_towards`, which prefers a potential field over the robot's believed terrain. See [`docs/navigation-module.md`](docs/navigation-module.md) §11.1 and [`docs/robot-memory-and-navigation.md`](docs/robot-memory-and-navigation.md).
+
 ### Renderer demonstration (C.1)
 
 ```bash
@@ -118,8 +126,9 @@ uv run --with matplotlib python examples/renderer_demo.py --frames 60 --save fra
 ## Current demonstration limitations
 
 - The exploration behavior is currently a simple baseline and is not yet a dedicated coverage/exploration algorithm.
-- Potential-field behavior is currently a proof of concept using local observations.
-- Robot-to-robot communication has not been implemented yet.
+- The local force field used for exploration is a proof of concept using local observations; goal-directed navigation instead uses a potential field over the robot's believed terrain, with a reactive wall-follow as its fallback.
+- Navigation is planned over what the robot believes, so a wrong obstacle belief is followed exactly; there is no observation-based recovery from it yet.
+- Robot-to-robot communication has not been implemented yet, so the utility robot cannot follow a pest found by another robot yet.
 - Infestation is currently static; infestation spreading and time-dependent dynamics are planned for a later layer.
 - Sensing is currently local; distant obstacles and infestations are unknown unless information is later propagated through communication.
 - The visualization adapter only renders snapshots so far; interactive inspection, time control, and injecting infestations are not implemented yet.

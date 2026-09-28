@@ -108,7 +108,7 @@ The pluggable ports inside the brain:
 | `Memory` | hold + decay the local belief map and self‑state | grid‑cell map, continuous markers, bounded LRU map |
 | `Behavior` | propose scored action candidates from a read‑only context | scout‑coverage, treat‑nearest‑pest, return‑to‑charge, avoid‑crowding |
 | `Arbiter` | fuse candidates into one chosen action | max‑utility, weighted sum, priority with hysteresis |
-| `Navigator` | turn a target cell into a concrete `Move` | potential‑field, coverage‑control, greedy‑grid |
+| `Navigator` | turn an objective's targets into a concrete `Move` | potential‑field, coverage‑control, greedy‑grid |
 | `CommsStrategy` | decode inbox → memory, encode memory → outbox | map‑merge, vicinity‑vector, stigmergy marks |
 | `CapabilitySet` | declare which action types the body can perform | scout (senses), killer (Treat), battery (Charge) |
 
@@ -123,7 +123,7 @@ class Memory(Protocol):
     def snapshot(self) -> object: ...            # for AgentInspection.belief
 
 class Navigator(Protocol):
-    def step_towards(self, target: CellId, ctx: "DecisionContext") -> Action: ...  # direct Move(to=target)
+    def step_towards(self, seeds: tuple[Seed, ...], robot: CellId) -> Action: ...  # one step of a plan
 
 @dataclass(frozen=True)
 class ActionCandidate:

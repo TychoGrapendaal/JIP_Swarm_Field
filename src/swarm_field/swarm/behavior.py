@@ -9,9 +9,9 @@ import numpy as np
 from swarm_field.contracts import (
     Action,
     CropObservation,
+    Idle,
     InfestationObservation,
     Message,
-    Move,
     Observation,
     ObservationBase,
     PeerObservation,
@@ -42,7 +42,7 @@ class DecisionContext:
         self_state: The robot's perception of itself.
         sensed: What the robot sensed at this decision point (already merged into memory).
         memory: The robot's facts about the field and its peers.
-        navigator: Builds potential fields towards an objective's targets.
+        navigator: The robot's navigator: it turns an objective's targets into the cell to enter.
         inbox: The messages received at this decision point.
     """
 
@@ -413,13 +413,13 @@ class TreatInfestation:
         if not seeds:
             return ()
         position = ctx.self_state.position
-        field = ctx.navigator.field_for(seeds, position)
-        step = field.next_cell(position)
-        if step is None:
-            # TODO: standing on the target: propose Treat(cell=position) instead of a move.
+        step = ctx.navigator.step_towards(seeds, position)
+        if isinstance(step, Idle):
+            # Either standing on the target, or the steerer gave up on a target it cannot reach.
+            # TODO: standing on the target: propose Treat(cell=position) instead.
             return ()
-        # TODO: a score comparable across objectives, e.g. from field.value_at(position) and a
-        # weight per objective (see the arbiter in the field-level design). Lower potential is
-        # better, so negate it for now.
-        score = -field.value_at(position)
-        return (ActionCandidate(action=Move(to=step), score=score, source=self.name),)
+        # TODO: a score comparable across objectives, e.g. from the field's potential at
+        # `position` and a weight per objective (see the arbiter in the field-level design).
+        # Lower potential is better, so negate it for now.
+        score = -ctx.navigator.field_for(seeds, position).value_at(position)
+        return (ActionCandidate(action=step, score=score, source=self.name),)
