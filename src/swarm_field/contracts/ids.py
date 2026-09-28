@@ -4,17 +4,28 @@ These are the smallest shared vocabulary items; every other contract builds on t
 """
 
 from enum import Enum, auto
+from typing import Final
 
 RobotId = int
 CellId = tuple[int, int]
 """Grid coordinate for v1; treated as an opaque handle elsewhere."""
 
 Time = int
-"""Simulation time as an integer in fine units (e.g. milliseconds).
+"""Simulation time as an integer number of milliseconds.
 
 The simulation is discrete-event: events carry a ``Time`` timestamp and are processed in
-time order. There is no fixed timestep.
+time order. There is no fixed timestep. Write durations with ``TimeUnit``.
 """
+
+
+class TimeUnit:
+    """Named durations in ``Time`` units, e.g. ``24 * TimeUnit.HOUR``."""
+
+    MILLISECOND: Final[Time] = 1
+    SECOND: Final[Time] = 1000 * MILLISECOND
+    MINUTE: Final[Time] = 60 * SECOND
+    HOUR: Final[Time] = 60 * MINUTE
+    DAY: Final[Time] = 24 * HOUR
 
 
 class Direction(Enum):
@@ -59,6 +70,27 @@ _DIRECTION_OFFSETS: dict[Direction, tuple[int, int]] = {
     Direction.W: (-1, 0),
     Direction.NW: (-1, 1),
 }
+
+
+class BodyType(Enum):
+    """High-level robot body classes used by scenarios and behaviours."""
+
+    SCOUT = auto()
+    KILLER = auto()
+    BATTERY = auto()
+
+
+class Terrain(Enum):
+    """What a cell is made of, as far as moving through it is concerned.
+
+    ``OUTSIDE`` marks cells beyond the field boundary. There is no ``UNKNOWN`` member: a cell
+    whose terrain nobody has observed yet is represented by the absence of a terrain
+    observation.
+    """
+
+    FREE = auto()
+    OBSTACLE = auto()
+    OUTSIDE = auto()
 
 
 class CropType(Enum):

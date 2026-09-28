@@ -3,8 +3,7 @@
 from dataclasses import dataclass, field
 from enum import Enum, auto
 
-from swarm_field.contracts.agent import BodyType
-from swarm_field.contracts.ids import CellId, CropType, RobotId
+from swarm_field.contracts.ids import BodyType, CellId, CropType, RobotId
 from swarm_field.contracts.world import FieldGeometry
 
 

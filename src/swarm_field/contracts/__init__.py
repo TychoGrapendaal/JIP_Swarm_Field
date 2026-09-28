@@ -3,22 +3,31 @@
 from swarm_field.contracts.actions import Action, Charge, Idle, Move, Treat
 from swarm_field.contracts.agent import (
     AgentInspection,
-    BodyType,
     Decision,
     Perception,
     RobotPublicState,
     RobotSelfState,
     SwarmAgent,
 )
-from swarm_field.contracts.ids import CellId, CropType, Direction, PestType, RobotId, Time
+from swarm_field.contracts.ids import (
+    BodyType,
+    CellId,
+    CropType,
+    Direction,
+    PestType,
+    RobotId,
+    Terrain,
+    Time,
+    TimeUnit,
+)
 from swarm_field.contracts.messages import Message, MessageKind
 from swarm_field.contracts.observations import (
     CropObservation,
     InfestationObservation,
     Observation,
     ObservationBase,
-    ObstacleObservation,
     PeerObservation,
+    TerrainObservation,
 )
 from swarm_field.contracts.scenario import PestDynamicsSpec, RobotSpec, ScenarioConfig, ScenarioId
 from swarm_field.contracts.snapshot import WorldSnapshot
@@ -43,7 +52,6 @@ __all__ = [
     "Move",
     "Observation",
     "ObservationBase",
-    "ObstacleObservation",
     "PeerObservation",
     "Perception",
     "PestDynamicsSpec",
@@ -55,7 +63,10 @@ __all__ = [
     "ScenarioConfig",
     "ScenarioId",
     "SwarmAgent",
+    "Terrain",
+    "TerrainObservation",
     "Time",
+    "TimeUnit",
     "Treat",
     "WorldSnapshot",
 ]

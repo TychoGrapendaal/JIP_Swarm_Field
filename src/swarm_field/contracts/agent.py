@@ -1,21 +1,12 @@
 """The per-robot exchange between the simulation (B) and the algorithm (A)."""
 
 from dataclasses import dataclass, field
-from enum import Enum, auto
 from typing import Protocol
 
 from swarm_field.contracts.actions import Action
-from swarm_field.contracts.ids import CellId, RobotId, Time
+from swarm_field.contracts.ids import BodyType, CellId, RobotId, Time
 from swarm_field.contracts.messages import Message
 from swarm_field.contracts.observations import Observation
-
-
-class BodyType(Enum):
-    """High-level robot body classes used by scenarios and behaviours."""
-
-    SCOUT = auto()
-    KILLER = auto()
-    BATTERY = auto()
 
 
 @dataclass(frozen=True)
