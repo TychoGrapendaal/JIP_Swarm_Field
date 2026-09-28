@@ -62,7 +62,12 @@ _DIRECTION_OFFSETS: dict[Direction, tuple[int, int]] = {
 
 
 class CropType(Enum):
-    """Crop species present in a scenario. Members are scenario-defined (S3 has several)."""
+    """Crop species used by the built-in scenario presets."""
+
+    MAIZE = auto()
+    WHEAT = auto()
+    POTATO = auto()
+    SUGAR_BEET = auto()
 
 
 class PestType(Enum):

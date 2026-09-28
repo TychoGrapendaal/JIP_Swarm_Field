@@ -20,7 +20,7 @@ from swarm_field.contracts.observations import (
     ObstacleObservation,
     PeerObservation,
 )
-from swarm_field.contracts.scenario import RobotSpec, ScenarioConfig
+from swarm_field.contracts.scenario import PestDynamicsSpec, RobotSpec, ScenarioConfig, ScenarioId
 from swarm_field.contracts.snapshot import WorldSnapshot
 from swarm_field.contracts.world import CellState, FieldGeometry
 
@@ -46,12 +46,14 @@ __all__ = [
     "ObstacleObservation",
     "PeerObservation",
     "Perception",
+    "PestDynamicsSpec",
     "PestType",
     "RobotId",
     "RobotPublicState",
     "RobotSelfState",
     "RobotSpec",
     "ScenarioConfig",
+    "ScenarioId",
     "SwarmAgent",
     "Time",
     "Treat",
