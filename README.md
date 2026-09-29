@@ -109,6 +109,22 @@ uv run --with matplotlib python examples/steering_demo.py
 
 A single land robot running the reactive A.3 `Steerer` towards a target across an obstacle wall, drawing the cells it visited. The steerer is the mapless policy: gradient alignment towards the goal, and a committed right-hand wall-follow whenever that heading is blocked. In the brain it is the fallback behind `Navigator.step_towards`, which prefers a potential field over the robot's believed terrain. See [`docs/navigation-module.md`](docs/navigation-module.md) §11.1 and [`docs/robot-memory-and-navigation.md`](docs/robot-memory-and-navigation.md).
 
+### Event-driven robot decision demonstration (B.1 / issue #4)
+
+```bash
+uv run --with matplotlib python examples/robot_decision_demo.py
+```
+
+An animated demonstration of the real discrete-event robot loop. A scripted robot is scheduled as a `RobotDecision` event and repeatedly goes through `Perceive → Decide → Act → Re-queue`. The visualization shows the robot moving continuously between cells, its current action, the last decision time, and the next event waiting in the queue.
+
+Write animation frames as PNGs instead of opening a window:
+
+```bash
+uv run --with matplotlib python examples/robot_decision_demo.py --frames 200 --save frames
+```
+
+This demo is specifically intended to make the event-driven behavior added in issue #4 visible; it is separate from the higher-level swarm behavior demonstrations.
+
 ### Renderer demonstration (C.1)
 
 ```bash
@@ -129,7 +145,7 @@ uv run --with matplotlib python examples/renderer_demo.py --frames 60 --save fra
 - The local force field used for exploration is a proof of concept using local observations; goal-directed navigation instead uses a potential field over the robot's believed terrain, with a reactive wall-follow as its fallback.
 - Navigation is planned over what the robot believes, so a wrong obstacle belief is followed exactly; there is no observation-based recovery from it yet.
 - Robot-to-robot communication has not been implemented yet, so the utility robot cannot follow a pest found by another robot yet.
-- Infestation is currently static; infestation spreading and time-dependent dynamics are planned for a later layer.
+- Coarse-grained infestation dynamics are implemented as a scheduled `WorldTick`; the current model supports severity growth, neighbour spread, and stochastic spawning.
 - Sensing is currently local; distant obstacles and infestations are unknown unless information is later propagated through communication.
 - The visualization adapter only renders snapshots so far; interactive inspection, time control, and injecting infestations are not implemented yet.
 
