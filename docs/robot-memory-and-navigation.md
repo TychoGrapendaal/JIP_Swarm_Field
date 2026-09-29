@@ -7,14 +7,16 @@ flowchart TD
     S["Perception.sensed"] -->|ingest| M["AgentMemory"]
     P["Facts from a peer (not decoded yet)"] -->|merge| M
     M -->|"MemoryView: pests, peers, confidence"| O["Objective (TreatObjective is a mock)"]
-    M -->|"terrain of the changed cells"| N["Navigator, which owns the Quadtree"]
+    M -->|"terrain of the changed cells"| N["Navigator: the Quadtree, one field and a Steerer"]
     O -->|"tuple of Seed"| N
     N -->|build_grid_potential_field| F["GridPotentialField"]
-    F -->|"next cell, value, target"| H["Behaviour (TreatInfestation is a skeleton)"]
+    F -->|"next cell, value, target"| N
+    S["Steerer: reactive wall-follow"] -->|"fallback step"| N
+    N -->|"step towards the targets"| H["Behaviour (TreatInfestation is a skeleton)"]
     H -->|ActionCandidate| A["ComposedAgent picks the best"]
 ```
 
-Memory holds facts and nothing else. The quadtree says where a robot can be and where it can move, and knows nothing about costs or targets. The builder turns targets and the quadtree into a grid potential field, and knows nothing about pests or objectives. An *objective* is the small piece of code that connects them: it reads memory and decides which cells are targets and how attractive each one is. Only a mock objective exists; writing the real ones is the next step (see the examples below).
+Memory holds facts and nothing else. The quadtree says where a robot can be and where it can move, and knows nothing about costs or targets. The builder turns targets and the quadtree into a grid potential field, and knows nothing about pests or objectives. The *navigator* is the one movement seam: it holds the quadtree, hands targets to the builder, keeps the one field it built, and asks the *steerer* for a step whenever the field cannot guide. An *objective* is the small piece of code that connects memory to targets: it reads memory and decides which cells are targets and how attractive each one is. Only a mock objective exists; writing the real ones is the next step (see the examples below).
 
 | Module | Contents |
 | --- | --- |
@@ -22,11 +24,12 @@ Memory holds facts and nothing else. The quadtree says where a robot can be and 
 | `swarm/field/quadtree.py` | `Quadtree`, `Leaf`, `find_leaves`, `TerrainView`, `traversable_cells` |
 | `swarm/field/dijkstra.py` | `multi_source_dijkstra`, `SettledNode` |
 | `swarm/field/builder.py` | `Seed`, `build_grid_potential_field`, `GridPotentialField`, `MixedGraph` |
-| `swarm/navigator.py` | `Navigator` |
+| `swarm/navigator.py` | `Navigator` (the seam: field, cache, progress, fallback) |
+| `swarm/steering.py` | `Steerer`, `Sensing`, `QuadtreeSensing`, `SteeringConfig` |
 | `swarm/objective.py` | `Objective`, `TreatObjective` (mock) |
 | `swarm/behavior.py`, `swarm/brain.py` | `DecisionContext`, `TreatInfestation` (skeleton), `ComposedAgent` |
 
-Tests: `tests/test_memory.py`, `tests/test_quadtree.py`, `tests/test_field.py`, `tests/test_swarm.py`.
+Tests: `tests/test_memory.py`, `tests/test_quadtree.py`, `tests/test_field.py`, `tests/test_navigator.py`, `tests/test_steering.py`, `tests/test_swarm.py`.
 
 ## Memory
 
@@ -68,11 +71,19 @@ The result is a `GridPotentialField` with three queries:
 
 **Speed.** On a 500 × 500 field with a river and 500 scattered obstacles (about 7,000 leaves), building the quadtree takes about 1.5 ms and an update about 0.25 ms. Building a field takes about 0.4 s, against about 4.3 s for a plain Dijkstra over all 250,000 cells. On 100 × 100 and 250 × 250 fields, it takes about 70 ms and 180 ms. Almost all of that time is spent finding the neighbours of each leaf, which is recomputed for every field (see below).
 
+## The navigator
+
+`Navigator` is the single seam between an objective and the robot's next physical step: `step_towards(seeds, robot)` returns one `Move` (a `to` cell) or `Idle`, and never anything else. It prefers the field, whatever the distance to the target: the robot steps into the neighbouring cell the field points at, which is one step of a route that is near-optimal around the obstacles the quadtree knows, at any range and without a map of the whole field.
+
+The `Steerer` is the fallback, used when the field cannot guide. That is either no route at all — no wave reaches the robot, so `target_for` is `None` and the steerer walks towards the objective's most attractive target anyway, stalling and reporting if it is walled off for good — or a field that stopped guiding: the navigator remembers the lowest potential the robot has seen on its current plan, and three ticks without a new minimum hand the step to the steerer. The handover is not latched; as soon as the field points forward again the robot follows it. This is what covers the one case the field cannot: route lengths through leaves are approximate, so a robot near the edge of its window could in principle turn back and forth. The policy itself, and its `Sensing` port, are designed in [`navigation-module.md`](./navigation-module.md). The reactive policy is also the honest answer to "which cell is this?", since the quadtree is only believed terrain.
+
+Field building is expensive (~0.4 s on a 500 × 500 field) and robots re-ask every decision point, so `field_for` keeps a single field and reuses it while the seeds, the terrain and the robot's 16 × 16 block are all unchanged. The quadtree carries a version counter that every update bumps, so one comparison covers "did the terrain change". One slot is enough: a robot's window is centred on the robot's own block, so the field is only reused while the robot is still in that block.
+
 ## The brain
 
-`ComposedAgent` owns one `AgentMemory` and one `Navigator`. At every decision it merges what the robot sensed and received into memory, gives the navigator the cells that got new terrain facts (the navigator re-reads them from memory and updates its `Quadtree`), and hands memory and navigator to the behaviours in the `DecisionContext`. It then picks the candidate action with the highest score. `inspect()` returns the memory's facts, for visualization. `Navigator.field_for` builds the field for a tuple of seeds around the robot's cell.
+`ComposedAgent` owns one `AgentMemory` and one `Navigator`. At every decision it merges what the robot sensed and received into memory, gives the navigator the cells that got new terrain facts (the navigator re-reads them from memory and updates its `Quadtree`), and hands memory and navigator to the behaviours in the `DecisionContext`. It then picks the candidate action with the highest score. `inspect()` returns the memory's facts, for visualization.
 
-Several parts are placeholders, each marked with a `TODO` comment in the code: decoding facts from received messages and sending facts to peers (both in `ComposedAgent`), the arbiter that picks the action (for now the highest score wins), the targets of `TreatObjective`, the treat action and the score in `TreatInfestation`, and caching in `Navigator.field_for`.
+Several parts are placeholders, each marked with a `TODO` comment in the code: decoding facts from received messages and sending facts to peers (both in `ComposedAgent`), the arbiter that picks the action (for now the highest score wins), the targets of `TreatObjective`, and the treat action and the score in `TreatInfestation`.
 
 ## How to use it
 
@@ -97,13 +108,13 @@ def seeds(self, memory: MemoryView, now: Time) -> tuple[Seed, ...]:
     return tuple(seeds)
 ```
 
-`VERIFY` would use `severity * (1 - confidence)` instead; `RECHARGE` would seed the dock cells with value 0. A behaviour asks the navigator for its objective's field and reads it at the robot's cell, as `TreatInfestation.propose` does:
+`VERIFY` would use `severity * (1 - confidence)` instead; `RECHARGE` would seed the dock cells with value 0. A behaviour asks the navigator for one step towards its objective's targets, and reads the field at the robot's cell to score them, as `TreatInfestation.propose` does:
 
 ```python
-field = ctx.navigator.field_for(objective.seeds(ctx.memory, ctx.time), position)
-score = field.value_at(position)        # lower is better; inf: no reachable target
-step = field.next_cell(position)        # None: standing on the target
-target = field.target_for(position)     # the target the robot is heading for
+step = ctx.navigator.step_towards(seeds, position)
+if isinstance(step, Idle):                        # on the target, or stalled
+    return ()
+score = -ctx.navigator.field_for(seeds, position).value_at(position)  # lower is better
 ```
 
 ## Not in v1
@@ -114,8 +125,8 @@ target = field.target_for(position)     # the target the robot is heading for
 - **Sending only new facts.** Robots exchange all their facts at every meeting. Sending only what the other robot has not seen yet needs, per fact, the time this robot learned it (not when it was observed).
 - **Sharing facts.** Nothing packs facts into a `Message` or decodes them; `MessageKind` still only has `HELLO`. The places for both are in `ComposedAgent`.
 - **Objectives, behaviours, arbiter, crowding.** `TreatObjective` returns no targets and `TreatInfestation` is a skeleton; the example above is not in the code. The brain picks the highest score, with no overrides for urgent needs (such as a low battery) and nothing against switching objectives back and forth. Spreading robots over different targets is not addressed.
-- **Caching.** Every call to `Navigator.field_for` builds a new field. A field can be reused while the seeds, the terrain and the robot's 16 × 16 block stay the same; that caching belongs in `Navigator.field_for`. Inside the quadtree, each leaf's neighbours could be cached until an update touches them; that would make repeated fields about four to five times faster.
-- **Guaranteed arrival.** Route lengths through leaves are approximate, so in principle a robot could turn back and forth near the edge of its window. It never happened in the tests. The known fix is to remember the values seen inside earlier windows and never trust a lower estimate (the LRTA\* family of real-time search algorithms).
+- **Faster fields.** `Navigator.field_for` keeps one field, so a robot only pays for a new search when its targets, its terrain or its 16 × 16 block changed. Inside the quadtree, each leaf's neighbours are still found again for every field; caching them until an update touches them would make repeated fields about four to five times faster.
+- **The steerer's clearance ring.** `QuadtreeSensing` reads the quadtree, so the fallback steers over *believed* terrain; a real robot would probe one cell ahead and would rather slide along a wall than cut it. The fallback is also blind to crops: it only knows what the quadtree was told, and memory does not store crops yet.
 - **Terrain costs.** All traversable cells cost the same; there is no extra cost for unknown cells or rough terrain.
 - **Sensing reliability.** Every observation counts as fully reliable when made; its confidence only decays with age.
 - **Drone shortcut.** Drones use the same search as ground robots, with obstacles traversable, instead of the straight-line formula in the design document.

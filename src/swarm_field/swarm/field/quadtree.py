@@ -100,6 +100,16 @@ class Quadtree:
         self._directions: tuple[Direction, ...] = _STRAIGHT_DIRECTIONS
         if connectivity == 8:
             self._directions = _STRAIGHT_DIRECTIONS + _DIAGONAL_DIRECTIONS
+        self._version: int = 0
+
+    @property
+    def version(self) -> int:
+        """Counts the updates to the traversability; a new value on every one of them.
+
+        A caller that keeps something derived from the quadtree — a potential field, say —
+        compares this to notice that it was built on terrain that has since changed.
+        """
+        return self._version
 
     @property
     def width(self) -> int:
@@ -123,6 +133,7 @@ class Quadtree:
         for block_x, block_y in blocks:
             block = (slice(block_x, block_x + side), slice(block_y, block_y + side))
             self.leaf_size[block] = find_leaves(self.traversable[block], side)
+        self._version += 1
 
     # Queries on cells.
 
