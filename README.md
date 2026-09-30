@@ -15,7 +15,8 @@ See [`docs/high-level-world-model.md`](docs/high-level-world-model.md) for the c
 - Infestation is represented as a per-cell severity value, providing a coarse-grained basis for later dynamic pest-spread models.
 - Robots receive local obstacle and infestation observations and can use this information to calculate potential-field attraction and repulsion.
 - A robot does not currently know about obstacles or infestations outside its local observation range.
-- Robot-to-robot communication is not implemented yet, so information about a distant infestation does not currently propagate through the swarm.
+- Robot-to-robot communication is delivered peer-to-peer through the `Channel` (inbox and broadcast within radio range), but no behavior encodes or decodes anything yet, so no information actually propagates through the swarm.
+- Runs are reproducible: one seeded random source drives the world, a second drives fault injection, and `runner.py` builds every run from a `BrainSpec` so algorithms can be compared as configuration.
 
 ## Requirements
 
@@ -139,21 +140,52 @@ Write frames as PNGs instead of opening a window:
 uv run --with matplotlib python examples/renderer_demo.py --frames 60 --save frames
 ```
 
+### Seeded scenario sweep with metrics (B.5)
+
+```bash
+uv run python examples/metrics_sweep_demo.py
+```
+
+Runs the cross product of three scenarios and two seeds, and prints one row per run followed by a full metrics series. Each run is reproducible from its seed: the same seed and configuration produce the same series.
+
+Write the summary table and every run's series to a directory (CSV and JSON):
+
+```bash
+uv run python examples/metrics_sweep_demo.py --out runs/sweep
+```
+
+### Robustness sweep: robot failure and position error (B.5)
+
+```bash
+uv run python examples/robustness_demo.py
+```
+
+Runs one scenario under a baseline and then one fault at a time: three failure modes at two rates, and two position-error rates. Every condition runs from the same seed, and faults draw from a random source separate from the world's, so a condition and its baseline see identical pest dynamics and the difference in the metrics is attributable to the fault.
+
+```bash
+uv run python examples/robustness_demo.py --scenario S5 --hours 3
+uv run python examples/robustness_demo.py --out runs/robustness
+```
+
+**What this currently shows:** `active_robots` and `energy/m²` respond to the faults as intended, and the pest dynamics are provably unaffected. The outcome metrics (`coverage`, `targets_remaining`, `detection_latency`) are flat, because the swarm's behaviors are still stubs — `TreatObjective.seeds()` returns no targets, so every robot commits `Idle` from the first decision and the swarm never moves. [`docs/research/robustness.md`](docs/research/robustness.md) explains what has to land before the sweep measures resilience rather than capacity.
+
 ## Current demonstration limitations
 
 - The exploration behavior is currently a simple baseline and is not yet a dedicated coverage/exploration algorithm.
+- `TreatObjective` is a stub that returns no target cells, so every robot commits `Idle` and the swarm does not move. Coverage and detection-latency metrics are therefore flat in the sweeps; see [`docs/research/robustness.md`](docs/research/robustness.md).
 - The local force field used for exploration is a proof of concept using local observations; goal-directed navigation instead uses a potential field over the robot's believed terrain, with a reactive wall-follow as its fallback.
 - Navigation is planned over what the robot believes, so a wrong obstacle belief is followed exactly; there is no observation-based recovery from it yet.
-- Robot-to-robot communication has not been implemented yet, so the utility robot cannot follow a pest found by another robot yet.
+- Robot-to-robot communication carries messages but nothing encodes or decodes them yet, so `messages_sent` is zero and the utility robot cannot follow a pest found by another robot.
 - Coarse-grained infestation dynamics are implemented as a scheduled `WorldTick`; the current model supports severity growth, neighbour spread, and stochastic spawning.
+- Robot batteries are drained by a coarse cost model (per metre, per decision, per treat) and robot failure and position error can be injected for robustness runs, but there is no charging station, no consumable replenishment and no recovery from a failure.
 - Sensing is currently local; distant obstacles and infestations are unknown unless information is later propagated through communication.
 - The visualization adapter only renders snapshots so far; interactive inspection, time control, and injecting infestations are not implemented yet.
 
 ## Project layout
 
 ```text
-src/swarm_field/   # contracts, swarm brain, simulation and visualization adapter
+src/swarm_field/   # contracts, swarm brain, simulation, runner and visualization adapter
 tests/             # pytest suite
 examples/          # executable demonstrations
-docs/              # design documents and source material
+docs/              # design documents, research notes and source material
 ```

@@ -35,10 +35,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=101, help="seed shared by every condition")
     parser.add_argument(
         "--scenario",
-        type=ScenarioId,
+        type=ScenarioId.__getitem__,
         choices=list(ScenarioId),
         default=ScenarioId.S2,
-        help="scenario to run every condition against",
+        metavar="{S1,S2,S3,S4,S5}",
+        help="scenario to run every condition against, by name",
     )
     parser.add_argument(
         "--hours", type=float, default=6.0, help="how many simulation hours each run lasts"

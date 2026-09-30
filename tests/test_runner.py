@@ -172,6 +172,24 @@ def test_a_run_writes_its_own_series_as_csv_and_json(tmp_path: Path) -> None:
     assert json.loads(json_path.read_text(encoding="utf-8"))[0]["time"] == 0
 
 
+def test_a_sweep_label_never_becomes_a_directory(tmp_path: Path) -> None:
+    """Sweep labels read as SCENARIO/SEED, and a label is display data, not a path."""
+    run = run_experiment(_config(label="S2/failure-0.5"))
+
+    csv_path, _ = run.export(tmp_path)
+
+    assert csv_path.name == "S2_failure-0.5.csv"
+    assert csv_path.parent == tmp_path
+
+
+def test_a_label_cannot_escape_the_output_directory(tmp_path: Path) -> None:
+    run = run_experiment(_config(label="../../etc/passwd"))
+
+    csv_path, _ = run.export(tmp_path)
+
+    assert csv_path.parent == tmp_path
+
+
 def test_the_named_objective_reaches_the_assembled_brain() -> None:
     """A spec's objective must decide the objective, not a parameter default."""
     spec = BrainSpec(objective="treat", params={"objective": "ignored"})

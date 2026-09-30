@@ -228,9 +228,14 @@ class RunSummary:
         }
 
     def export(self, directory: Path) -> tuple[Path, Path]:
-        """Write this run's series as CSV and JSON under ``directory``, and return both paths."""
-        csv_path = directory / f"{self.label}.csv"
-        json_path = directory / f"{self.label}.json"
+        """Write this run's series as CSV and JSON under ``directory``, and return both paths.
+
+        The label is turned into a single file name: a sweep labels runs ``SCENARIO/SEED``, and
+        a label is display data, so it must not be allowed to become a directory path.
+        """
+        stem = _file_stem(self.label)
+        csv_path = directory / f"{stem}.csv"
+        json_path = directory / f"{stem}.json"
         write_metrics_csv(self.series, csv_path)
         write_metrics_json(self.series, json_path)
         return csv_path, json_path
@@ -530,3 +535,15 @@ def _mean(values: Iterable[float | None]) -> float | None:
     if not present:
         return None
     return sum(present) / len(present)
+
+
+def _file_stem(label: str) -> str:
+    """Turn a run label into one safe file name, collapsing separators and odd characters.
+
+    Sweep labels read best as ``SCENARIO/SEED``, so the slash is what needs handling most; the
+    rest is there so a hand-written label cannot produce a path that escapes the directory.
+    """
+    cleaned = "".join(
+        character if character.isalnum() or character in "-_." else "_" for character in label
+    )
+    return cleaned.strip("_") or "run"
