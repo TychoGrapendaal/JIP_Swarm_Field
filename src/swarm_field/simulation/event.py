@@ -12,13 +12,6 @@ import heapq
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-from swarm_field.contracts import CellId, Perception, RobotId, Time
-=======
-from swarm_field.contracts import CellId, PestDynamicsSpec, RobotId, Time
->>>>>>> 3af34404d4cfdb6e0dadf175d00e0f294b2a02c0
-=======
 from swarm_field.contracts import (
     CellId,
     FailureMode,
@@ -29,7 +22,6 @@ from swarm_field.contracts import (
     Time,
 )
 from swarm_field.simulation.metrics import MetricsConfig
->>>>>>> 9d44338e1bb322ad07f7fd1a0bf6847a8217b4e0
 
 if TYPE_CHECKING:
     from swarm_field.simulation.context import SimulationContext
@@ -100,18 +92,6 @@ class RobotDecision:
 
     def handle(self, ctx: SimulationContext) -> None:
         """Build the robot's perception, apply its decision, and schedule the follow-up."""
-<<<<<<< HEAD
-        perception = Perception(
-            time=ctx.now,
-            self_state=ctx.world.perceived_self(self.robot),
-            sensed=ctx.world.observe_for(self.robot, ctx.now),
-            inbox=[],  # message delivery is added with the comms channel
-        )
-        decision = ctx.agents[self.robot].decide(perception)
-        arrival = ctx.world.apply_action(self.robot, decision.action, ctx.now)
-        follow_up = arrival if arrival is not None else ctx.now + self.dwell
-        ctx.schedule(RobotDecision(time=follow_up, robot=self.robot, dwell=self.dwell))
-=======
         if self._has_failed(ctx):
             # A failed robot does not come back, so it stops scheduling decisions entirely and
             # the swarm carries on without it. A move already under way still completes, so the
@@ -227,7 +207,6 @@ class MetricSample:
             return
         collector.sample(ctx.world, self.time, ctx.channel.sent)
         ctx.schedule(MetricSample(time=self.time + self.config.period, config=self.config))
->>>>>>> 9d44338e1bb322ad07f7fd1a0bf6847a8217b4e0
 
 
 @dataclass(frozen=True)

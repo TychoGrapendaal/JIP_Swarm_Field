@@ -9,7 +9,6 @@ from swarm_field.contracts.agent import (
     RobotSelfState,
     SwarmAgent,
 )
-<<<<<<< HEAD
 from swarm_field.contracts.command import (
     Command,
     InjectInfestation,
@@ -17,8 +16,6 @@ from swarm_field.contracts.command import (
     SetTimeScale,
     StepOnce,
 )
-from swarm_field.contracts.ids import CellId, CropType, Direction, PestType, RobotId, Time
-=======
 from swarm_field.contracts.ids import (
     BodyType,
     CellId,
@@ -30,7 +27,6 @@ from swarm_field.contracts.ids import (
     Time,
     TimeUnit,
 )
->>>>>>> 3af34404d4cfdb6e0dadf175d00e0f294b2a02c0
 from swarm_field.contracts.messages import Message, MessageKind
 from swarm_field.contracts.metrics import MetricsSample
 from swarm_field.contracts.navigation import Vector2
@@ -80,11 +76,7 @@ __all__ = [
     "Move",
     "Observation",
     "ObservationBase",
-<<<<<<< HEAD
-    "ObstacleObservation",
     "Pause",
-=======
->>>>>>> 3af34404d4cfdb6e0dadf175d00e0f294b2a02c0
     "PeerObservation",
     "Perception",
     "PestDynamicsSpec",
@@ -95,12 +87,9 @@ __all__ = [
     "RobotSelfState",
     "RobotSpec",
     "ScenarioConfig",
-<<<<<<< HEAD
+    "ScenarioId",
     "SetTimeScale",
     "StepOnce",
-=======
-    "ScenarioId",
->>>>>>> 3af34404d4cfdb6e0dadf175d00e0f294b2a02c0
     "SwarmAgent",
     "Terrain",
     "TerrainObservation",

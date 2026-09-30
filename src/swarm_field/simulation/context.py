@@ -9,16 +9,15 @@ from dataclasses import dataclass, field
 from random import Random
 from typing import TYPE_CHECKING
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-from swarm_field.contracts import Command, InjectInfestation, RobotId, SwarmAgent, Time
-=======
-from swarm_field.contracts import RobotId, SwarmAgent, Time
-=======
-from swarm_field.contracts import PositionErrorSpec, RobotId, SwarmAgent, Time
->>>>>>> 9d44338e1bb322ad07f7fd1a0bf6847a8217b4e0
+from swarm_field.contracts import (
+    Command,
+    InjectInfestation,
+    PositionErrorSpec,
+    RobotId,
+    SwarmAgent,
+    Time,
+)
 from swarm_field.simulation.channel import Channel
->>>>>>> 3af34404d4cfdb6e0dadf175d00e0f294b2a02c0
 from swarm_field.simulation.event import Event, EventQueue
 from swarm_field.simulation.world import WorldState
 
@@ -37,7 +36,7 @@ class SimulationContext:
         world: Ground-truth field state owned by the simulation.
         queue: Pending events; schedule follow-ups with ``schedule``.
         channel: The radio; hand a robot's outbox to it to reach the robots in range.
-    metrics: The run's metrics collector, or ``None`` for a run that records none.
+        metrics: The run's metrics collector, or ``None`` for a run that records none.
     position_error: How often a robot mislocates itself when it builds its self-perception.
     noise: A second seeded random source, for the simulation's own hardware faults and
         sensor error. It is kept apart from ``rng`` on purpose: a robustness run must differ

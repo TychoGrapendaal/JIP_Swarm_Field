@@ -6,24 +6,18 @@ from random import Random
 import pytest
 
 from swarm_field.contracts import (
-<<<<<<< HEAD
-    BodyType,
-    FieldGeometry,
-    InjectInfestation,
-    Move,
-    Pause,
-    SetTimeScale,
-    StepOnce,
-=======
     Action,
     AgentInspection,
     BodyType,
     Decision,
     FieldGeometry,
     Idle,
+    InjectInfestation,
     Move,
+    Pause,
     Perception,
->>>>>>> 9d44338e1bb322ad07f7fd1a0bf6847a8217b4e0
+    SetTimeScale,
+    StepOnce,
     Time,
 )
 from swarm_field.simulation import (
@@ -35,7 +29,13 @@ from swarm_field.simulation import (
     WorldState,
     WorldTick,
 )
-from swarm_field.swarm import ActionCandidate, ComposedAgent, DecisionContext
+from swarm_field.swarm import (
+    ActionCandidate,
+    AgentMemory,
+    ComposedAgent,
+    DecisionContext,
+    Navigator,
+)
 
 
 def _context() -> SimulationContext:
@@ -222,63 +222,6 @@ def test_world_tick_is_deterministic_for_same_seed() -> None:
     assert run(seed=42) == run(seed=42)
 
 
-<<<<<<< HEAD
-def test_loop_step_processes_next_event_timestamp() -> None:
-    log: list[Time] = []
-    ctx = _context()
-    ctx.schedule(_RecordingEvent(time=30, log=log))
-    ctx.schedule(_RecordingEvent(time=10, log=log))
-    ctx.schedule(_RecordingEvent(time=20, log=log))
-
-    SimulationLoop().step(ctx)
-
-    assert log == [10]
-    assert ctx.now == 10
-    assert len(ctx.queue) == 2
-
-
-def test_apply_command_injects_infestation() -> None:
-    ctx = _context()
-
-    ctx.apply_command(InjectInfestation(cell=(2, 2), severity=0.7))
-
-    assert ctx.world.cell((2, 2)).infestation == pytest.approx(0.7)
-    assert ctx.world.cell((1, 1)).infestation == 0.0
-
-
-def test_apply_command_ignores_time_pacing_commands() -> None:
-    ctx = _context()
-    for command in (Pause(), StepOnce(), SetTimeScale(2.0)):
-        ctx.apply_command(command)
-
-
-def test_robot_decision_drives_an_agent() -> None:
-    robot = RobotState(robot_id=0, position=(2, 2), body=BodyType.SCOUT, speed_mps=2.0)
-    ctx = SimulationContext(
-        now=0,
-        rng=Random(0),
-        agents={0: ComposedAgent(robot_id=0, behaviors=[_FixedMoveBehavior((2, 3))])},
-        world=WorldState(
-            FieldGeometry(
-                width=5,
-                height=5,
-                cell_size=1.0,
-                row_sp=1.0,
-                in_row_sp=1.0,
-                headland=0.0,
-            ),
-            robots=[robot],
-        ),
-    )
-    ctx.schedule(RobotDecision(time=0, robot=0))
-
-    SimulationLoop().run(ctx, until=5_000)
-
-    assert ctx.world.positions()[0] != (2, 2)
-    next_event = ctx.queue.peek()
-    assert isinstance(next_event, RobotDecision)
-    assert next_event.robot == 0
-=======
 def test_robot_decision_perceives_acts_and_requeues() -> None:
     robot = RobotState(
         robot_id=1,
@@ -314,4 +257,66 @@ def test_robot_decision_perceives_acts_and_requeues() -> None:
     assert isinstance(next_event, RobotDecision)
     assert next_event.time == 6_000
     assert next_event.robot == 1
->>>>>>> 9d44338e1bb322ad07f7fd1a0bf6847a8217b4e0
+
+
+def test_loop_step_processes_next_event_timestamp() -> None:
+    log: list[Time] = []
+    ctx = _context()
+    ctx.schedule(_RecordingEvent(time=30, log=log))
+    ctx.schedule(_RecordingEvent(time=10, log=log))
+    ctx.schedule(_RecordingEvent(time=20, log=log))
+
+    SimulationLoop().step(ctx)
+
+    assert log == [10]
+    assert ctx.now == 10
+    assert len(ctx.queue) == 2
+
+
+def test_apply_command_injects_infestation() -> None:
+    ctx = _context()
+
+    ctx.apply_command(InjectInfestation(cell=(2, 2), severity=0.7))
+
+    assert ctx.world.cell((2, 2)).infestation == pytest.approx(0.7)
+    assert ctx.world.cell((1, 1)).infestation == 0.0
+
+
+def test_apply_command_ignores_time_pacing_commands() -> None:
+    ctx = _context()
+    for command in (Pause(), StepOnce(), SetTimeScale(2.0)):
+        ctx.apply_command(command)
+
+
+def test_robot_decision_drives_a_real_brain() -> None:
+    field = FieldGeometry(
+        width=5,
+        height=5,
+        cell_size=1.0,
+        row_sp=1.0,
+        in_row_sp=1.0,
+        headland=0.0,
+    )
+    robot = RobotState(robot_id=0, position=(2, 2), body=BodyType.SCOUT, speed_mps=2.0)
+    memory = AgentMemory(0, field)
+    ctx = SimulationContext(
+        now=0,
+        rng=Random(0),
+        agents={
+            0: ComposedAgent(
+                robot_id=0,
+                behaviors=[_FixedMoveBehavior((2, 3))],
+                memory=memory,
+                navigator=Navigator(memory, flies=False),
+            )
+        },
+        world=WorldState(field, robots=[robot]),
+    )
+    ctx.schedule(RobotDecision(time=0, robot=0))
+
+    SimulationLoop().run(ctx, until=5_000)
+
+    assert ctx.world.positions()[0] != (2, 2)
+    next_event = ctx.queue.peek()
+    assert isinstance(next_event, RobotDecision)
+    assert next_event.robot == 0

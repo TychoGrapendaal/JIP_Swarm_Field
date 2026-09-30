@@ -140,7 +140,6 @@ Write frames as PNGs instead of opening a window:
 uv run --with matplotlib python examples/renderer_demo.py --frames 60 --save frames
 ```
 
-<<<<<<< HEAD
 ### Interactive console (C.1)
 
 ```bash
@@ -164,7 +163,6 @@ generation works like the renderer demo:
 uv run python examples/interactive_demo.py --frames 240 --save frames/interactive
 ```
 
-=======
 ### Seeded scenario sweep with metrics (B.5)
 
 ```bash
@@ -194,7 +192,6 @@ uv run python examples/robustness_demo.py --out runs/robustness
 
 **What this currently shows:** `active_robots` and `energy/m²` respond to the faults as intended, and the pest dynamics are provably unaffected. The outcome metrics (`coverage`, `targets_remaining`, `detection_latency`) are flat, because the swarm's behaviors are still stubs — `TreatObjective.seeds()` returns no targets, so every robot commits `Idle` from the first decision and the swarm never moves. [`docs/research/robustness.md`](docs/research/robustness.md) explains what has to land before the sweep measures resilience rather than capacity.
 
->>>>>>> 9d44338e1bb322ad07f7fd1a0bf6847a8217b4e0
 ## Current demonstration limitations
 
 - The exploration behavior is currently a simple baseline and is not yet a dedicated coverage/exploration algorithm.
