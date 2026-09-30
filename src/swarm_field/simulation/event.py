@@ -88,9 +88,10 @@ class RobotDecision:
             time=self.time,
             self_state=ctx.world.perceived_self(self.robot),
             sensed=ctx.world.observe_for(self.robot, self.time),
-            inbox=[],  # message delivery is added with the comms channel
+            inbox=ctx.channel.take_inbox(self.robot),
         )
         decision = ctx.agents[self.robot].decide(perception)
+        ctx.channel.broadcast(ctx.world, self.time, decision.outbox)
         arrival = ctx.world.apply_action(self.robot, decision.action, self.time)
         follow_up = arrival if arrival is not None else self.time + self.dwell
         ctx.schedule(RobotDecision(time=follow_up, robot=self.robot, dwell=self.dwell))
