@@ -4,6 +4,7 @@ An ``EventQueue`` holds timestamped events and ``SimulationLoop`` processes them
 order over a shared ``SimulationContext``.
 """
 
+from swarm_field.simulation.channel import Channel, robots_in_range_of
 from swarm_field.simulation.context import SimulationContext
 from swarm_field.simulation.event import (
     Event,
@@ -17,6 +18,7 @@ from swarm_field.simulation.scenario import build_scenario, build_world
 from swarm_field.simulation.world import RobotState, WorldState
 
 __all__ = [
+    "Channel",
     "Event",
     "EventQueue",
     "PestDynamicsConfig",
@@ -28,4 +30,5 @@ __all__ = [
     "WorldTick",
     "build_scenario",
     "build_world",
+    "robots_in_range_of",
 ]
