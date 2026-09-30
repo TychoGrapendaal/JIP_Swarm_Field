@@ -12,6 +12,7 @@ from swarm_field.contracts import (
     Charge,
     CropObservation,
     EnergySpec,
+    FailureMode,
     FieldGeometry,
     Idle,
     InfestationObservation,
@@ -199,17 +200,47 @@ class WorldState:
         """Return a copy of all ground-truth discrete robot positions."""
         return {robot_id: robot.position for robot_id, robot in sorted(self.robots.items())}
 
-    def perceived_self(self, robot_id: RobotId) -> RobotSelfState:
-        """Return the current self-perception for a robot."""
+    def perceived_self(self, robot_id: RobotId, position: CellId | None = None) -> RobotSelfState:
+        """Return the current self-perception for a robot.
+
+        ``position`` overrides where the robot believes it is, which is how localisation error
+        reaches the algorithm: the robot decides from the reported cell while the world keeps
+        the true one. The reported cell is clamped into the field, so an error at the edge is a
+        smaller error rather than a position outside the world.
+        """
         robot = self._robot(robot_id)
+        reported = robot.position if position is None else self._clamp_to_field(position)
         return RobotSelfState(
             robot_id=robot.robot_id,
-            position=robot.position,
+            position=reported,
             battery=robot.battery,
             body=robot.body,
             speed_mps=robot.speed_mps,
             consumable=robot.consumable,
             health=robot.health,
+        )
+
+    def fail_robot(self, robot_id: RobotId, mode: FailureMode) -> None:
+        """Stop one robot from taking part in the run, in the way ``mode`` describes.
+
+        A robot that has already failed stays failed: a later check cannot bring it back, so a
+        sweep's failure count is monotone and the swarm only ever loses capacity.
+        """
+        robot = self._robot(robot_id)
+        if robot.failed:
+            return
+        robot.failed = True
+        if mode is FailureMode.DEAD_BATTERY:
+            robot.battery = 0.0
+        elif mode is FailureMode.DISABLED:
+            robot.health = 0.0
+        else:
+            robot.radio_range_m = 0.0
+
+    def live_robots(self) -> tuple[RobotId, ...]:
+        """Every robot still taking part in the run, in id order."""
+        return tuple(
+            robot_id for robot_id, robot in sorted(self.robots.items()) if not robot.failed
         )
 
     def observe_for(self, robot_id: RobotId, time: Time) -> list[Observation]:
@@ -419,3 +450,10 @@ class WorldState:
             return self.robots[robot_id]
         except KeyError as exc:
             raise ValueError(f"unknown robot: {robot_id}") from exc
+
+    def _clamp_to_field(self, cell: CellId) -> CellId:
+        """Pull a cell inside the field, so a reported position is always somewhere real."""
+        return (
+            min(max(cell[0], 0), self.field.width - 1),
+            min(max(cell[1], 0), self.field.height - 1),
+        )

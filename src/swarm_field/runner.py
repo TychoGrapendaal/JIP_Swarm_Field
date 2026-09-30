@@ -22,8 +22,11 @@ from random import Random
 from typing import Any, TypeVar
 
 from swarm_field.contracts import (
+    FailureMode,
+    FailureSpec,
     FieldGeometry,
     MetricsSample,
+    PositionErrorSpec,
     RobotId,
     ScenarioConfig,
     ScenarioId,
@@ -31,6 +34,8 @@ from swarm_field.contracts import (
     Time,
 )
 from swarm_field.simulation import (
+    FailureCheck,
+    FailureConfig,
     MetricSample,
     MetricsCollector,
     MetricsConfig,
@@ -87,6 +92,9 @@ class Registry[T]:
 
 BEHAVIORS: Registry[Behavior] = Registry()
 OBJECTIVES: Registry[Objective] = Registry()
+
+_NOISE_SEED_OFFSET = 0x5EED
+"""Keeps the fault-injection random stream distinct from the world's for a given seed."""
 
 
 @BEHAVIORS.register("treat-infestation")
@@ -164,6 +172,7 @@ class RunSummary:
             run's samples, or ``None`` if nothing was detected.
         energy_per_area: Battery fraction spent per square metre over the run.
         messages_sent: Messages handed to the channel over the run.
+        active_robots: Robots still taking part when the run ended.
     """
 
     label: str
@@ -175,6 +184,7 @@ class RunSummary:
     mean_detection_latency_ms: float | None
     energy_per_area: float
     messages_sent: int
+    active_robots: int
 
     @classmethod
     def from_series(
@@ -199,6 +209,7 @@ class RunSummary:
             mean_detection_latency_ms=_mean(sample.detection_latency_ms for sample in taken),
             energy_per_area=final.energy_per_area,
             messages_sent=final.messages_sent,
+            active_robots=final.active_robots,
         )
 
     def to_row(self) -> dict[str, int | float | str | None]:
@@ -213,6 +224,7 @@ class RunSummary:
             "mean_detection_latency_ms": self.mean_detection_latency_ms,
             "energy_per_area": self.energy_per_area,
             "messages_sent": self.messages_sent,
+            "active_robots": self.active_robots,
         }
 
     def export(self, directory: Path) -> tuple[Path, Path]:
@@ -268,6 +280,87 @@ def sweep_scenarios(
     return sweep(configs)
 
 
+@dataclass(frozen=True)
+class RobustnessCase:
+    """One condition a robustness sweep runs a scenario under.
+
+    A case is a label plus the two robustness knobs, so a sweep row can be traced back to the
+    condition that produced it. A case with both probabilities at zero is the baseline.
+
+    Attributes:
+        label: Name of the condition, used to label the run.
+        failures: How often robots fail, and how.
+        position_error: How often robots mislocate themselves.
+    """
+
+    label: str
+    failures: FailureSpec = field(default_factory=FailureSpec)
+    position_error: PositionErrorSpec = field(default_factory=PositionErrorSpec)
+
+
+def robustness_sweep(
+    scenario: ScenarioId,
+    cases: Iterable[RobustnessCase],
+    seed: int,
+    until: Time = 3_600_000,
+    metrics: MetricsConfig | None = None,
+) -> tuple[RunSummary, ...]:
+    """Run one scenario under each robustness condition, from the same seed.
+
+    Every case is run against the same seed, so a run and its baseline differ only in the
+    faults: the pest dynamics see the same random stream either way. That is what makes a
+    difference in the metrics attributable to the condition rather than to the weather.
+
+    Args:
+        scenario: Which built-in scenario preset to run under every condition.
+        cases: The conditions to run, including the baseline.
+        seed: The seed shared by every case, which is what makes them comparable.
+        until: How far to run each case, in simulation time.
+        metrics: Sampling cadence and target threshold.
+    """
+    runs: list[RunSummary] = []
+    for case in cases:
+        config = build_experiment(
+            f"{scenario.name}/{case.label}",
+            scenario,
+            seed,
+            until=until,
+            metrics=metrics,
+        )
+        config.scenario.failures = case.failures
+        config.scenario.position_error = case.position_error
+        runs.append(run_experiment(config))
+    return tuple(runs)
+
+
+def default_robustness_cases(
+    failure_probabilities: Iterable[float] = (0.001, 0.005),
+    position_error_probabilities: Iterable[float] = (0.1, 0.3),
+    mode: FailureMode = FailureMode.DEAD_BATTERY,
+) -> tuple[RobustnessCase, ...]:
+    """The conditions the robustness note reports: a baseline, then one axis at a time.
+
+    Only one axis is perturbed at a time, so each row answers one question. The modes are swept
+    separately, since a battery death and a radio loss cost the swarm different things.
+    """
+    cases = [RobustnessCase(label="baseline")]
+    for probability in failure_probabilities:
+        cases.append(
+            RobustnessCase(
+                label=f"failure-{mode.name.lower()}-{probability:g}",
+                failures=FailureSpec(probability=probability, mode=mode),
+            )
+        )
+    for probability in position_error_probabilities:
+        cases.append(
+            RobustnessCase(
+                label=f"position-error-{probability:g}",
+                position_error=PositionErrorSpec(probability=probability),
+            )
+        )
+    return tuple(cases)
+
+
 def export_summary_csv(runs: Iterable[RunSummary], path: Path) -> Path:
     """Write one row per run to ``path``, so a sweep can be compared in a table."""
     rows = [run.to_row() for run in runs]
@@ -320,9 +413,21 @@ def build_run(config: ExperimentConfig) -> tuple[SimulationContext, MetricsColle
         agents=agents,
         world=world,
         metrics=collector,
+        position_error=scenario.position_error,
+        noise=_noise_source(scenario.seed),
     )
     seed_initial_events(ctx, config)
     return ctx, collector
+
+
+def _noise_source(seed: int) -> Random:
+    """The fault-injection random source, seeded apart from the world's.
+
+    A robustness run has to be comparable with its baseline: the pests must evolve exactly as
+    they would have without the faults. Deriving the seed from the scenario seed keeps the pair
+    reproducible, while keeping the streams apart keeps the comparison honest.
+    """
+    return Random(seed ^ _NOISE_SEED_OFFSET)
 
 
 def seed_initial_events(ctx: SimulationContext, config: ExperimentConfig) -> None:
@@ -336,6 +441,8 @@ def seed_initial_events(ctx: SimulationContext, config: ExperimentConfig) -> Non
     ctx.schedule(
         WorldTick(time=0, config=PestDynamicsConfig.from_spec(config.scenario.pest_dynamics))
     )
+    if config.scenario.failures.probability > 0.0:
+        ctx.schedule(FailureCheck(time=0, config=FailureConfig.from_spec(config.scenario.failures)))
     ctx.schedule(MetricSample(time=0, config=config.metrics))
 
 

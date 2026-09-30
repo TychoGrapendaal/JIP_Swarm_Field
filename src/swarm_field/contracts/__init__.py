@@ -33,7 +33,10 @@ from swarm_field.contracts.observations import (
 )
 from swarm_field.contracts.scenario import (
     EnergySpec,
+    FailureMode,
+    FailureSpec,
     PestDynamicsSpec,
+    PositionErrorSpec,
     RobotSpec,
     ScenarioConfig,
     ScenarioId,
@@ -53,6 +56,8 @@ __all__ = [
     "Decision",
     "Direction",
     "EnergySpec",
+    "FailureMode",
+    "FailureSpec",
     "FieldGeometry",
     "Idle",
     "InfestationObservation",
@@ -66,6 +71,7 @@ __all__ = [
     "Perception",
     "PestDynamicsSpec",
     "PestType",
+    "PositionErrorSpec",
     "RobotId",
     "RobotPublicState",
     "RobotSelfState",

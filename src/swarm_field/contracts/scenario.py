@@ -79,6 +79,75 @@ class EnergySpec:
                 raise ValueError(f"{name} cannot be negative")
 
 
+class FailureMode(Enum):
+    """What stops a robot from taking part in a run.
+
+    A failed robot is out for good: it keeps its last position and stops deciding, so the rest
+    of the swarm carries on without it. The modes differ in what the robot still does for the
+    others, which is what makes them worth sweeping separately.
+    """
+
+    DEAD_BATTERY = auto()
+    """Battery exhausted. The robot stops, and is dark to the rest of the swarm."""
+
+    DISABLED = auto()
+    """Actuator or motor failure. The robot stops moving but stays observable."""
+
+    OFFLINE = auto()
+    """Radio failure. The robot still decides and moves, but nobody hears it."""
+
+
+@dataclass(frozen=True)
+class FailureSpec:
+    """Recurring chance that a robot fails, for testing how the swarm degrades.
+
+    The draw is per robot per check, from the simulation's own fault-injection randomness
+    rather than the world's, so switching failures on does not change the pest dynamics a run
+    produces. A run with ``probability`` at zero never fails a robot.
+
+    Attributes:
+        period: Time between failure checks in simulation milliseconds.
+        probability: Chance that a given live robot fails on one check.
+        mode: What the failure is when it happens.
+    """
+
+    period: int = 60_000
+    probability: float = 0.0
+    mode: FailureMode = FailureMode.DEAD_BATTERY
+
+    def __post_init__(self) -> None:
+        """Validate the supported parameter ranges."""
+        if self.period <= 0:
+            raise ValueError("failure period must be positive")
+        if not 0.0 <= self.probability <= 1.0:
+            raise ValueError("failure probability must be between 0 and 1")
+
+
+@dataclass(frozen=True)
+class PositionErrorSpec:
+    """Recurring chance that a robot mislocates itself, for testing recovery from drift.
+
+    When a robot draws localisation error its perceived position is displaced by up to
+    ``max_offset`` cells instead of its true one, so it decides as if it were somewhere else
+    until the next clean reading. The displacement is clamped to the field, and the error is
+    redrawn every decision, so a robot does not stay lost for a fixed number of decisions.
+
+    Attributes:
+        probability: Chance that a robot mislocates itself on one decision.
+        max_offset: Largest displacement in cells, in each direction.
+    """
+
+    probability: float = 0.0
+    max_offset: int = 1
+
+    def __post_init__(self) -> None:
+        """Validate the supported parameter ranges."""
+        if not 0.0 <= self.probability <= 1.0:
+            raise ValueError("position error probability must be between 0 and 1")
+        if self.max_offset < 0:
+            raise ValueError("position error offset cannot be negative")
+
+
 @dataclass
 class RobotSpec:
     """Fixed parameters of one robot at the start of a run.
@@ -113,6 +182,8 @@ class ScenarioConfig:
         obstacles: Cells that are blocked at time zero.
         pest_dynamics: Parameters for the recurring pest dynamics event.
         energy: Parameters for the battery model the simulation drains.
+        failures: Recurring chance that a robot fails, for robustness runs.
+        position_error: Recurring chance that a robot mislocates itself, for robustness runs.
     """
 
     field: FieldGeometry
@@ -123,3 +194,5 @@ class ScenarioConfig:
     obstacles: tuple[CellId, ...] = ()
     pest_dynamics: PestDynamicsSpec = PestDynamicsSpec()
     energy: EnergySpec = EnergySpec()
+    failures: FailureSpec = FailureSpec()
+    position_error: PositionErrorSpec = PositionErrorSpec()

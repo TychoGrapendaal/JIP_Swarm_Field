@@ -27,6 +27,8 @@ class MetricsSample:
         energy_per_area: Battery fraction the swarm has spent per square metre of field.
         messages_sent: Messages handed to the channel since the run began.
         coverage: Fraction of the crop cells that at least one robot has sensed, 0..1.
+        active_robots: Robots still taking part in the run. This drops when a robot fails, so a
+            robustness sweep can read the swarm's remaining capacity off the series.
     """
 
     time: Time
@@ -35,6 +37,7 @@ class MetricsSample:
     energy_per_area: float
     messages_sent: int
     coverage: float
+    active_robots: int
 
     def to_row(self) -> dict[str, Any]:
         """This sample as a flat ``dict`` of field name to value, for CSV and JSON export."""

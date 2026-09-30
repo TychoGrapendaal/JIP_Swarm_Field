@@ -9,6 +9,8 @@ from swarm_field.simulation.context import SimulationContext
 from swarm_field.simulation.event import (
     Event,
     EventQueue,
+    FailureCheck,
+    FailureConfig,
     MetricSample,
     PestDynamicsConfig,
     RobotDecision,
@@ -29,6 +31,8 @@ __all__ = [
     "EnergyConfig",
     "Event",
     "EventQueue",
+    "FailureCheck",
+    "FailureConfig",
     "MetricSample",
     "MetricsCollector",
     "MetricsConfig",

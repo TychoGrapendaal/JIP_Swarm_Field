@@ -110,6 +110,7 @@ class MetricsCollector:
             energy_per_area=self._energy_per_area(world),
             messages_sent=messages_sent,
             coverage=self._coverage(),
+            active_robots=len(world.live_robots()),
         )
         self.samples.append(taken)
         return taken
