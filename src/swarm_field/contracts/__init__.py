@@ -30,7 +30,13 @@ from swarm_field.contracts.observations import (
     PeerObservation,
     TerrainObservation,
 )
-from swarm_field.contracts.scenario import PestDynamicsSpec, RobotSpec, ScenarioConfig, ScenarioId
+from swarm_field.contracts.scenario import (
+    EnergySpec,
+    PestDynamicsSpec,
+    RobotSpec,
+    ScenarioConfig,
+    ScenarioId,
+)
 from swarm_field.contracts.snapshot import WorldSnapshot
 from swarm_field.contracts.world import CellState, FieldGeometry
 
@@ -45,6 +51,7 @@ __all__ = [
     "CropType",
     "Decision",
     "Direction",
+    "EnergySpec",
     "FieldGeometry",
     "Idle",
     "InfestationObservation",

@@ -39,14 +39,20 @@ class Channel:
 
     Delivered messages wait in the recipient's inbox until it reads them at its next
     decision.
+
+    Attributes:
+        sent: How many messages have been handed to the channel since the run began. The
+            payload is never read, so this counts broadcasts rather than deliveries.
     """
 
     def __init__(self) -> None:
         self._inboxes: dict[RobotId, list[Message]] = {}
+        self.sent: int = 0
 
     def broadcast(self, world: WorldState, time: Time, outbox: Iterable[Message]) -> None:
         """Deliver a robot's outbox now, to the inbox of every robot in the sender's range."""
         for message in outbox:
+            self.sent += 1
             for recipient in robots_in_range_of(message.sender, world, time):
                 self._inboxes.setdefault(recipient, []).append(message)
 

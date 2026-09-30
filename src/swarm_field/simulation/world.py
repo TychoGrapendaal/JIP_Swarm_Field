@@ -11,6 +11,7 @@ from swarm_field.contracts import (
     CellState,
     Charge,
     CropObservation,
+    EnergySpec,
     FieldGeometry,
     Idle,
     InfestationObservation,
@@ -27,6 +28,33 @@ from swarm_field.contracts import (
     Treat,
     WorldSnapshot,
 )
+
+
+@dataclass(frozen=True)
+class EnergyConfig:
+    """The battery model the world drains as robots act.
+
+    Every term is a fraction of a full charge, matching the ``battery`` of a ``RobotState``.
+
+    Attributes:
+        per_metre: Battery fraction consumed per metre travelled.
+        per_decision: Battery fraction consumed per decision point, for sensing, deciding and
+            transmitting.
+        treat_per_action: Battery fraction consumed by a ``Treat`` action.
+    """
+
+    per_metre: float = 0.0
+    per_decision: float = 0.0
+    treat_per_action: float = 0.0
+
+    @classmethod
+    def from_spec(cls, spec: EnergySpec) -> "EnergyConfig":
+        """Build the world's battery model from the shared scenario contract."""
+        return cls(
+            per_metre=spec.per_metre,
+            per_decision=spec.per_decision,
+            treat_per_action=spec.treat_per_action,
+        )
 
 
 @dataclass
@@ -46,6 +74,9 @@ class RobotState:
         move_started_at: Simulation time when the current move started.
         move_arrival_at: Simulation time when the current move completes.
         current_action: Action currently being executed or most recently applied.
+        energy_spent: Battery fraction this robot has consumed since the run began, whatever
+            recharged it in between.
+        failed: Whether the robot has stopped taking part in the run.
     """
 
     robot_id: RobotId
@@ -60,6 +91,8 @@ class RobotState:
     move_started_at: Time | None = None
     move_arrival_at: Time | None = None
     current_action: Action | None = None
+    energy_spent: float = 0.0
+    failed: bool = False
 
 
 class WorldState:
@@ -70,7 +103,12 @@ class WorldState:
     Robot occupancy is intentionally unrestricted: many robots may share one cell.
     """
 
-    def __init__(self, field: FieldGeometry, robots: Iterable[RobotState] = ()) -> None:
+    def __init__(
+        self,
+        field: FieldGeometry,
+        robots: Iterable[RobotState] = (),
+        energy: EnergyConfig | None = None,
+    ) -> None:
         """Create the field and place any initial robots."""
         if field.width <= 0 or field.height <= 0:
             raise ValueError("field dimensions must be positive")
@@ -80,6 +118,7 @@ class WorldState:
             raise ValueError("field connectivity must be 4 or 8")
 
         self.field: FieldGeometry = field
+        self.energy: EnergyConfig = energy if energy is not None else EnergyConfig()
         self.cells: dict[CellId, CellState] = {
             (x, y): CellState(
                 crop=None,
@@ -235,6 +274,7 @@ class WorldState:
         self.advance_to(time)
         robot = self._robot(robot_id)
         robot.current_action = action
+        self._spend(robot, self.energy.per_decision)
 
         if isinstance(action, Move):
             return self._start_move(robot, action.to, time)
@@ -245,6 +285,14 @@ class WorldState:
         elif isinstance(action, Idle):
             pass
         return None
+
+    def energy_spent(self) -> float:
+        """Total battery fraction every robot has consumed since the run began.
+
+        Recharging does not subtract from this, so it measures the energy the swarm spent
+        rather than the charge it happens to be holding.
+        """
+        return sum(robot.energy_spent for robot in self.robots.values())
 
     def advance_to(self, time: Time) -> None:
         """Advance any robot whose direct-cell movement has completed by ``time``."""
@@ -293,10 +341,7 @@ class WorldState:
         if not self.is_walkable(target):
             raise ValueError(f"target is an obstacle: {target}")
 
-        distance_m = (
-            hypot(target[0] - robot.position[0], target[1] - robot.position[1])
-            * self.field.cell_size
-        )
+        distance_m = self._distance_m(robot.position, target)
         return max(1, ceil(distance_m / robot.speed_mps * TimeUnit.SECOND))
 
     def public_states(self) -> list[RobotPublicState]:
@@ -337,6 +382,7 @@ class WorldState:
             return None
 
         duration = self.movement_duration(robot.robot_id, target)
+        self._spend(robot, self.energy.per_metre * self._distance_m(target, robot.position))
         robot.move_target = target
         robot.move_started_at = time
         robot.move_arrival_at = time + duration
@@ -347,8 +393,22 @@ class WorldState:
             return
         if robot.consumable <= 0:
             return
+        self._spend(robot, self.energy.treat_per_action)
         self.cells[target].infestation = 0.0
         robot.consumable = max(0.0, robot.consumable - 0.1)
+
+    @staticmethod
+    def _spend(robot: RobotState, amount: float) -> None:
+        """Draw ``amount`` of battery, never below empty, and record it as spent."""
+        if amount <= 0.0:
+            return
+        drawn = min(robot.battery, amount)
+        robot.battery -= drawn
+        robot.energy_spent += drawn
+
+    def _distance_m(self, source: CellId, target: CellId) -> float:
+        """Distance in metres between two cells, at the field's cell size."""
+        return hypot(target[0] - source[0], target[1] - source[1]) * self.field.cell_size
 
     @staticmethod
     def _cell_center(cell: CellId) -> tuple[float, float]:

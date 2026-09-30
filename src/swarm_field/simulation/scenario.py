@@ -14,7 +14,7 @@ from swarm_field.contracts import (
     ScenarioConfig,
     ScenarioId,
 )
-from swarm_field.simulation.world import RobotState, WorldState
+from swarm_field.simulation.world import EnergyConfig, RobotState, WorldState
 
 _DEFAULT_CELL_SIZE = 5.0
 _DEFAULT_ROW_SPACING = 2.0
@@ -29,7 +29,7 @@ def build_world(config: ScenarioConfig) -> WorldState:
     specifications become mutable ``RobotState`` objects without changing the configuration.
     """
     _validate_config(config)
-    world = WorldState(config.field)
+    world = WorldState(config.field, energy=EnergyConfig.from_spec(config.energy))
 
     for cell, crop in config.crops.items():
         world.cell(cell).crop = crop
@@ -48,6 +48,7 @@ def build_world(config: ScenarioConfig) -> WorldState:
                 position=spec.start,
                 body=spec.body,
                 speed_mps=spec.v_max,
+                radio_range_m=spec.radio_range,
                 battery=spec.battery,
             )
         )

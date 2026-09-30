@@ -49,6 +49,36 @@ class PestDynamicsSpec:
                 raise ValueError(f"{name} must be between 0 and 1")
 
 
+@dataclass(frozen=True)
+class EnergySpec:
+    """Configuration for the coarse-grained battery model.
+
+    A robot's battery is stored as a fraction of its full charge, so every term below is
+    expressed in that fraction rather than in joules. Travel is charged by the distance
+    actually travelled, and every decision point costs a fixed amount for sensing, deciding
+    and transmitting.
+
+    Attributes:
+        per_metre: Battery fraction consumed per metre travelled.
+        per_decision: Battery fraction consumed per decision point.
+        treat_per_action: Battery fraction consumed by a ``Treat`` action.
+    """
+
+    per_metre: float = 0.0
+    per_decision: float = 0.0
+    treat_per_action: float = 0.0
+
+    def __post_init__(self) -> None:
+        """Validate that no term is negative."""
+        for name, value in (
+            ("per_metre", self.per_metre),
+            ("per_decision", self.per_decision),
+            ("treat_per_action", self.treat_per_action),
+        ):
+            if value < 0.0:
+                raise ValueError(f"{name} cannot be negative")
+
+
 @dataclass
 class RobotSpec:
     """Fixed parameters of one robot at the start of a run.
@@ -82,6 +112,7 @@ class ScenarioConfig:
         initial_infestation: Initial true infestation severity by cell.
         obstacles: Cells that are blocked at time zero.
         pest_dynamics: Parameters for the recurring pest dynamics event.
+        energy: Parameters for the battery model the simulation drains.
     """
 
     field: FieldGeometry
@@ -91,3 +122,4 @@ class ScenarioConfig:
     initial_infestation: dict[CellId, float] = field(default_factory=dict)
     obstacles: tuple[CellId, ...] = ()
     pest_dynamics: PestDynamicsSpec = PestDynamicsSpec()
+    energy: EnergySpec = EnergySpec()

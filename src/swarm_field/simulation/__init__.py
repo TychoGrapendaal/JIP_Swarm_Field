@@ -15,10 +15,11 @@ from swarm_field.simulation.event import (
 )
 from swarm_field.simulation.loop import SimulationLoop
 from swarm_field.simulation.scenario import build_scenario, build_world
-from swarm_field.simulation.world import RobotState, WorldState
+from swarm_field.simulation.world import EnergyConfig, RobotState, WorldState
 
 __all__ = [
     "Channel",
+    "EnergyConfig",
     "Event",
     "EventQueue",
     "PestDynamicsConfig",
