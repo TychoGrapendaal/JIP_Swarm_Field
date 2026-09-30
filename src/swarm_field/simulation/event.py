@@ -13,10 +13,23 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 from swarm_field.contracts import CellId, Perception, RobotId, Time
 =======
 from swarm_field.contracts import CellId, PestDynamicsSpec, RobotId, Time
 >>>>>>> 3af34404d4cfdb6e0dadf175d00e0f294b2a02c0
+=======
+from swarm_field.contracts import (
+    CellId,
+    FailureMode,
+    FailureSpec,
+    Perception,
+    PestDynamicsSpec,
+    RobotId,
+    Time,
+)
+from swarm_field.simulation.metrics import MetricsConfig
+>>>>>>> 9d44338e1bb322ad07f7fd1a0bf6847a8217b4e0
 
 if TYPE_CHECKING:
     from swarm_field.simulation.context import SimulationContext
@@ -87,6 +100,7 @@ class RobotDecision:
 
     def handle(self, ctx: SimulationContext) -> None:
         """Build the robot's perception, apply its decision, and schedule the follow-up."""
+<<<<<<< HEAD
         perception = Perception(
             time=ctx.now,
             self_state=ctx.world.perceived_self(self.robot),
@@ -97,6 +111,123 @@ class RobotDecision:
         arrival = ctx.world.apply_action(self.robot, decision.action, ctx.now)
         follow_up = arrival if arrival is not None else ctx.now + self.dwell
         ctx.schedule(RobotDecision(time=follow_up, robot=self.robot, dwell=self.dwell))
+=======
+        if self._has_failed(ctx):
+            # A failed robot does not come back, so it stops scheduling decisions entirely and
+            # the swarm carries on without it. A move already under way still completes, so the
+            # rest of the swarm does not have to cope with robots stranded mid-cell.
+            return
+
+        ctx.world.advance_to(self.time)
+        perception = Perception(
+            time=self.time,
+            self_state=ctx.world.perceived_self(self.robot, self._believed_position(ctx)),
+            sensed=ctx.world.observe_for(self.robot, self.time),
+            inbox=ctx.channel.take_inbox(self.robot),
+        )
+        if ctx.metrics is not None:
+            # Coverage and detection latency are per-sensing events, so they are recorded
+            # here rather than at the next sample, which would only see the latest sensing.
+            ctx.metrics.observe(perception.sensed, self.time)
+        decision = ctx.agents[self.robot].decide(perception)
+        ctx.channel.broadcast(ctx.world, self.time, decision.outbox)
+        arrival = ctx.world.apply_action(self.robot, decision.action, self.time)
+        follow_up = arrival if arrival is not None else self.time + self.dwell
+        ctx.schedule(RobotDecision(time=follow_up, robot=self.robot, dwell=self.dwell))
+
+    def _has_failed(self, ctx: SimulationContext) -> bool:
+        return ctx.world.robots[self.robot].failed
+
+    def _believed_position(self, ctx: SimulationContext) -> CellId | None:
+        """Where the robot thinks it is, which is its true cell unless it draws sensor error.
+
+        The error is redrawn at every decision and drawn from ``ctx.noise``, so a run with
+        position error is reproducible and does not disturb the world's random stream.
+        """
+        spec = ctx.position_error
+        if spec.probability <= 0.0 or ctx.noise.random() >= spec.probability:
+            return None
+        cell = ctx.world.robots[self.robot].position
+        span = 2 * spec.max_offset + 1
+        offset_x = ctx.noise.randrange(span) - spec.max_offset
+        offset_y = ctx.noise.randrange(span) - spec.max_offset
+        return (cell[0] + offset_x, cell[1] + offset_y)
+
+
+@dataclass(frozen=True)
+class FailureConfig:
+    """How often the simulation checks whether a robot has failed, and what failing means.
+
+    Attributes:
+        period: Time between checks in simulation time units.
+        probability: Chance that a given live robot fails on one check.
+        mode: What the failure is when it happens.
+    """
+
+    period: Time = 60_000
+    probability: float = 0.0
+    mode: FailureMode = FailureMode.DEAD_BATTERY
+
+    @classmethod
+    def from_spec(cls, spec: FailureSpec) -> FailureConfig:
+        """Build the event's configuration from the shared scenario contract."""
+        return cls(period=spec.period, probability=spec.probability, mode=spec.mode)
+
+    def __post_init__(self) -> None:
+        """Validate the supported parameter ranges."""
+        if self.period <= 0:
+            raise ValueError("failure period must be positive")
+        if not 0.0 <= self.probability <= 1.0:
+            raise ValueError("failure probability must be between 0 and 1")
+
+
+@dataclass
+class FailureCheck:
+    """Fail some live robots, then reschedule the next check.
+
+    Draws from ``ctx.noise`` rather than ``ctx.rng``, so a run with failures on is comparable
+    with its baseline: the pest dynamics see exactly the same random stream either way.
+
+    Attributes:
+        time: Simulation time of this check.
+        config: How often to check and what failing means.
+    """
+
+    time: Time
+    config: FailureConfig = field(default_factory=FailureConfig)
+
+    def handle(self, ctx: SimulationContext) -> None:
+        """Fail each live robot that draws a fault, then schedule the next check."""
+        for robot_id in ctx.world.live_robots():
+            if ctx.noise.random() < self.config.probability:
+                ctx.world.fail_robot(robot_id, self.config.mode)
+        ctx.schedule(FailureCheck(time=self.time + self.config.period, config=self.config))
+
+
+@dataclass
+class MetricSample:
+    """Record one row of the run's metrics series, then reschedule itself.
+
+    Runs on its own coarse cadence, independent of robot activity and of the pest dynamics.
+    It draws nothing from ``ctx.rng``, so recording metrics leaves the rest of the run
+    bit-for-bit identical.
+
+    Attributes:
+        time: Simulation time this sample is taken at.
+        config: The sampling cadence and the target threshold.
+    """
+
+    time: Time
+    config: MetricsConfig = field(default_factory=MetricsConfig)
+
+    def handle(self, ctx: SimulationContext) -> None:
+        """Take one sample from the run's collector, if the run has one."""
+        collector = ctx.metrics
+        if collector is None:
+            return
+        collector.sample(ctx.world, self.time, ctx.channel.sent)
+        ctx.schedule(MetricSample(time=self.time + self.config.period, config=self.config))
+>>>>>>> 9d44338e1bb322ad07f7fd1a0bf6847a8217b4e0
 
 
 @dataclass(frozen=True)

@@ -8,18 +8,21 @@ from swarm_field.contracts import (
     BodyType,
     CellId,
     CropType,
+    EnergySpec,
     FieldGeometry,
     PestDynamicsSpec,
     RobotSpec,
     ScenarioConfig,
     ScenarioId,
 )
-from swarm_field.simulation.world import RobotState, WorldState
+from swarm_field.simulation.world import EnergyConfig, RobotState, WorldState
 
 _DEFAULT_CELL_SIZE = 5.0
 _DEFAULT_ROW_SPACING = 2.0
 _DEFAULT_IN_ROW_SPACING = 1.0
 _DEFAULT_HEADLAND = 5.0
+_DEFAULT_ENERGY = EnergySpec(per_metre=2e-6, per_decision=1e-4, treat_per_action=2e-3)
+"""Battery model shared by the presets: about fourteen hours of idling on a full charge."""
 
 
 def build_world(config: ScenarioConfig) -> WorldState:
@@ -29,7 +32,7 @@ def build_world(config: ScenarioConfig) -> WorldState:
     specifications become mutable ``RobotState`` objects without changing the configuration.
     """
     _validate_config(config)
-    world = WorldState(config.field)
+    world = WorldState(config.field, energy=EnergyConfig.from_spec(config.energy))
 
     for cell, crop in config.crops.items():
         world.cell(cell).crop = crop
@@ -48,6 +51,7 @@ def build_world(config: ScenarioConfig) -> WorldState:
                 position=spec.start,
                 body=spec.body,
                 speed_mps=spec.v_max,
+                radio_range_m=spec.radio_range,
                 battery=spec.battery,
             )
         )
@@ -83,6 +87,7 @@ def _build_s1(seed: int) -> ScenarioConfig:
             spread_probability=0.0,
             spawn_severity=0.1,
         ),
+        energy=_DEFAULT_ENERGY,
     )
 
 
@@ -104,6 +109,7 @@ def _build_s2(seed: int) -> ScenarioConfig:
             spread_probability=0.15,
             spawn_severity=0.10,
         ),
+        energy=_DEFAULT_ENERGY,
     )
 
 
@@ -128,6 +134,7 @@ def _build_s3(seed: int) -> ScenarioConfig:
             spread_probability=0.18,
             spawn_severity=0.10,
         ),
+        energy=_DEFAULT_ENERGY,
     )
 
 
@@ -157,6 +164,7 @@ def _build_s4(seed: int) -> ScenarioConfig:
             spread_probability=0.25,
             spawn_severity=0.10,
         ),
+        energy=_DEFAULT_ENERGY,
     )
 
 
@@ -195,6 +203,7 @@ def _build_s5(seed: int) -> ScenarioConfig:
             spread_probability=0.30,
             spawn_severity=0.10,
         ),
+        energy=_DEFAULT_ENERGY,
     )
 
 

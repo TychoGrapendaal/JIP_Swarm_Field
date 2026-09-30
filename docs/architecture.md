@@ -66,24 +66,16 @@ Because A and C both depend only on `contracts` and on these ports, either can b
 There is one place — the runner — that knows every concrete class and wires them together. Everything else depends on ports. This is where "assembled, possibly dynamically" actually happens: the runner reads specs, resolves named parts from registries, and constructs the object graph for a single run.
 
 ```python
-def run_experiment(
-    scenario: ScenarioConfig,
-    brain_spec: BrainSpec,        # how to assemble each robot's brain (Part II.A)
-    until: Time,                  # how long to run, in simulation time
-) -> RunSummary:
-    rng    = Random(scenario.seed)          # single seeded source for the whole run
-    world  = build_world(scenario)          # B.1 ground truth
-    agents = {
-        spec.robot_id: build_agent(brain_spec, spec.body, rng)   # A, assembled
-        for spec in scenario.robots
-    }
-    ctx = SimulationContext(now=0, rng=rng, agents=agents, world=world, queue=EventQueue())
-    seed_initial_events(ctx, scenario)   # first decision per robot + a recurring world tick
-    SimulationLoop().run(ctx, until)
-    return summarize(ctx)
+def run_experiment(config: ExperimentConfig) -> RunSummary:
+    ctx, collector = build_run(config)   # assemble + seed the first events
+    SimulationLoop().run(ctx, config.until)
+    return RunSummary.from_series(config.label, config.scenario_name,
+                                  config.scenario.seed, collector.series())
 ```
 
-The runner is also the natural home for the batch / sweep logic that runs many configurations for benchmarking. Visualization attaches to the same run through the snapshot port, or consumes a recorded event log offline.
+Every random draw a run makes happens inside `build_run`, in a fixed order, so a run is a function of its seed and configuration. The context's `rng` is then left to the pest dynamics; the metrics collector holds no random source of its own, so recording metrics cannot change the world a run produces.
+
+The runner is also the natural home for the batch / sweep logic that runs many configurations for benchmarking: `sweep_scenarios` runs the cross product of scenarios and seeds, and `robustness_sweep` runs one scenario under each fault condition from a shared seed, so a condition and its baseline see identical pest dynamics. Visualization attaches to the same run through the snapshot port, or consumes a recorded event log offline.
 
 ## I.3 Threads of control (who calls whom)
 
@@ -300,14 +292,17 @@ flowchart LR
 
 | Event | On handling | Schedules |
 |---|---|---|
-| `RobotDecision` | build the robot's `Perception`, call `SwarmAgent.decide`, apply the action, hand `outbox` to the channel | the robot's next event — a cell arrival while moving, or the next decision interval while stationary |
+| `RobotDecision` | build the robot's `Perception`, call `SwarmAgent.decide`, apply the action, hand `outbox` to the channel | the robot's next event — a cell arrival while moving, or the next decision interval while stationary. A failed robot schedules nothing further |
 | *CellArrival* (to add) | update the robot's cell / occupancy | usually a `RobotDecision` on arrival |
 | `WorldTick` | advance infestation dynamics one step | itself, at the next coarse cadence |
-| *MetricSample* (to add) | record a metrics sample | itself, periodically |
+| `MetricSample` | record a metrics sample | itself, periodically |
+| `FailureCheck` | fail each live robot that draws a fault from `ctx.noise` | itself, at the next coarse cadence |
 
 ### B.4 Keeping handlers uncoupled
 
 Handlers never call each other. They communicate only through the shared `SimulationContext` (and, later, a notification mechanism so metrics can observe facts like `TargetRemoved` without depending on the dynamics that produce them). Determinism holds because there is one `rng` in the context, drawn in event order, and equal timestamps break deterministically by *world events before robot events, then `robot_id`*.
+
+The context carries a **second** random source, `noise`, for the simulation's own hardware faults and sensor error. It is separate from `rng` on purpose: a robustness run has to be comparable with its baseline, so the faults must not consume draws that the pest dynamics would otherwise see. Both are derived from the scenario seed, so the pair is reproducible while the streams stay disjoint. `ctx.rng` is the world and nothing else; `ctx.noise` is reached only by `FailureCheck` and the position-error draw. See [`docs/research/robustness.md`](research/robustness.md).
 
 ### B.5 Simplifying assumptions (v1)
 

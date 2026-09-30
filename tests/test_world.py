@@ -1,7 +1,17 @@
 """Tests for the high-level B.1 ground-truth world state."""
 
-from swarm_field.contracts import BodyType, FieldGeometry, Idle, Move, PeerObservation, Treat
-from swarm_field.simulation import RobotState, WorldState
+import pytest
+
+from swarm_field.contracts import (
+    BodyType,
+    Charge,
+    FieldGeometry,
+    Idle,
+    Move,
+    PeerObservation,
+    Treat,
+)
+from swarm_field.simulation import EnergyConfig, RobotState, WorldState
 
 
 def _field(connectivity: int = 8) -> FieldGeometry:
@@ -169,3 +179,49 @@ def test_snapshot_contains_robot_target_without_cell_occupancy() -> None:
     assert snapshot.robots[0].position == (1, 1)
     assert snapshot.robots[0].target == (2, 1)
     assert not hasattr(snapshot.cells[(1, 1)], "occupant")
+
+
+def test_energy_is_drained_per_metre_and_per_decision() -> None:
+    world = WorldState(
+        _field(),
+        robots=[_robot(speed_mps=5.0)],
+        energy=EnergyConfig(per_metre=0.01, per_decision=0.02),
+    )
+
+    world.apply_action(1, Move(to=(2, 1)), time=0)
+
+    # One cell across at 5 m per cell is 5 m of travel, plus the decision itself.
+    assert world.robots[1].battery == pytest.approx(1.0 - 0.05 - 0.02)
+    assert world.energy_spent() == pytest.approx(0.07)
+
+
+def test_treat_costs_energy_and_charging_restores_the_battery() -> None:
+    world = WorldState(
+        _field(),
+        robots=[_robot()],
+        energy=EnergyConfig(per_decision=0.1, treat_per_action=0.05),
+    )
+    world.cell((1, 1)).infestation = 0.5
+
+    world.apply_action(1, Treat(cell=(1, 1)), time=0)
+    assert world.robots[1].battery == pytest.approx(0.85)
+
+    world.apply_action(1, Charge(), time=0)
+    assert world.robots[1].battery == pytest.approx(1.0)
+    # Recharging tops the battery up but never gives back what was spent.
+    assert world.energy_spent() == pytest.approx(0.25)
+
+
+def test_battery_never_goes_below_empty() -> None:
+    world = WorldState(
+        _field(),
+        robots=[_robot()],
+        energy=EnergyConfig(per_decision=0.4),
+    )
+
+    world.apply_action(1, Idle(), time=0)
+    world.apply_action(1, Idle(), time=1)
+    world.apply_action(1, Idle(), time=2)
+
+    assert world.robots[1].battery == 0.0
+    assert world.energy_spent() == pytest.approx(1.0)
