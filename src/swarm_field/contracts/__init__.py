@@ -21,6 +21,7 @@ from swarm_field.contracts.ids import (
     TimeUnit,
 )
 from swarm_field.contracts.messages import Message, MessageKind
+from swarm_field.contracts.metrics import MetricsSample
 from swarm_field.contracts.navigation import Vector2
 from swarm_field.contracts.observations import (
     CropObservation,
@@ -57,6 +58,7 @@ __all__ = [
     "InfestationObservation",
     "Message",
     "MessageKind",
+    "MetricsSample",
     "Move",
     "Observation",
     "ObservationBase",

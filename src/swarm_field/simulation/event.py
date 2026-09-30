@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
 from swarm_field.contracts import CellId, Perception, PestDynamicsSpec, RobotId, Time
+from swarm_field.simulation.metrics import MetricsConfig
 
 if TYPE_CHECKING:
     from swarm_field.simulation.context import SimulationContext
@@ -90,11 +91,40 @@ class RobotDecision:
             sensed=ctx.world.observe_for(self.robot, self.time),
             inbox=ctx.channel.take_inbox(self.robot),
         )
+        if ctx.metrics is not None:
+            # Coverage and detection latency are per-sensing events, so they are recorded
+            # here rather than at the next sample, which would only see the latest sensing.
+            ctx.metrics.observe(perception.sensed, self.time)
         decision = ctx.agents[self.robot].decide(perception)
         ctx.channel.broadcast(ctx.world, self.time, decision.outbox)
         arrival = ctx.world.apply_action(self.robot, decision.action, self.time)
         follow_up = arrival if arrival is not None else self.time + self.dwell
         ctx.schedule(RobotDecision(time=follow_up, robot=self.robot, dwell=self.dwell))
+
+
+@dataclass
+class MetricSample:
+    """Record one row of the run's metrics series, then reschedule itself.
+
+    Runs on its own coarse cadence, independent of robot activity and of the pest dynamics.
+    It draws nothing from ``ctx.rng``, so recording metrics leaves the rest of the run
+    bit-for-bit identical.
+
+    Attributes:
+        time: Simulation time this sample is taken at.
+        config: The sampling cadence and the target threshold.
+    """
+
+    time: Time
+    config: MetricsConfig = field(default_factory=MetricsConfig)
+
+    def handle(self, ctx: SimulationContext) -> None:
+        """Take one sample from the run's collector, if the run has one."""
+        collector = ctx.metrics
+        if collector is None:
+            return
+        collector.sample(ctx.world, self.time, ctx.channel.sent)
+        ctx.schedule(MetricSample(time=self.time + self.config.period, config=self.config))
 
 
 @dataclass(frozen=True)

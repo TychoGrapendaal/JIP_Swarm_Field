@@ -8,6 +8,7 @@ from swarm_field.contracts import (
     BodyType,
     CellId,
     CropType,
+    EnergySpec,
     FieldGeometry,
     PestDynamicsSpec,
     RobotSpec,
@@ -20,6 +21,8 @@ _DEFAULT_CELL_SIZE = 5.0
 _DEFAULT_ROW_SPACING = 2.0
 _DEFAULT_IN_ROW_SPACING = 1.0
 _DEFAULT_HEADLAND = 5.0
+_DEFAULT_ENERGY = EnergySpec(per_metre=2e-6, per_decision=1e-4, treat_per_action=2e-3)
+"""Battery model shared by the presets: about fourteen hours of idling on a full charge."""
 
 
 def build_world(config: ScenarioConfig) -> WorldState:
@@ -84,6 +87,7 @@ def _build_s1(seed: int) -> ScenarioConfig:
             spread_probability=0.0,
             spawn_severity=0.1,
         ),
+        energy=_DEFAULT_ENERGY,
     )
 
 
@@ -105,6 +109,7 @@ def _build_s2(seed: int) -> ScenarioConfig:
             spread_probability=0.15,
             spawn_severity=0.10,
         ),
+        energy=_DEFAULT_ENERGY,
     )
 
 
@@ -129,6 +134,7 @@ def _build_s3(seed: int) -> ScenarioConfig:
             spread_probability=0.18,
             spawn_severity=0.10,
         ),
+        energy=_DEFAULT_ENERGY,
     )
 
 
@@ -158,6 +164,7 @@ def _build_s4(seed: int) -> ScenarioConfig:
             spread_probability=0.25,
             spawn_severity=0.10,
         ),
+        energy=_DEFAULT_ENERGY,
     )
 
 
@@ -196,6 +203,7 @@ def _build_s5(seed: int) -> ScenarioConfig:
             spread_probability=0.30,
             spawn_severity=0.10,
         ),
+        energy=_DEFAULT_ENERGY,
     )
 
 
