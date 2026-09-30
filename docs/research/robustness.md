@@ -19,7 +19,7 @@ Every condition in a sweep runs from the **same seed**, and each condition pertu
 
 ## Results
 
-`S2` (15 scouts, 1600 cells), seed 101, 6 simulated hours, sampled hourly. `coverage` is shown with its difference from the baseline, `energy/m2` is battery fraction spent per square metre.
+`S2` (10 scouts, 5 killers, 1600 cells), seed 101, 6 simulated hours, sampled hourly. `coverage` is shown with its difference from the baseline, `energy/m2` is battery fraction spent per square metre.
 
 | condition | active | targets | coverage | vs base | latency (ms) | energy/m² |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -33,7 +33,9 @@ Every condition in a sweep runs from the **same seed**, and each condition pertu
 | position error 0.1 | 15 | 1600 | 0.084 | +0.000 | 0 | 1.620e-04 |
 | position error 0.3 | 15 | 1600 | 0.084 | +0.000 | 0 | 1.620e-04 |
 
-The harness scales to the large roster: `S5` (40 scouts, 4900 cells) over 3 hours gives the same shape, with 40 / 35 / 14 active robots at the three failure levels.
+The harness scales to the large roster: `S5` (40 robots, 4900 cells) over 3 hours gives the same shape, with 40 / 35 / 14 active robots at the three failure levels.
+
+The presets build a SCOUT / KILLER / BATTERY roster, but it does not yet affect anything: `build_agent` takes no `body` because there is no `CapabilitySet` gate, so all 15 robots in `S2` are assembled into a byte-identical `ComposedAgent`. The body mix is therefore held fixed across the presets and is not a variable in this sweep.
 
 ## What these results do and do not show
 
@@ -44,9 +46,9 @@ The harness scales to the large roster: `S5` (40 scouts, 4900 cells) over 3 hour
 - The swarm does not move. `TreatObjective.seeds()` returns `()`, so `TreatInfestation.propose` returns no candidate at every decision and `ComposedAgent` commits `Idle`. All 15 robots therefore sense the same 5 × 5 neighbourhood they started in and nothing else — 135 distinct cells of 1600, which is the 0.084 in the table. A robot that never leaves its start cell cannot be made to cover less by losing peers, because its peers contributed cells it already covers.
 - Position error currently reaches the algorithm only through `perception.self_state.position`. Sensing uses the true position, and with no behavior acting on its belief, a displaced belief has nothing to affect. The mechanism itself is tested at the boundary (`test_position_error_displaces_the_position_the_robot_believes`, and that a displaced belief is clamped inside the field and leaves ground truth untouched), so the gap is downstream of it.
 
-Two secondary effects compound this. The three failure modes are indistinguishable in the table for the same reason: with no communication implemented, an `OFFLINE` robot costs the swarm nothing extra over a `DEAD_BATTERY` one, so the modes cannot separate until `messages_sent` is non-zero. And the detection latency reads `0` rather than a distribution, because the scenarios place robots away from the initial infestation clusters, so a stationary robot senses a target on its first decision and the measured delay is always zero.
+Two secondary effects compound this. The three failure modes are indistinguishable in the table for the same reason: with no communication implemented, an `OFFLINE` robot costs the swarm nothing extra over a `DEAD_BATTERY` one, so the modes cannot separate until `messages_sent` is non-zero. And the detection latency reads `0` rather than a distribution for a concrete reason: only the KILLER and BATTERY robots are placed away from the initial infestation clusters, while the SCOUTs are not. In `S2` the scout lattice is x ∈ {8, 16, 24, 32} × y ∈ {10, 20, 30}, and `(8, 10)` is the centre of an infestation cluster, so a scout starts standing on a target and senses it on its first decision — the measured delay is exactly zero for the whole run.
 
-**What has to land before this sweep says anything about resilience:** `TreatObjective.seeds` returning real target cells (so the swarm moves and `coverage` becomes a function of which robots survive); a communication strategy, so `messages_sent` is non-zero and the failure modes separate; and either an `Explore` behavior with a `propose` or a scenario that starts robots on the infestation, so detection latency has a distribution rather than a point mass. Until then the honest summary is that the experiment is built and controlled, and its result is `active_robots` and `energy/m²` — which is the correct result for an inert swarm under fault injection, and a useful regression check in its own right.
+**What has to land before this sweep says anything about resilience:** `TreatObjective.seeds` returning real target cells (so the swarm moves and `coverage` becomes a function of which robots survive); a communication strategy, so `messages_sent` is non-zero and the failure modes separate; and moving the scouts off the infestation clusters (or giving `Explore` a `propose`), so detection latency has a distribution rather than a point mass. Until then the honest summary is that the experiment is built and controlled, and its result is `active_robots` and `energy/m²` — which is the correct result for an inert swarm under fault injection, and a useful regression check in its own right.
 
 ## Reproducing
 
