@@ -28,7 +28,7 @@ __all__ = [
     "SimulationLoop",
     "WorldState",
     "WorldTick",
-    "robots_in_range_of",
     "build_scenario",
     "build_world",
+    "robots_in_range_of",
 ]
