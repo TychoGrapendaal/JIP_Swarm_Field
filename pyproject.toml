@@ -7,7 +7,9 @@ authors = [
     { name = "Blazej Lytkowski", email = "blazej.lytkowski@gmail.com" },
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "numpy>=2.5.3",
+]
 
 [build-system]
 requires = ["uv_build>=0.9.24,<0.10.0"]
@@ -43,7 +45,7 @@ select = [
 
 [tool.pyrefly]
 project-includes = ["src", "tests"]
-search-path = ["src"]
+search-path = ["src", "."]
 python-version = "3.12"
 # Visualization is an optional technology behind the Renderer port (examples use
 # `uv run --with matplotlib`); treat it as untyped so checks stay green either way.

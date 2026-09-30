@@ -15,14 +15,21 @@ from matplotlib.ticker import MultipleLocator
 
 from swarm_field.contracts import (
     BodyType,
+    FieldGeometry,
     InfestationObservation,
     Observation,
     ObservationBase,
-    ObstacleObservation,
     PeerObservation,
     RobotSelfState,
+    Terrain,
+    TerrainObservation,
 )
-from swarm_field.swarm import DecisionContext, Explore, PotentialField
+from swarm_field.swarm import AgentMemory, DecisionContext, Explore, Navigator, PotentialField
+
+# The demo doesn't use the robot's memory or navigator, but a DecisionContext carries both.
+_FIELD = FieldGeometry(width=50, height=50, cell_size=10.0, row_sp=0.0, in_row_sp=0.0, headland=0.0)
+_MEMORY = AgentMemory(1, _FIELD)
+_NAVIGATOR = Navigator(_MEMORY, flies=True)
 
 
 def make_context(
@@ -43,6 +50,8 @@ def make_context(
             health=1.0,
         ),
         sensed=sensed,
+        memory=_MEMORY,
+        navigator=_NAVIGATOR,
     )
 
 
@@ -60,12 +69,12 @@ def observations(
             severity=0.8,
             pest=None,
         ),
-        ObstacleObservation(
+        TerrainObservation(
             cell=(-2, -3),
             confidence=1.0,
             observed_at=time,
             source=1,
-            is_obstacle=True,
+            terrain=Terrain.OBSTACLE,
         ),
         PeerObservation(
             cell=(3, 1),
@@ -73,6 +82,7 @@ def observations(
             observed_at=time,
             source=1,
             peer=2,
+            body=BodyType.KILLER,
         ),
         *_explored_observations(time, position, explore_radius),
     ]

@@ -1,0 +1,65 @@
+[
+  {
+    "time": 0,
+    "targets_remaining": 88,
+    "detection_latency_ms": 0.0,
+    "energy_per_area": 3.75e-08,
+    "messages_sent": 0,
+    "coverage": 0.084375,
+    "active_robots": 14
+  },
+  {
+    "time": 3600000,
+    "targets_remaining": 1190,
+    "detection_latency_ms": 0.0,
+    "energy_per_area": 2.0582500000000276e-05,
+    "messages_sent": 0,
+    "coverage": 0.084375,
+    "active_robots": 10
+  },
+  {
+    "time": 7200000,
+    "targets_remaining": 1574,
+    "detection_latency_ms": 0.0,
+    "energy_per_area": 3.858250000000013e-05,
+    "messages_sent": 0,
+    "coverage": 0.084375,
+    "active_robots": 10
+  },
+  {
+    "time": 10800000,
+    "targets_remaining": 1600,
+    "detection_latency_ms": 0.0,
+    "energy_per_area": 5.583249999999823e-05,
+    "messages_sent": 0,
+    "coverage": 0.084375,
+    "active_robots": 8
+  },
+  {
+    "time": 14400000,
+    "targets_remaining": 1600,
+    "detection_latency_ms": 0.0,
+    "energy_per_area": 6.543249999999717e-05,
+    "messages_sent": 0,
+    "coverage": 0.084375,
+    "active_robots": 4
+  },
+  {
+    "time": 18000000,
+    "targets_remaining": 1600,
+    "detection_latency_ms": 0.0,
+    "energy_per_area": 7.242249999999641e-05,
+    "messages_sent": 0,
+    "coverage": 0.084375,
+    "active_robots": 3
+  },
+  {
+    "time": 21600000,
+    "targets_remaining": 1600,
+    "detection_latency_ms": 0.0,
+    "energy_per_area": 7.617249999999598e-05,
+    "messages_sent": 0,
+    "coverage": 0.084375,
+    "active_robots": 1
+  }
+]

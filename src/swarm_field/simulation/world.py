@@ -16,12 +16,14 @@ from swarm_field.contracts import (
     InfestationObservation,
     Move,
     Observation,
-    ObstacleObservation,
     PeerObservation,
     RobotId,
     RobotPublicState,
     RobotSelfState,
+    Terrain,
+    TerrainObservation,
     Time,
+    TimeUnit,
     Treat,
     WorldSnapshot,
 )
@@ -36,6 +38,7 @@ class RobotState:
         position: Current discrete field cell.
         body: Robot body class.
         speed_mps: Maximum travel speed in metres per second.
+        radio_range_m: Broadcast radius in metres; robots within it hear this robot.
         battery: Remaining battery level, 0..1.
         consumable: Remaining treatment consumable, 0..1.
         health: Robot health, 0..1.
@@ -49,6 +52,7 @@ class RobotState:
     position: CellId
     body: BodyType
     speed_mps: float
+    radio_range_m: float = 0.0
     battery: float = 1.0
     consumable: float = 1.0
     health: float = 1.0
@@ -198,13 +202,16 @@ class WorldState:
                     pest=None,
                 )
             )
+            terrain = Terrain.FREE
+            if state.obstacle:
+                terrain = Terrain.OBSTACLE
             observations.append(
-                ObstacleObservation(
+                TerrainObservation(
                     cell=cell,
                     confidence=1.0,
                     observed_at=time,
                     source=robot_id,
-                    is_obstacle=state.obstacle,
+                    terrain=terrain,
                 )
             )
 
@@ -217,6 +224,7 @@ class WorldState:
                             observed_at=time,
                             source=robot_id,
                             peer=peer,
+                            body=self._robot(peer).body,
                         )
                     )
 
@@ -289,7 +297,7 @@ class WorldState:
             hypot(target[0] - robot.position[0], target[1] - robot.position[1])
             * self.field.cell_size
         )
-        return max(1, ceil(distance_m / robot.speed_mps * 1000))
+        return max(1, ceil(distance_m / robot.speed_mps * TimeUnit.SECOND))
 
     def public_states(self) -> list[RobotPublicState]:
         """Return ground-truth robot state for visualization."""
