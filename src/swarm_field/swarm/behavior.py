@@ -404,12 +404,12 @@ class TreatInfestation:
     name: str = "treat-infestation"
 
     def __init__(self, objective: Objective | None = None) -> None:
-        self._objective: Objective = TreatObjective()
+        self.objective: Objective = TreatObjective()
         if objective is not None:
-            self._objective = objective
+            self.objective = objective
 
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
-        seeds = self._objective.seeds(ctx.memory, ctx.time)
+        seeds = self.objective.seeds(ctx.memory, ctx.time)
         if not seeds:
             return ()
         position = ctx.self_state.position
