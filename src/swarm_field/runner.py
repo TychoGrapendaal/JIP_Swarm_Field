@@ -146,7 +146,7 @@ class ExperimentConfig:
         brain: How to assemble each robot's brain.
         until: How far to run, in simulation time.
         metrics: Sampling cadence and target threshold.
-        dwell: Stationary decision interval used by every robot.
+        decision_interval: Time between every robot's consecutive decisions.
     """
 
     label: str
@@ -155,7 +155,7 @@ class ExperimentConfig:
     brain: BrainSpec = field(default_factory=BrainSpec)
     until: Time = 3_600_000
     metrics: MetricsConfig = field(default_factory=MetricsConfig)
-    dwell: Time = 5_000
+    decision_interval: Time = 5_000
 
 
 @dataclass(frozen=True)
@@ -482,7 +482,9 @@ def seed_initial_events(ctx: SimulationContext, config: ExperimentConfig) -> Non
     order, so this is what makes a run with several events at time zero reproducible.
     """
     for robot_id in sorted(ctx.agents):
-        ctx.schedule(RobotDecision(time=0, robot=robot_id, dwell=config.dwell))
+        ctx.schedule(
+            RobotDecision(time=0, robot=robot_id, decision_interval=config.decision_interval)
+        )
     ctx.schedule(
         WorldTick(time=0, config=PestDynamicsConfig.from_spec(config.scenario.pest_dynamics))
     )
@@ -545,7 +547,7 @@ def build_experiment(
     brain: BrainSpec | None = None,
     until: Time = 3_600_000,
     metrics: MetricsConfig | None = None,
-    dwell: Time = 5_000,
+    decision_interval: Time = 5_000,
 ) -> ExperimentConfig:
     """Assemble one experiment from a scenario preset, for callers that do not build configs.
 
@@ -556,7 +558,7 @@ def build_experiment(
         brain: How to assemble each robot's brain; the default spec when omitted.
         until: How far to run, in simulation time.
         metrics: Sampling cadence and target threshold.
-        dwell: Stationary decision interval used by every robot.
+        decision_interval: Time between every robot's consecutive decisions.
     """
     return ExperimentConfig(
         label=label,
@@ -565,7 +567,7 @@ def build_experiment(
         brain=brain if brain is not None else BrainSpec(),
         until=until,
         metrics=metrics if metrics is not None else MetricsConfig(),
-        dwell=dwell,
+        decision_interval=decision_interval,
     )
 
 

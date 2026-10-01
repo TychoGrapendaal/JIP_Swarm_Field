@@ -74,24 +74,29 @@ class EventQueue:
 
 @dataclass
 class RobotDecision:
-    """A robot perceives, calls ``decide``, commits to an action, and schedules its next event.
+    """Run one robot decision point and schedule the next one at a fixed interval.
 
-    While moving the follow-up is the next cell arrival; while stationary it is the next
-    decision at a fixed interval. Actions are not interrupted, so no scheduled event is ever
-    cancelled.
+    Every robot has its own decision cadence. The cadence is independent of how long the
+    previously requested movement takes, so finishing an action does not determine when the
+    robot gets its next perception.
 
     Attributes:
         time: When the robot receives its next perception and decides.
         robot: Which robot acts.
-        dwell: Stationary decision interval used when the chosen action does not start a move.
+        decision_interval: Time between this decision and the robot's next decision.
     """
 
     time: Time
     robot: RobotId
-    dwell: Time = 5_000
+    decision_interval: Time = 5_000
+
+    def __post_init__(self) -> None:
+        """Require a positive decision interval so events always move forward in time."""
+        if self.decision_interval <= 0:
+            raise ValueError("decision_interval must be positive")
 
     def handle(self, ctx: SimulationContext) -> None:
-        """Build the robot's perception, apply its decision, and schedule the follow-up."""
+        """Perceive, decide, act, deliver messages, and schedule the next decision."""
         if self._has_failed(ctx):
             # A failed robot does not come back, so it stops scheduling decisions entirely and
             # the swarm carries on without it. A move already under way still completes, so the
@@ -110,10 +115,15 @@ class RobotDecision:
             # here rather than at the next sample, which would only see the latest sensing.
             ctx.metrics.observe(perception.sensed, self.time)
         decision = ctx.agents[self.robot].decide(perception)
+        ctx.world.apply_action(self.robot, decision.action, self.time)
         ctx.channel.broadcast(ctx.world, self.time, decision.outbox)
-        arrival = ctx.world.apply_action(self.robot, decision.action, self.time)
-        follow_up = arrival if arrival is not None else self.time + self.dwell
-        ctx.schedule(RobotDecision(time=follow_up, robot=self.robot, dwell=self.dwell))
+        ctx.schedule(
+            RobotDecision(
+                time=self.time + self.decision_interval,
+                robot=self.robot,
+                decision_interval=self.decision_interval,
+            )
+        )
 
     def _has_failed(self, ctx: SimulationContext) -> bool:
         return ctx.world.robots[self.robot].failed
