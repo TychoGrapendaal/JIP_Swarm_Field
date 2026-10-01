@@ -35,10 +35,10 @@ Two body types from `contracts` (SCOUT and KILLER) exist at project start, and t
 | Sensory/movement medium | Flies; no cell-level obstacles | Drives on the ground |
 | Movement constraints | Field border only | Field border **and** cannot enter crop cells |
 | Has a goal to navigate to | Never — always in exploration mode | Yes, whenever an objective hands over targets |
-| Attitude to other explorers | Strong aversion (personal-space separation) | Indifferent |
+| Attitude to other explorers | Spreads by discounting targets peers are heading to (#42) | Indifferent |
 | Attitude to utility robots | Indifferent | Indifferent |
 
-The explorer's role in navigation is minimal and negative: it has no destination, so its "navigation" is a biased random walk plus a separation impulse (Section 9). Everything below this point concerns the utility robot unless the section says otherwise.
+The explorer's role in navigation is minimal: exploration is being rebuilt on the grid potential fields (#41), and explorers spread by discounting targets peers are heading to (#42), not by a separation impulse (Section 9). Everything below this point concerns the utility robot unless the section says otherwise.
 
 ---
 
@@ -101,7 +101,7 @@ Movement constraints are checked in a fixed order, and they are the same every t
 
 1. **Field border (both bodies).** A robot must not leave the field. The border is *felt, not computed*, through the sensing ring (Section 3.1): a step that would leave the field is reported blocked, exactly like a crop or obstacle, and navigation responds as it does to any other blockage: it replaces the heading with the admissible tangent (slide along the border). The quadtree encodes the same rule for the planner — cells outside the field are not traversable — so both layers agree.
 2. **Crop and obstacle cells (land only).** A utility robot may not drive through crops or blockages. It probes the adjacent cells through its **sensing ring** (Section 3.1) when it has no plan, and over the quadtree of believed terrain when it does: the ring reports, per neighbour heading, whether the cell one step away is clear — crop, obstacle, or empty ground — and the desired heading is only honoured if that report says *clear*. This is the biggest single constraint named in the system: the killer robot must keep the rows. When the straight-line heading is blocked, navigation picks the admissible neighbour whose direction has the largest dot product with the desired heading (a tangent detour, chosen among the cells reported clear), commits it, and reverts to the desired heading once the blocker is passed — see the per-tick flow in Section 8.
-3. **Occupancy by another robot (both bodies, deferred).** Robot–robot collisions are an open decision (Section 12). Until resolved, navigation ignores the `occupant` field; the aversion rules in Section 9 are behavioral, not physical.
+3. **Occupancy by another robot (both bodies, deferred).** Robot–robot collisions are an open decision (Section 12). Until resolved, navigation ignores the `occupant` field.
 
 Aerial explorers skip rule 2 entirely: they are bounded only by the field border.
 
@@ -129,7 +129,7 @@ The situation at the start of the swarm:
 - Because no pest has been found, a utility robot has no target at all, so the seam returns `Idle` and it stays where it was deployed.
 - The scenario calls for a **spread**: A.1 draws one random drift vector per robot from the seeded RNG — for example *10 m west, 20 m north* — and the robot follows that heading, bouncing or sliding on the border (Section 5), until A.1 hands over real targets. Only a very small number of utility robots are deployed now, typically 1 or 2, possibly none.
 
-This has **no representation on the seam**: with no targets there is nothing for `step_towards` to walk towards, and a drift is not a target. Today the behaviour that would do it calls the `Steerer` directly — `steer(drift, position)` is public and tested — or the explorer's own local potential field takes care of wandering. When the team decides this is worth building properly, the question is whether "spread" becomes a goal shape on the A.1 ↔ A.3 seam or a behaviour that sidesteps it. Recorded as an open decision (Section 12, #3).
+This has **no representation on the seam**: with no targets there is nothing for `step_towards` to walk towards, and a drift is not a target. Today the behaviour that would do it calls the `Steerer` directly — `steer(drift, position)` is public and tested. When the team decides this is worth building properly, the question is whether "spread" becomes a goal shape on the A.1 ↔ A.3 seam or a behaviour that sidesteps it. Recorded as an open decision (Section 12, #3).
 
 The *purpose* of the random vector is to keep the few utility robots out of local optima and out of the truck's shadow: without it a "no goal" robot would just sit where it was spawned. A fixed drift per deployment also guarantees a spread that is reproducible for a given seed — two runs with the same seed deploy the same 1–2 utility robots drifting to the same places.
 
@@ -159,9 +159,8 @@ Every decision point, navigation runs one deterministic procedure:
    - **The field guides** — the target is reachable and the potential at the robot's cell still beats its running minimum. Step into that cell. The field is built once per block travelled, not once per step.
    - **The field cannot guide** — either no wave reaches the robot at all, or three ticks went by without progress, which is how a window's edge can make a robot turn back and forth over approximate leaf distances. Hand the relative offset to the reactive `Steerer`, which walks towards the most attractive target and stalls if it is walled off.
    - **The field's target is the robot's own cell.** Arrived → `Idle`.
-3. **Add the separation impulse (explorers only).** Each explorer sums short-range repulsion from other explorers into the heading (Section 9); utility robots skip this.
-4. **Apply body constraints.** Border for both; crop / obstacle cells for land robots only (Section 5). In the field path this is already settled — cells the body cannot enter are not in the quadtree — so it is the reactive path that probes clearance one cell at a time.
-5. **Emit the action.** Exactly one per decision point: a `Move(to=CellId)` into the cell the field points at, a `Move(to=CellId)` into the best goal-aligned clear cell, a `Move(to=CellId)` along the committed wall-follow tangent while detouring, or `Idle` when there are no targets, the robot has arrived, nothing is clear, or the steerer is stalled.
+3. **Apply body constraints.** Border for both; crop / obstacle cells for land robots only (Section 5). In the field path this is already settled — cells the body cannot enter are not in the quadtree — so it is the reactive path that probes clearance one cell at a time.
+4. **Emit the action.** Exactly one per decision point: a `Move(to=CellId)` into the cell the field points at, a `Move(to=CellId)` into the best goal-aligned clear cell, a `Move(to=CellId)` along the committed wall-follow tangent while detouring, or `Idle` when there are no targets, the robot has arrived, nothing is clear, or the steerer is stalled.
 
 ```mermaid
 flowchart TB
@@ -184,25 +183,9 @@ Both paths are the same seam: targets in, one action out. Neither keeps a waypoi
 
 ---
 
-## 9. Explorer aversion (separation impulse)
+## 9. Explorer aversion (removed)
 
-The one behavioral constraint that is neither border nor obstacle: explorers must not clump. Each aerial explorer, in addition to its exploratory wander, adds a short-range repulsion from every *other explorer* it perceives — never from utility robots. The impulse is:
-
-- **range-limited** to a "personal-space" radius (a multiple of `radio_range`, scenario-tunable);
-- **strongest when closest**, scaled by inverse distance and capped at a maximum deflection so it never overwhelms the exploratory heading;
-- **summed** over all perceived explorers, then added to the desired heading before the border check in Section 8.
-
-Utility robots take no separation from anyone — they do not mind sharing space with explorers, and their spacing emerges from the targets they are each walking towards, not from aversion.
-
-```mermaid
-flowchart LR
-    E1["explorer A (me)"] --> SUM["sum of separation impulses"]
-    E2["explorer B, close"] --> SUM
-    E3["explorer C, close"] --> SUM
-    EX["exploratory heading"] --> SUM
-    SUM --> B["border check"] --> I["movement action"]
-    U["utility robot"] -- "no impulse" --> NOP["no separation applied"]
-```
+The separation impulse that used to be designed here, a short-range repulsion between explorers, was dropped together with the force-based potential field (#37). Robots spread instead by discounting targets that peers are heading to (#42), which the grid potential fields can express: a seed can only attract, so a target a peer already covers simply attracts less.
 
 ---
 
@@ -258,7 +241,7 @@ All open items below are internal to A.3 (or a B.2 translation detail), so the m
 | 4 | **Robot–robot collisions.** Currently both bodies ignore the `occupant` cell field; land robots might later yield to each other | No |
 | 5 | **Arrival semantics at a target the body cannot enter.** Stop on the row edge (`STAND`) vs. continuous pursuit around it while it "lives". **Resolved: STAND** — the utility robot ends on the aisle cell next to the crop cell holding the pest, and treatment proceeds from there. **Not implemented**: the chase layer that owned this rule is gone, and the generic arrival rule (`target_tolerance`, 0.75 cells) only fires once the robot is *within* that distance, which a robot standing next to a crop cell never is. It has to land wherever targets become non-traversable cells | No |
 | 6 | **Speed / energy coupling.** Whether the action carries a `speed_fraction` vs. `v_max`; how battery consumption modifies it (a decision concern, surfaced here) | No |
-| 7 | **Aversion parameters.** Personal-space radius, impulse cap and decay curve for the explorer separation (scenario-tunable) | No |
+| 7 | *Removed with the explorer separation impulse (#37).* | — |
 | 8 | **Telling "arrived" from "walled off".** A `Seed` on a cell the body can never enter — a crop cell, a cell outside the field — produces no wave, so today the steerer wall-follows the row indefinitely and A.3 reports nothing (Section 10). Either the objective seeds the nearest cell the body *can* stand in, or the seam grows a reason on `Idle` | **Yes, if the seam grows a reason** |
 
 Every entry marked "Affects boundary? No" — the same success criterion as the decomposition doc: the A.1 ↔ A.3 seam (targets in, one action out) holds no matter which option the implementers pick. #8 is the one item that could still change it, and only by *adding* to the output, never by adding a second goal shape.

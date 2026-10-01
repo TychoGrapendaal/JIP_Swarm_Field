@@ -21,7 +21,6 @@ from swarm_field.swarm import (
     Behavior,
     ComposedAgent,
     DecisionContext,
-    Explore,
     MemoryView,
     Navigator,
     TreatInfestation,
@@ -145,13 +144,6 @@ def test_agent_picks_highest_scoring_candidate() -> None:
 
     assert decision.action == Move((1, 0))
     assert agent.inspect().current_goal == "multi"
-
-
-def test_explore_mock_goes_straight_or_turns_left() -> None:
-    explore = Explore(5)
-    ctx = _context()
-
-    explore.update(ctx)
 
 
 def test_agent_idles_without_candidates() -> None:

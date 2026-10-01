@@ -435,7 +435,7 @@ flowchart LR
 - **Requirements:** must handle obstacle avoidance and stay within movement constraints; must support both "go to a known target" and "explore the unknown / under‑observed".
 - **Consumes:** goal from A.1 + local map from A.2. **Provides:** a `Move` / `Turn` (or "arrived") to A.1.
 - **NOT its concern:** *choosing* the target (A.1); global path truth (it only has the local map).
-- **Status:** goal‑directed movement is implemented in A.3 as one seam, `Navigator.step_towards(seeds, robot)`: a Dijkstra potential field over the quadtree of believed terrain guides the robot, and the reactive right‑hand wall‑following `Steerer` takes over whenever the field cannot guide (no reachable target, or following it stopped bringing the robot closer). Exploration is still a placeholder (`Explore`).
+- **Status:** goal‑directed movement is implemented in A.3 as one seam, `Navigator.step_towards(seeds, robot)`: a Dijkstra potential field over the quadtree of believed terrain guides the robot, and the reactive right‑hand wall‑following `Steerer` takes over whenever the field cannot guide (no reachable target, or following it stopped bringing the robot closer). Exploration is not implemented yet; it is being rebuilt on the same grid potential fields (#41).
 - **Open decisions (team):** potential‑field vs. coverage‑control vs. other (mind map A.3 / lit review §3); whether exploration uses a separate algorithm from navigation.
 
 ### A.4 Communication & Knowledge
