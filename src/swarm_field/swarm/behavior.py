@@ -13,7 +13,7 @@ from swarm_field.contracts import (
 )
 from swarm_field.swarm.memory import MemoryView
 from swarm_field.swarm.navigator import Navigator
-from swarm_field.swarm.objective import Objective, TreatObjective
+from swarm_field.swarm.seeder import TreatSeeder
 
 
 @dataclass(frozen=True)
@@ -34,7 +34,8 @@ class DecisionContext:
         self_state: The robot's perception of itself.
         sensed: What the robot sensed at this decision point (already merged into memory).
         memory: The robot's facts about the field and its peers.
-        navigator: The robot's navigator: it turns an objective's targets into the cell to enter.
+        navigator: The robot's navigator: it hands out the fields of the registered seeders, and
+            turns a field into the cell to enter.
         inbox: The messages received at this decision point.
     """
 
@@ -55,21 +56,19 @@ class Behavior(Protocol):
 
 
 class TreatInfestation:
-    """Skeleton of the pest-response behaviour: follow the field of the TREAT objective."""
+    """Skeleton of the pest-response behaviour: follow the field of the TREAT seeder."""
 
     name: str = "treat-infestation"
 
-    def __init__(self, objective: Objective | None = None) -> None:
-        self._objective: Objective = TreatObjective()
-        if objective is not None:
-            self._objective = objective
+    def __init__(self, seeder: str = TreatSeeder.name) -> None:
+        self._seeder: str = seeder
 
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
-        seeds = self._objective.seeds(ctx.memory, ctx.time)
-        if not seeds:
-            return ()
         position = ctx.self_state.position
-        step = ctx.navigator.step_towards(seeds, position)
+        seeded = ctx.navigator.field_for(self._seeder, position, ctx.time)
+        if seeded is None:
+            return ()
+        step = ctx.navigator.step_towards(seeded, position)
         if isinstance(step, Idle):
             # Either standing on the target, or the steerer gave up on a target it cannot reach.
             # TODO: standing on the target: propose Treat(cell=position) instead.
@@ -77,5 +76,5 @@ class TreatInfestation:
         # TODO: a score comparable across objectives, e.g. from the field's potential at
         # `position` and a weight per objective (see the arbiter in the field-level design).
         # Lower potential is better, so negate it for now.
-        score = -ctx.navigator.field_for(seeds, position).value_at(position)
+        score = -seeded.field.value_at(position)
         return (ActionCandidate(action=step, score=score, source=self.name),)

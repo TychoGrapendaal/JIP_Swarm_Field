@@ -1,8 +1,11 @@
 """Tests for the composed brain and high-level movement action."""
 
+from collections.abc import Hashable
+
 from swarm_field.contracts import (
     Action,
     BodyType,
+    CellId,
     FieldGeometry,
     Idle,
     InfestationObservation,
@@ -21,6 +24,7 @@ from swarm_field.swarm import (
     Behavior,
     ComposedAgent,
     DecisionContext,
+    FieldSeeder,
     MemoryView,
     Navigator,
     TreatInfestation,
@@ -88,7 +92,9 @@ def _agent(behaviors: list[Behavior]) -> ComposedAgent:
     )
 
 
-def _context(sensed: list[Observation] | None = None) -> DecisionContext:
+def _context(
+    sensed: list[Observation] | None = None, seeders: list[FieldSeeder] | None = None
+) -> DecisionContext:
     memory = AgentMemory(1, _FIELD)
     perception = _perception(sensed)
     return DecisionContext(
@@ -96,7 +102,7 @@ def _context(sensed: list[Observation] | None = None) -> DecisionContext:
         self_state=perception.self_state,
         sensed=perception.sensed,
         memory=memory,
-        navigator=Navigator(memory, flies=False),
+        navigator=Navigator(memory, flies=False, seeders=seeders or []),
     )
 
 
@@ -119,10 +125,13 @@ class _MultiBehavior:
         return self._candidates
 
 
-class _FixedTargetObjective:
+class _FixedTargetSeeder:
     name: str = "fixed-target"
 
-    def seeds(self, memory: MemoryView, now: Time) -> tuple[Seed, ...]:
+    def field_key(self, memory: MemoryView, now: Time) -> Hashable:
+        return None
+
+    def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
         return (Seed((5, 5), 0.0),)
 
 
@@ -167,9 +176,9 @@ def test_sensed_terrain_reaches_memory_and_the_quadtree() -> None:
     assert not agent.navigator.quadtree.is_traversable((1, 1))
 
 
-def test_treat_infestation_follows_its_objectives_field() -> None:
-    behavior = TreatInfestation(_FixedTargetObjective())
+def test_treat_infestation_follows_its_seeders_field() -> None:
+    behavior = TreatInfestation(_FixedTargetSeeder.name)
 
-    candidates = behavior.propose(_context(sensed=[]))
+    candidates = behavior.propose(_context(sensed=[], seeders=[_FixedTargetSeeder()]))
 
     assert [candidate.action for candidate in candidates] == [Move((1, 1))]
