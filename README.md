@@ -17,6 +17,7 @@ See [`docs/high-level-world-model.md`](docs/high-level-world-model.md) for the c
 - A robot does not currently know about obstacles or infestations outside its local observation range.
 - Robot-to-robot communication is delivered peer-to-peer through the `Channel` (inbox and broadcast within radio range), but no behavior encodes or decodes anything yet, so no information actually propagates through the swarm.
 - Runs are reproducible: one seeded random source drives the world, a second drives fault injection, and `runner.py` builds every run from a `BrainSpec` so algorithms can be compared as configuration.
+- The B.3 range-based communication channel is implemented; higher-level belief sharing is still the algorithm’s responsibility, so distant infestation information only propagates when agents choose to send messages.
 
 ## Requirements
 
@@ -116,7 +117,7 @@ A single land robot running the reactive A.3 `Steerer` towards a target across a
 uv run --with matplotlib python examples/robot_decision_demo.py
 ```
 
-An animated demonstration of the real discrete-event robot loop. A scripted robot is scheduled as a `RobotDecision` event and repeatedly goes through `Perceive → Decide → Act → Re-queue`. The visualization shows the robot moving continuously between cells, its current action, the last decision time, and the next event waiting in the queue.
+An animated demonstration of the real discrete-event robot loop. A scripted robot is scheduled as a `RobotDecision` event and repeatedly goes through `Perceive → Decide → Act → Re-queue` at a fixed decision interval. The visualization shows the robot moving between cells, its current action, the last decision time, and the next event waiting in the queue.
 
 Write animation frames as PNGs instead of opening a window:
 
@@ -176,6 +177,7 @@ uv run python examples/robustness_demo.py --out runs/robustness
 - The local force field used for exploration is a proof of concept using local observations; goal-directed navigation instead uses a potential field over the robot's believed terrain, with a reactive wall-follow as its fallback.
 - Navigation is planned over what the robot believes, so a wrong obstacle belief is followed exactly; there is no observation-based recovery from it yet.
 - Robot-to-robot communication carries messages but nothing encodes or decodes them yet, so `messages_sent` is zero and the utility robot cannot follow a pest found by another robot.
+- The communication channel is implemented, but the current utility behaviour does not yet use peer messages to follow a pest found by another robot.
 - Coarse-grained infestation dynamics are implemented as a scheduled `WorldTick`; the current model supports severity growth, neighbour spread, and stochastic spawning.
 - Robot batteries are drained by a coarse cost model (per metre, per decision, per treat) and robot failure and position error can be injected for robustness runs, but there is no charging station, no consumable replenishment and no recovery from a failure.
 - Sensing is currently local; distant obstacles and infestations are unknown unless information is later propagated through communication.
