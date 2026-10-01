@@ -96,8 +96,7 @@ class RobotDecision:
             raise ValueError("decision_interval must be positive")
 
     def handle(self, ctx: SimulationContext) -> None:
-        """Build the robot's perception, apply its decision, and schedule the follow-up.
-        Perceive, decide, act, deliver messages, and schedule the next decision."""
+        """Perceive, decide, act, deliver messages, and schedule the next decision."""
         if self._has_failed(ctx):
             # A failed robot does not come back, so it stops scheduling decisions entirely and
             # the swarm carries on without it. A move already under way still completes, so the

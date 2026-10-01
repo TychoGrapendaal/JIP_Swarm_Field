@@ -79,7 +79,7 @@ def _ctx(world: WorldState, seed: int = 1) -> SimulationContext:
 def _one_decision(world: WorldState, agent: RecordingAgent, ctx: SimulationContext) -> None:
     """Let a single robot decide once, and record where it thought it was."""
     ctx.agents = {1: agent}
-    ctx.schedule(RobotDecision(time=0, robot=1, dwell=1_000))
+    ctx.schedule(RobotDecision(time=0, robot=1, decision_interval=1_000))
     SimulationLoop().run(ctx, until=1)
 
 
