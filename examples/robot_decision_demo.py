@@ -42,16 +42,18 @@ CELL_SIZE_M = 1.0
 FRAME_TIME_MS = 100
 DURATION_MS = 20_000
 ROBOT_ID = 1
-DWELL_MS = 1_500
+DECISION_INTERVAL_MS = 1_500
 
 PATH: tuple[tuple[int, int], ...] = (
     (1, 1),
-    (6, 1),
-    (6, 6),
-    (2, 6),
-    (2, 2),
-    (8, 2),
-    (8, 5),
+    (2, 1),
+    (3, 1),
+    (3, 2),
+    (3, 3),
+    (4, 3),
+    (5, 3),
+    (5, 4),
+    (5, 5),
 )
 
 
@@ -119,7 +121,7 @@ def build_context() -> tuple[SimulationContext, ScriptedAgent]:
         agents={ROBOT_ID: agent},
         world=world,
     )
-    ctx.schedule(RobotDecision(time=0, robot=ROBOT_ID, dwell=DWELL_MS))
+    ctx.schedule(RobotDecision(time=0, robot=ROBOT_ID, decision_interval=DECISION_INTERVAL_MS))
     return ctx, agent
 
 
@@ -201,7 +203,7 @@ def render_frame(
         decision_text = f"t={record.time / 1000:.1f}s"
 
     ax.set_title(
-        "Perceive → Decide → Act → Re-queue\n"
+        "Perceive → Decide → Act → Re-queue (fixed interval)\n"
         f"Simulation t={time / 1000:.1f}s | Phase: {phase} | Last decision: {decision_text}"
     )
     ax.text(

@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from random import Random
+from typing import override
 
 import pytest
 
@@ -199,7 +200,7 @@ def test_world_tick_is_deterministic_for_same_seed() -> None:
     assert run(seed=42) == run(seed=42)
 
 
-def test_robot_decision_perceives_acts_and_requeues() -> None:
+def test_robot_decision_perceives_acts_and_requeues_at_fixed_interval() -> None:
     robot = RobotState(
         robot_id=1,
         position=(1, 1),
@@ -219,18 +220,79 @@ def test_robot_decision_perceives_acts_and_requeues() -> None:
     )
     world = WorldState(field, robots=[robot])
     ctx = SimulationContext(now=0, rng=Random(0), agents={1: agent}, world=world)
-    ctx.schedule(RobotDecision(time=0, robot=1))
+    ctx.schedule(RobotDecision(time=0, robot=1, decision_interval=5_000))
 
-    SimulationLoop().run(ctx, until=1_000)
+    SimulationLoop().run(ctx, until=5_000)
 
     assert len(agent.perceptions) == 2
     assert agent.perceptions[0].time == 0
     assert agent.perceptions[0].self_state.position == (1, 1)
-    assert agent.perceptions[1].time == 1_000
+    assert agent.perceptions[1].time == 5_000
     assert agent.perceptions[1].self_state.position == (2, 1)
     assert world.positions()[1] == (2, 1)
 
     next_event = ctx.queue.peek()
     assert isinstance(next_event, RobotDecision)
-    assert next_event.time == 6_000
+    assert next_event.time == 10_000
     assert next_event.robot == 1
+
+
+def test_robot_decision_delivers_outbox_to_next_perception() -> None:
+    from swarm_field.contracts import Message, MessageKind
+
+    sender = RobotState(
+        robot_id=1,
+        position=(1, 1),
+        body=BodyType.SCOUT,
+        speed_mps=1.0,
+        radio_range_m=5.0,
+    )
+    receiver = RobotState(
+        robot_id=2,
+        position=(2, 1),
+        body=BodyType.SCOUT,
+        speed_mps=1.0,
+        radio_range_m=5.0,
+    )
+
+    message = Message(
+        sender=1,
+        sent_at=0,
+        kind=MessageKind.HELLO,
+        payload="hello",
+    )
+
+    class _SenderAgent(_ScriptedAgent):
+        @override
+        def decide(self, perception: Perception) -> Decision:
+            self.perceptions.append(perception)
+            return Decision(action=Idle(), outbox=[message])
+
+    sender_agent = _SenderAgent(1, (Idle(),))
+    receiver_agent = _ScriptedAgent(2, (Idle(),))
+    world = WorldState(
+        FieldGeometry(
+            width=4,
+            height=4,
+            cell_size=1.0,
+            row_sp=1.0,
+            in_row_sp=1.0,
+            headland=0.0,
+            connectivity=4,
+        ),
+        robots=[sender, receiver],
+    )
+    ctx = SimulationContext(
+        now=0,
+        rng=Random(0),
+        agents={1: sender_agent, 2: receiver_agent},
+        world=world,
+    )
+    ctx.schedule(RobotDecision(time=0, robot=1, decision_interval=5_000))
+    ctx.schedule(RobotDecision(time=5_000, robot=2, decision_interval=5_000))
+
+    SimulationLoop().run(ctx, until=5_000)
+
+    assert len(receiver_agent.perceptions) == 1
+    inbox = receiver_agent.perceptions[0].inbox
+    assert inbox == [message]
