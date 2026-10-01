@@ -186,11 +186,16 @@ class FailureCheck:
 
 @dataclass
 class MetricSample:
-    """Record one row of the run's metrics series, then reschedule itself.
+    """Record one row of the run's metrics series, render the world, then reschedule itself.
 
     Runs on its own coarse cadence, independent of robot activity and of the pest dynamics.
     It draws nothing from ``ctx.rng``, so recording metrics leaves the rest of the run
     bit-for-bit identical.
+
+    This is also the run's render tick, which is why the event is scheduled even for a run
+    that records no metrics: a sweep and a live view share one cadence, so a frame always
+    corresponds to a row of the series. Rendering reads only ground truth and draws nothing, so
+    it cannot change the run either.
 
     Attributes:
         time: Simulation time this sample is taken at.
@@ -201,11 +206,12 @@ class MetricSample:
     config: MetricsConfig = field(default_factory=MetricsConfig)
 
     def handle(self, ctx: SimulationContext) -> None:
-        """Take one sample from the run's collector, if the run has one."""
-        collector = ctx.metrics
-        if collector is None:
-            return
-        collector.sample(ctx.world, self.time, ctx.channel.sent)
+        """Take one sample if the run records metrics, render if it has a renderer, reschedule."""
+        sample = None
+        if ctx.metrics is not None:
+            sample = ctx.metrics.sample(ctx.world, self.time, ctx.channel.sent)
+        if ctx.renderer is not None:
+            ctx.renderer.render(ctx.world.snapshot(self.time, metrics=sample))
         ctx.schedule(MetricSample(time=self.time + self.config.period, config=self.config))
 
 

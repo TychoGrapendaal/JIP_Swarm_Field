@@ -52,7 +52,13 @@ from swarm_field.simulation import (
     WorldState,
     WorldTick,
 )
-from swarm_field.swarm import ActionCandidate, ComposedAgent, DecisionContext
+from swarm_field.swarm import (
+    ActionCandidate,
+    AgentMemory,
+    ComposedAgent,
+    DecisionContext,
+    Navigator,
+)
 from swarm_field.visualization import MatplotlibRenderer
 
 FIELD_WIDTH = 24
@@ -120,13 +126,19 @@ def build_context(seed: int) -> SimulationContext:
         world.cell(cell).obstacle = True
 
     rng = Random(seed)
+    agents = {}
+    for robot_id in range(len(robots)):
+        memory = AgentMemory(robot_id, field)
+        agents[robot_id] = ComposedAgent(
+            robot_id=robot_id,
+            behaviors=[WanderBehavior(rng)],
+            memory=memory,
+            navigator=Navigator(memory, flies=False),
+        )
     ctx = SimulationContext(
         now=0,
         rng=rng,
-        agents={
-            robot_id: ComposedAgent(robot_id=robot_id, behaviors=[WanderBehavior(rng)])
-            for robot_id in range(len(robots))
-        },
+        agents=agents,
         world=world,
     )
     for robot_id in range(len(robots)):

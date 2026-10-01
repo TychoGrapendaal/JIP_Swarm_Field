@@ -48,7 +48,7 @@ from swarm_field.contracts.scenario import (
     ScenarioConfig,
     ScenarioId,
 )
-from swarm_field.contracts.snapshot import WorldSnapshot
+from swarm_field.contracts.snapshot import Renderer, WorldSnapshot
 from swarm_field.contracts.world import CellState, FieldGeometry
 
 __all__ = [
@@ -82,6 +82,7 @@ __all__ = [
     "PestDynamicsSpec",
     "PestType",
     "PositionErrorSpec",
+    "Renderer",
     "RobotId",
     "RobotPublicState",
     "RobotSelfState",

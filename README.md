@@ -177,6 +177,19 @@ Write the summary table and every run's series to a directory (CSV and JSON):
 uv run python examples/metrics_sweep_demo.py --out runs/sweep
 ```
 
+### Rendering a sweep (C.1 over B.5)
+
+Both sweep demos take a `Renderer` and draw the run on every metric tick, so a batch run can be watched instead of only tabulated:
+
+```bash
+uv run --with matplotlib python examples/metrics_sweep_demo.py --render
+uv run --with matplotlib python examples/robustness_demo.py --render failure-offline-0.005
+```
+
+Frames land in `runs/frames` (override with `--render-out`), one PNG per metric tick, with the current metrics in the title. In a robustness run a lost robot is drawn hollow and grey, so the frames show the swarm shrinking rather than only reporting it. Rendering only reads ground truth: the same run with and without a renderer produces an identical metrics series.
+
+The ticks come from the metrics cadence rather than a render clock, because the runner drives the event loop to completion and there is nothing left to animate afterwards. For a window on a run you steer yourself — position interpolation, pause, step — use the interactive console below.
+
 ### Robustness sweep: robot failure and position error (B.5)
 
 ```bash
