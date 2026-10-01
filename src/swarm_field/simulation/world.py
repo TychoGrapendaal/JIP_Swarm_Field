@@ -176,7 +176,6 @@ class WorldState:
     def observe_for(self, robot_id: RobotId, time: Time) -> list[Observation]:
         """Generate local observations from the robot's current cell and neighbours."""
         robot = self._robot(robot_id)
-        self.advance_to(time)
         visible_cells = [robot.position, *self.neighbours(robot.position)]
         observations: list[Observation] = []
 
@@ -231,8 +230,7 @@ class WorldState:
         return observations
 
     def apply_action(self, robot_id: RobotId, action: Action, time: Time = 0) -> Time | None:
-        """Apply a robot action and return a movement arrival time when applicable."""
-        self.advance_to(time)
+        """Apply an action at a time already advanced by the simulation event."""
         robot = self._robot(robot_id)
         robot.current_action = action
 
