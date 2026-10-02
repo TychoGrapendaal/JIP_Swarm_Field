@@ -1,9 +1,9 @@
 """Navigation seam types — what A.3 hands to the rest of the brain as a goal.
 
-The navigation module takes one goal shape from the decision module: the cells an objective
-scored as targets, as ``Seed``s in ``swarm_field.swarm.field``. What it hands back is one
-movement action per decision point. The one type here is the other way a goal reaches the
-module: a relative displacement, the shape the reactive steering policy consumes when a
+The navigation module takes one goal shape from the decision module: the field of a
+``FieldSeeder``, whose targets are ``Seed``s in ``swarm_field.swarm.field``. What it hands back
+is one movement action per decision point. The one type here is the other way a goal reaches
+the module: a relative displacement, the shape the reactive steering policy consumes when a
 potential field cannot guide the robot (see ``docs/navigation-module.md``).
 """
 
