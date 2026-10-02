@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from random import Random
 
 from swarm_field.contracts import RobotId, SwarmAgent, Time
+from swarm_field.simulation.channel import Channel
 from swarm_field.simulation.event import Event, EventQueue
 from swarm_field.simulation.world import WorldState
 
@@ -21,6 +22,7 @@ class SimulationContext:
         agents: The robot brains, keyed by id (the boundary with the algorithm).
         world: Ground-truth field state owned by the simulation.
         queue: Pending events; schedule follow-ups with ``schedule``.
+        channel: The radio; hand a robot's outbox to it to reach the robots in range.
     """
 
     now: Time
@@ -28,6 +30,7 @@ class SimulationContext:
     agents: dict[RobotId, SwarmAgent]
     world: WorldState
     queue: EventQueue = field(default_factory=EventQueue)
+    channel: Channel = field(default_factory=Channel)
 
     def schedule(self, event: Event) -> None:
         """Schedule a future event."""

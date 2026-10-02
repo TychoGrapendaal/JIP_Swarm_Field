@@ -290,9 +290,9 @@ class SimulationContext:
     now: Time
     rng: Random                            # the single seeded source; handlers draw in event order
     agents: dict[RobotId, SwarmAgent]      # A, behind the port
-    world: WorldState                     # B.1 ground truth
+    world: WorldState                      # B.1 ground truth, behind a read-only port
     queue: EventQueue
-    # a channel (B.3) and metrics (B.5) are added as those pieces are built
+    channel: Channel                       # B.3; handlers hand it an outbox, it delivers by range
     def schedule(self, event: Event) -> None: ...
 
 class SimulationLoop:
@@ -316,7 +316,7 @@ flowchart LR
 
 | Event | On handling | Schedules |
 |---|---|---|
-| `RobotDecision` | build the robot's `Perception`, call `SwarmAgent.decide`, apply the action, hand `outbox` to the channel | the robot's next event — a cell arrival while moving, or the next decision interval while stationary |
+| `RobotDecision` | build the robot's `Perception`, call `SwarmAgent.decide`, apply the action, hand `outbox` to the channel | the robot's next fixed decision interval |
 | *CellArrival* (to add) | update the robot's cell / occupancy | usually a `RobotDecision` on arrival |
 | `WorldTick` | advance infestation dynamics one step | itself, at the next coarse cadence |
 | *MetricSample* (to add) | record a metrics sample | itself, periodically |

@@ -12,7 +12,7 @@ import heapq
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
-from swarm_field.contracts import CellId, PestDynamicsSpec, RobotId, Time
+from swarm_field.contracts import CellId, Perception, PestDynamicsSpec, RobotId, Time
 
 if TYPE_CHECKING:
     from swarm_field.simulation.context import SimulationContext
@@ -65,18 +65,46 @@ class EventQueue:
 
 @dataclass
 class RobotDecision:
-    """A robot perceives, calls ``decide``, commits to an action, and schedules its next event.
+    """Run one robot decision point and schedule the next one at a fixed interval.
 
-    While moving the follow-up is the next cell arrival; while stationary it is the next
-    decision at a fixed interval. Actions are not interrupted, so no scheduled event is ever
-    cancelled.
+    Every robot has its own decision cadence. The cadence is independent of how long the
+    previously requested movement takes, so finishing an action does not determine when the
+    robot gets its next perception.
+
+    Attributes:
+        time: When the robot receives its next perception and decides.
+        robot: Which robot acts.
+        decision_interval: Time between this decision and the robot's next decision.
     """
 
     time: Time
     robot: RobotId
+    decision_interval: Time = 5_000
+
+    def __post_init__(self) -> None:
+        """Require a positive decision interval so events always move forward in time."""
+        if self.decision_interval <= 0:
+            raise ValueError("decision_interval must be positive")
 
     def handle(self, ctx: SimulationContext) -> None:
-        raise NotImplementedError
+        """Perceive, decide, act, deliver messages, and schedule the next decision."""
+        ctx.world.advance_to(self.time)
+        perception = Perception(
+            time=self.time,
+            self_state=ctx.world.perceived_self(self.robot),
+            sensed=ctx.world.observe_for(self.robot, self.time),
+            inbox=ctx.channel.take_inbox(self.robot),
+        )
+        decision = ctx.agents[self.robot].decide(perception)
+        ctx.world.apply_action(self.robot, decision.action, self.time)
+        ctx.channel.broadcast(ctx.world, self.time, decision.outbox)
+        ctx.schedule(
+            RobotDecision(
+                time=self.time + self.decision_interval,
+                robot=self.robot,
+                decision_interval=self.decision_interval,
+            )
+        )
 
 
 @dataclass(frozen=True)
