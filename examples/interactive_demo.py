@@ -182,11 +182,11 @@ def keys_to_command(key: str, speed: float) -> Command | None:
     if key == "s":
         return StepOnce()
     if key in ("+", "="):
-        return SetTimeScale(speed=min(16.0, speed * 2.0))
+        return SetTimeScale(factor=min(16.0, speed * 2.0))
     if key == "-":
-        return SetTimeScale(speed=max(0.25, speed / 2.0))
+        return SetTimeScale(factor=max(0.25, speed / 2.0))
     if key == "0":
-        return SetTimeScale(speed=1.0)
+        return SetTimeScale(factor=1.0)
     return None
 
 

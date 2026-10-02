@@ -13,6 +13,7 @@ from swarm_field.runner import (
 from swarm_field.simulation import MetricsConfig, SimulationLoop
 
 HOUR = 3_600_000
+BASE_STEP_MS = 500
 
 
 class RecordingRenderer:
@@ -142,3 +143,24 @@ def test_a_case_configured_again_produces_the_same_run() -> None:
     redone = run_experiment(robustness_case_config(ScenarioId.S2, case, 101, until=HOUR))
 
     assert swept.to_row() == redone.to_row()
+
+
+def test_driving_a_run_in_slices_measures_exactly_the_same() -> None:
+    """Slicing the clock to animate a run cannot change what the run measures.
+
+    An interactive viewer advances the loop one render frame at a time rather than jumping to the
+    horizon, so this pins that the two routes through the loop agree. ``World.advance_to`` settles
+    each completed move once and clears it, which is what makes stopping on the slice boundary
+    harmless.
+    """
+    config = _config()
+    jumped_ctx, jumped = build_run(config)
+    SimulationLoop().run(jumped_ctx, config.until)
+
+    sliced_ctx, sliced = build_run(config)
+    moment = 0
+    while moment < config.until:
+        moment += BASE_STEP_MS
+        SimulationLoop().run(sliced_ctx, until=min(moment, config.until))
+
+    assert sliced.series() == jumped.series()

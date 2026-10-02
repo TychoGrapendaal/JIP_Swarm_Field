@@ -164,6 +164,24 @@ generation works like the renderer demo:
 uv run python examples/interactive_demo.py --frames 240 --save frames/interactive
 ```
 
+### Watching a real experiment (C.1 over B.5)
+
+```bash
+uv run python examples/scenario_viewer.py
+```
+
+The interactive console above drives a hand-built three-robot world, so it can exercise the `Command` port on its own. This demo drives a *real* experiment instead: `runner.build_experiment` resolves the scenario preset and `runner.build_run` assembles the robot roster and brains, so the window shows the same object graph `runner.run_experiment` would drive. It defaults to `S2` with seed `101` for one simulated hour — the horizon `runner.sweep_scenarios` uses — and offers the same steering controls: click a cell to inject an infestation, click a robot for its `AgentInspection` panel, and `space` / `s` / `+` / `-` / `0` to pause, step, and change speed. The run stops at its horizon rather than looping forever.
+
+```bash
+uv run python examples/scenario_viewer.py --scenario S3 --seed 7 --hours 6
+```
+
+A scenario preset carries no duration of its own, so `--hours` sets the horizon. The metrics cadence is shortened to match the pest dynamics, because the default of one sample per hour would leave the figures in the title static for the whole run; cadence changes what is measured, never what the world does. Headless frame generation works like the other demos, and stops when the run reaches its horizon:
+
+```bash
+uv run python examples/scenario_viewer.py --frames 240 --save frames/viewer
+```
+
 ### Seeded scenario sweep with metrics (B.5)
 
 ```bash
@@ -189,7 +207,7 @@ uv run --with matplotlib python examples/robustness_demo.py --render failure-off
 
 Frames land in `runs/frames` (override with `--render-out`), one PNG per metric tick, with the current metrics in the title. In a robustness run a lost robot is drawn hollow and grey, so the frames show the swarm shrinking rather than only reporting it. Rendering only reads ground truth: the same run with and without a renderer produces an identical metrics series.
 
-The ticks come from the metrics cadence rather than a render clock, because the runner drives the event loop to completion and there is nothing left to animate afterwards. For a window on a run you steer yourself — position interpolation, pause, step — use the interactive console below.
+The ticks come from the metrics cadence rather than a render clock, because the runner drives the event loop to completion and there is nothing left to animate afterwards. For a window on a run you steer yourself — pause, step, speed, injection — use the scenario viewer.
 
 ### Robustness sweep: robot failure and position error (B.5)
 
