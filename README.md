@@ -83,24 +83,6 @@ For an even larger test:
 uv run --with matplotlib python examples/mass_swarm_visualization.py --robots 1000 --seed 7
 ```
 
-### Potential field and force demonstration
-
-```bash
-uv run --with matplotlib python examples/potential_field_demo.py --show 1
-```
-
-Available modes:
-
-```bash
-1 exploration
-2 infestation
-3 obstacle
-4 peer
-5 combined
-```
-
-A visualization showing the potential field and potential force map from different observations.
-
 ### Wall-following steering demonstration
 
 ```bash
@@ -126,7 +108,7 @@ uv run --with matplotlib python examples/renderer_demo.py --frames 60 --save fra
 ## Current demonstration limitations
 
 - The exploration behavior is currently a simple baseline and is not yet a dedicated coverage/exploration algorithm.
-- The local force field used for exploration is a proof of concept using local observations; goal-directed navigation instead uses a potential field over the robot's believed terrain, with a reactive wall-follow as its fallback.
+- Goal-directed navigation uses a potential field over the robot's believed terrain, with a reactive wall-follow as its fallback. Exploration is being rebuilt on the same fields (#41).
 - Navigation is planned over what the robot believes, so a wrong obstacle belief is followed exactly; there is no observation-based recovery from it yet.
 - Robot-to-robot communication has not been implemented yet, so the utility robot cannot follow a pest found by another robot yet.
 - Infestation is currently static; infestation spreading and time-dependent dynamics are planned for a later layer.

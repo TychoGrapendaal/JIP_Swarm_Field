@@ -106,9 +106,10 @@ The pluggable ports inside the brain:
 | Port | One job | Examples of swappable implementations |
 |---|---|---|
 | `Memory` | hold + decay the local belief map and self‑state | grid‑cell map, continuous markers, bounded LRU map |
-| `Behavior` | propose scored action candidates from a read‑only context | scout‑coverage, treat‑nearest‑pest, return‑to‑charge, avoid‑crowding |
+| `Behavior` | bid for what the robot does next: scored candidates carrying an intent, from a read‑only context | scout‑coverage, treat‑nearest‑pest, return‑to‑charge |
+| `FieldSeeder` | turn memory into the targets (`Seed`s) of one potential field, and say when they change | TREAT pests, EXPLORE stale cells, RECHARGE docks |
 | `Arbiter` | fuse candidates into one chosen action | max‑utility, weighted sum, priority with hysteresis |
-| `Navigator` | turn an objective's targets into a concrete `Move` | potential‑field, coverage‑control, greedy‑grid |
+| `Navigator` | hand out the seeders' fields, and turn the winner's field into a concrete `Move` | potential‑field, coverage‑control, greedy‑grid |
 | `CommsStrategy` | decode inbox → memory, encode memory → outbox | map‑merge, vicinity‑vector, stigmergy marks |
 | `CapabilitySet` | declare which action types the body can perform | scout (senses), killer (Treat), battery (Charge) |
 
@@ -122,14 +123,27 @@ class Memory(Protocol):
     def view(self) -> "MemoryView": ...          # read-only query surface for behaviors
     def snapshot(self) -> object: ...            # for AgentInspection.belief
 
-class Navigator(Protocol):
-    def step_towards(self, seeds: tuple[Seed, ...], robot: CellId) -> Action: ...  # one step of a plan
+class FieldSeeder(Protocol):      # the targets of one potential field, registered by name
+    name: str
+    def field_key(self, memory: "MemoryView", now: Time) -> Hashable: ...  # changes when the seeds do
+    def seeds(self, memory: "MemoryView", robot: CellId, now: Time) -> tuple[Seed, ...]: ...
+
+class Navigator:                  # holds the seeders, caches their fields, moves the winner
+    def field_for(self, seeder: str, robot: CellId, now: Time) -> SeededField | None: ...
+    def step_towards(self, seeded: SeededField, robot: CellId) -> Move | Idle: ...
+
+@dataclass(frozen=True)
+class FollowField:                # "step along this seeder's field"; only the navigator moves
+    seeder: str
+
+Intent = FollowField | Treat | Charge | Idle   # what a behavior wants done; no bare Move
 
 @dataclass(frozen=True)
 class ActionCandidate:
-    action: Action
-    score: float
+    action: Intent
+    score: float                  # the highest wins; one scale for all behaviors
     source: str                   # which behavior produced it (inspection / debugging)
+    target: CellId | None         # what the bid commits to, for the arbiter's hysteresis
 
 @dataclass(frozen=True)
 class DecisionContext:            # read-only bundle handed to every behavior
@@ -137,14 +151,14 @@ class DecisionContext:            # read-only bundle handed to every behavior
     self_state: RobotSelfState
     memory: "MemoryView"
     capabilities: "CapabilitySet"
-    navigator: Navigator          # injected, for movement-oriented behaviors
+    fields: Navigator             # the seeders' fields, read by behaviors to score
 
 class Behavior(Protocol):
     name: str
-    def propose(self, ctx: DecisionContext) -> Iterable[ActionCandidate]: ...
+    def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]: ...
 
 class Arbiter(Protocol):
-    def choose(self, candidates: list[ActionCandidate], ctx: DecisionContext) -> Action: ...
+    def choose(self, candidates: list[ActionCandidate], ctx: DecisionContext) -> ActionCandidate | None: ...
 
 class CommsStrategy(Protocol):
     def integrate(self, inbox: list[Message], memory: Memory, now: Time) -> None: ...
@@ -180,10 +194,12 @@ class ComposedAgent:                     # implements SwarmAgent
         candidates: list[ActionCandidate] = []
         for behavior in self.behaviors:
             for candidate in behavior.propose(ctx):
-                if self.capabilities.can(type(candidate.action)):   # capability gate
+                if self.capabilities.can(type(candidate.action)):   # capability gate; FollowField needs Move
                     candidates.append(candidate)
 
-        action = self.arbiter.choose(candidates, ctx)
+        winner = self.arbiter.choose(candidates, ctx)
+        action = self.action_for(winner)   # FollowField: navigator steps along that field;
+                                           # any other intent passes through; no winner: Idle
         outbox = self.comms.broadcast(self.memory, ctx)
         return Decision(action, outbox)
 
@@ -203,7 +219,7 @@ flowchart TB
     B3 --> CAND
     CAND --> GATE["capability gate"]
     GATE --> ARB["Arbiter.choose"]
-    ARB --> ACT["action"]
+    ARB --> ACT["action: FollowField stepped by the Navigator, others pass through"]
     M --> CB["Comms.broadcast"] --> OUT["outbox"]
     ACT --> D["Decision"]
     OUT --> D

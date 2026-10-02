@@ -3,12 +3,17 @@
 ``ComposedAgent`` is the thin orchestrator that implements the ``SwarmAgent`` boundary. At each
 decision point it merges what the robot sensed and received into its memory, keeps the
 navigator's quadtree in sync with new terrain facts, gathers the scored candidates of its
-behaviors and picks the best. Communication and capability gating are added as those parts are
-built.
+behaviors, picks the best and turns its intent into one action: the navigator steps along the
+field a ``FollowField`` names, and any other intent passes through. Communication and capability
+gating are added as those parts are built.
 """
 
+import logging
+
 from swarm_field.contracts import (
+    Action,
     AgentInspection,
+    CellId,
     Decision,
     Idle,
     Message,
@@ -18,9 +23,17 @@ from swarm_field.contracts import (
     TerrainObservation,
     Time,
 )
-from swarm_field.swarm.behavior import ActionCandidate, Behavior, DecisionContext
+from swarm_field.swarm.behavior import (
+    ActionCandidate,
+    Behavior,
+    DecisionContext,
+    FollowField,
+    Intent,
+)
 from swarm_field.swarm.memory import AgentMemory
 from swarm_field.swarm.navigator import Navigator
+
+logger = logging.getLogger(__name__)
 
 
 class ComposedAgent:
@@ -62,16 +75,12 @@ class ComposedAgent:
             self_state=perception.self_state,
             sensed=perception.sensed,
             memory=self.memory,
-            navigator=self.navigator,
+            fields=self.navigator,
             inbox=perception.inbox,
         )
         candidates: list[ActionCandidate] = []
         for behavior in self.behaviors:
-            proposal = behavior.propose(ctx)
-            if isinstance(proposal, ActionCandidate):
-                candidates.append(proposal)
-            else:
-                candidates.extend(proposal)
+            candidates.extend(behavior.propose(ctx))
 
         # TODO: an arbiter (fixed-priority overrides such as low battery, hysteresis against
         # switching objectives back and forth) instead of simply taking the highest score.
@@ -82,7 +91,8 @@ class ComposedAgent:
             return Decision(action=Idle(), outbox=outbox)
 
         self._current_goal = best.source
-        return Decision(action=best.action, outbox=outbox)
+        action = self._action_for(best.action, perception.self_state.position, perception.time)
+        return Decision(action=action, outbox=outbox)
 
     def inspect(self) -> AgentInspection:
         return AgentInspection(
@@ -90,6 +100,16 @@ class ComposedAgent:
             current_goal=self._current_goal,
             belief=self.memory.snapshot(),
         )
+
+    def _action_for(self, intent: Intent, robot: CellId, now: Time) -> Action:
+        """The action that carries out the winning candidate's intent."""
+        if not isinstance(intent, FollowField):
+            return intent
+        field = self.navigator.field_for(intent.seeder, robot, now)
+        if field is None:
+            logger.warning("FollowField couldn't find the corresponding field %s", intent.seeder)
+            return Idle()
+        return self.navigator.step_towards(field, robot)
 
     def _facts_received(self, inbox: list[Message]) -> list[Observation]:
         """The facts carried by the received messages."""
