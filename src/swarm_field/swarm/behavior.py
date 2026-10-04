@@ -19,8 +19,7 @@ from swarm_field.contracts import (
 from swarm_field.swarm.field import BoundingBox, GridPotentialField, MixedGraph
 from swarm_field.swarm.memory import MemoryView
 from swarm_field.swarm.navigator import Navigator
-from swarm_field.swarm.seeder import SeededField, TreatSeeder
-
+from swarm_field.swarm.seeder import FieldSeeder, TreatSeeder
 
 
 @dataclass(frozen=True)
@@ -129,33 +128,40 @@ class TreatInfestation:
             action=FollowField(self._seeder), score=score, source=self.name, target=target
         )
         return (candidate,)
-    
-    
+
+
 class ExploreBehaviour:
     """Skeleton of the exploration behaviour: follow the field of the EXPLORE seeder."""
 
     name: str = "explore"
 
-    def __init__(self, seeder: str = SeededField.name) -> None:
+    def __init__(self, seeder: str = FieldSeeder.name) -> None:
         self._seeder: str = seeder
-        self._max_candidates: int = 16 # Maximum number of candidates to propose
-        self._dispersion_robot_threshold: int = 15 # Minimum number of robots to include dispersion score
-        self._separation_sigma: float = 2.0 # It will only influence robots within 3 sigma
-        self._visible_offset: float = 1.0 # Assume robots can see cells within 1 cell in each direction (3x3 area)
-        self._peer_forbidden_distance: float = 1.0 # Minimum distance to other robots
-        self.weight_visible: float = 0.8 # Weight for visible exploration score
-        self.weight_dispersion: float = 0.1 # Weight for dispersion score
-        self.weight_separation: float = 0.3 # Weight for separation score
+        self._max_candidates: int = 16  # Maximum number of candidates to propose
+        self._dispersion_robot_threshold: int = 15  # Minimum number of robots
+        # to include dispersion score
+        self._separation_sigma: float = 2.0  # It will only influence robots within 3 sigma
+        self._visible_offset: float = 1.0  # Assume robots can see cells within
+        # 1 cell in each direction
+        self._peer_forbidden_distance: float = 1.0  # Minimum distance to other robots
+        self.weight_visible: float = 0.8  # Weight for visible exploration score
+        self.weight_dispersion: float = 0.1  # Weight for dispersion score
+        self.weight_separation: float = 0.3  # Weight for separation score
 
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
         position = ctx.self_state.position
         seeded = ctx.fields.field_for(self._seeder, position, ctx.time)
+        if seeded is None:
+            return ()
+
         field = seeded.field
         graph = field.graph
         window = graph.window
         peers = tuple(peer.cell for peer in ctx.memory.peers())
         peers_num = len(peers)
-        top_candidates = self._top_candidates(field, graph, window, peers, count=self._max_candidates)
+        top_candidates = self._top_candidates(
+            field, graph, window, peers, count=self._max_candidates
+        )
         if not top_candidates:
             spread_target = self._fast_spread(graph, peers)
             if spread_target is None:
@@ -171,16 +177,17 @@ class ExploreBehaviour:
         candidate_cells = [cell for _, cell in top_candidates]
         separation_scores = self._separation_score(candidate_cells, peers)
         visible_scores = self._visible_exploration_score(field, candidate_cells)
+        dispersion_scores: list[float] | None = None
         if peers_num > self._dispersion_robot_threshold:
             dispersion_scores = self._dispersion_score(window, candidate_cells, peers)
         final_scores = [
             self.weight_visible * visible - self.weight_separation * separation
-            for visible, separation in zip(visible_scores, separation_scores)
+            for visible, separation in zip(visible_scores, separation_scores, strict=True)
         ]
-        if 'dispersion_scores' in locals():
+        if dispersion_scores is not None:
             final_scores = [
                 score - self.weight_dispersion * dispersion
-                for score, dispersion in zip(final_scores, dispersion_scores)
+                for score, dispersion in zip(final_scores, dispersion_scores, strict=True)
             ]
         return tuple(
             ActionCandidate(
@@ -189,7 +196,7 @@ class ExploreBehaviour:
                 source=self.name,
                 target=cell,
             )
-            for score, cell in zip(final_scores, candidate_cells)
+            for score, cell in zip(final_scores, candidate_cells, strict=True)
         )
 
     def _visible_exploration_score(
@@ -206,8 +213,7 @@ class ExploreBehaviour:
             (offset_x, offset_y)
             for offset_y in range(-radius, radius + 1)
             for offset_x in range(-radius, radius + 1)
-            if abs(offset_x) <= self._visible_offset
-            and abs(offset_y) <= self._visible_offset
+            if abs(offset_x) <= self._visible_offset and abs(offset_y) <= self._visible_offset
         )
 
         scores: list[float] = []
@@ -222,7 +228,12 @@ class ExploreBehaviour:
         return scores
 
     def _top_candidates(
-        self, field: GridPotentialField, graph: MixedGraph, window: BoundingBox, peers: Sequence[CellId], count: int = 16
+        self,
+        field: GridPotentialField,
+        graph: MixedGraph,
+        window: BoundingBox,
+        peers: Sequence[CellId],
+        count: int = 16,
     ) -> list[tuple[float, CellId]]:
         """Return the top field values at cell nodes outside peers' exclusion zones."""
         forbidden_cells: set[CellId] = set()
@@ -247,7 +258,9 @@ class ExploreBehaviour:
 
         return nlargest(count, eligible_values(), key=lambda candidate: candidate[0])
 
-    def _separation_score(self, candidates: Sequence[CellId], peers: Sequence[CellId]) -> list[float]:
+    def _separation_score(
+        self, candidates: Sequence[CellId], peers: Sequence[CellId]
+    ) -> list[float]:
         """Generate a separation score when there are few robots nearby"""
         sigma_squared = self._separation_sigma**2
         if not peers or sigma_squared == 0.0:
@@ -272,7 +285,10 @@ class ExploreBehaviour:
         return scores
 
     def _dispersion_score(
-        self, window: BoundingBox, candidates: Sequence[CellId], peers: Sequence[CellId],
+        self,
+        window: BoundingBox,
+        candidates: Sequence[CellId],
+        peers: Sequence[CellId],
     ) -> list[float]:
         """Generate a dispersion score when there are many robots nearby"""
         map_size = (window.x_max - window.x_min, window.y_max - window.y_min)
@@ -280,11 +296,10 @@ class ExploreBehaviour:
         if not peers or map_diagonal == 0.0:
             return [0.0 for _ in candidates]
         return [
-            sum(hypot(cell[0] - x, cell[1] - y) for x, y in peers)
-            / (len(peers) * map_diagonal)
+            sum(hypot(cell[0] - x, cell[1] - y) for x, y in peers) / (len(peers) * map_diagonal)
             for cell in candidates
         ]
-        
+
     def _fast_spread(self, graph: MixedGraph, peers: Sequence[CellId]) -> CellId | None:
         """Choose the least-crowded traversable cell on the field window's boundary."""
         if len(peers) <= self._dispersion_robot_threshold:
@@ -297,8 +312,7 @@ class ExploreBehaviour:
             if graph.node_at(cell) != cell:
                 continue
             nearby_count = sum(
-                (cell[0] - peer[0]) ** 2 + (cell[1] - peer[1]) ** 2
-                <= max_distance_squared
+                (cell[0] - peer[0]) ** 2 + (cell[1] - peer[1]) ** 2 <= max_distance_squared
                 for peer in peers
             )
             if best_nearby_count is None or nearby_count < best_nearby_count:
