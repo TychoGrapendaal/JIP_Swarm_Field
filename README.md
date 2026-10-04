@@ -85,24 +85,6 @@ For an even larger test:
 uv run --with matplotlib python examples/mass_swarm_visualization.py --robots 1000 --seed 7
 ```
 
-### Potential field and force demonstration
-
-```bash
-uv run --with matplotlib python examples/potential_field_demo.py --show 1
-```
-
-Available modes:
-
-```bash
-1 exploration
-2 infestation
-3 obstacle
-4 peer
-5 combined
-```
-
-A visualization showing the potential field and potential force map from different observations.
-
 ### Wall-following steering demonstration
 
 ```bash
@@ -168,16 +150,15 @@ uv run python examples/robustness_demo.py --scenario S5 --hours 3
 uv run python examples/robustness_demo.py --out runs/robustness
 ```
 
-**What this currently shows:** `active_robots` and `energy/m²` respond to the faults as intended, and the pest dynamics are provably unaffected. The outcome metrics (`coverage`, `targets_remaining`, `detection_latency`) are flat, because the swarm's behaviors are still stubs — `TreatObjective.seeds()` returns no targets, so every robot commits `Idle` from the first decision and the swarm never moves. [`docs/research/robustness.md`](docs/research/robustness.md) explains what has to land before the sweep measures resilience rather than capacity.
+**What this currently shows:** `active_robots` and `energy/m²` respond to the faults as intended, and the pest dynamics are provably unaffected. The outcome metrics (`coverage`, `targets_remaining`, `detection_latency`) are flat, because the swarm's behaviors are still stubs — `TreatSeeder.seeds()` returns no targets, so every robot commits `Idle` from the first decision and the swarm never moves. [`docs/research/robustness.md`](docs/research/robustness.md) explains what has to land before the sweep measures resilience rather than capacity.
 
 ## Current demonstration limitations
 
 - The exploration behavior is currently a simple baseline and is not yet a dedicated coverage/exploration algorithm.
-- `TreatObjective` is a stub that returns no target cells, so every robot commits `Idle` and the swarm does not move. Coverage and detection-latency metrics are therefore flat in the sweeps; see [`docs/research/robustness.md`](docs/research/robustness.md).
-- The local force field used for exploration is a proof of concept using local observations; goal-directed navigation instead uses a potential field over the robot's believed terrain, with a reactive wall-follow as its fallback.
+- Goal-directed navigation uses a potential field over the robot's believed terrain, with a reactive wall-follow as its fallback. Exploration is being rebuilt on the same fields (#41).
+- `TreatSeeder` is a stub that returns no target cells, so every robot commits `Idle` and the swarm does not move. Coverage and detection-latency metrics are therefore flat in the sweeps; see [`docs/research/robustness.md`](docs/research/robustness.md).
 - Navigation is planned over what the robot believes, so a wrong obstacle belief is followed exactly; there is no observation-based recovery from it yet.
 - Robot-to-robot communication carries messages but nothing encodes or decodes them yet, so `messages_sent` is zero and the utility robot cannot follow a pest found by another robot.
-- The communication channel is implemented, but the current utility behaviour does not yet use peer messages to follow a pest found by another robot.
 - Coarse-grained infestation dynamics are implemented as a scheduled `WorldTick`; the current model supports severity growth, neighbour spread, and stochastic spawning.
 - Robot batteries are drained by a coarse cost model (per metre, per decision, per treat) and robot failure and position error can be injected for robustness runs, but there is no charging station, no consumable replenishment and no recovery from a failure.
 - Sensing is currently local; distant obstacles and infestations are unknown unless information is later propagated through communication.

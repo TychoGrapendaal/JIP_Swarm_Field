@@ -54,7 +54,7 @@ class DecayConfig:
 
 
 class MemoryView(Protocol):
-    """The read-only queries on memory that behaviours and objectives are typed against."""
+    """The read-only queries on memory that behaviours and field seeders are typed against."""
 
     def terrain_at(self, cell: CellId) -> Terrain | None: ...
 

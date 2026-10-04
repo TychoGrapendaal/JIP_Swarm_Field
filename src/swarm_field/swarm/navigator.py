@@ -2,25 +2,26 @@
 built on it, and the one seam that turns a field into a movement action.
 
 The navigator holds the robot's belief about where it can move — a ``Quadtree`` over the
-traversable cells it has learned from its memory — and the grid potential field an objective's
-targets induce on that belief. It is also where movement is decided: :meth:`Navigator.step_towards`
-follows the field, and hands over to the reactive ``Steerer`` when the field cannot guide the
-robot, which is the fallback that keeps a robot moving over ground it has no plan for.
+traversable cells it has learned from its memory — and the grid potential fields the targets of
+its registered seeders induce on that belief. It is also where
+movement is decided: :meth:`Navigator.step_towards` follows a field, and hands over to the
+reactive ``Steerer`` when the field cannot guide the robot, which is the fallback that keeps a
+robot moving over ground it has no plan for.
 """
 
-from collections.abc import Iterable
+from collections.abc import Hashable, Iterable
 from dataclasses import dataclass
 
-from swarm_field.contracts import CellId, Idle, Move
+from swarm_field.contracts import CellId, Idle, Move, Time
 from swarm_field.swarm.field import (
-    GridPotentialField,
     Quadtree,
     Seed,
-    TerrainView,
     build_grid_potential_field,
     traversable_cells,
 )
 from swarm_field.swarm.field.quadtree import can_enter
+from swarm_field.swarm.memory import AgentMemory
+from swarm_field.swarm.seeder import FieldSeeder, SeededField
 from swarm_field.swarm.steering import QuadtreeSensing, Steerer, SteeringConfig
 
 _PLAN_PATIENCE_TICKS = 3
@@ -33,40 +34,55 @@ few of them is.
 
 @dataclass(frozen=True)
 class _CachedField:
-    """A field kept for reuse, valid for as long as its key still matches.
+    """A seeder's field kept for reuse, valid for as long as its key still matches.
 
     Attributes:
-        seeds: The targets the field was built from.
+        seeder: The name of the seeder the field was built for.
+        key: The seeder's ``field_key`` when the field was built.
         version: The quadtree version it was built on.
         block: The robot's block of ``max_leaf_side`` cells. The field's window is made of
             whole blocks, so it stays exact for as long as the robot stays in this one.
-        field: The field itself.
+        field: The field itself, ``None`` if the seeder had no targets.
     """
 
-    seeds: tuple[Seed, ...]
+    seeder: str
+    key: Hashable
     version: int
     block: CellId
-    field: GridPotentialField
+    field: SeededField | None
 
-    def matches(self, seeds: tuple[Seed, ...], version: int, block: CellId) -> bool:
-        """Whether this field still answers for ``seeds`` on terrain ``version``, in ``block``."""
-        return self.seeds == seeds and self.version == version and self.block == block
+    def matches(self, seeder: str, key: Hashable, version: int, block: CellId) -> bool:
+        """Whether this field still answers for the seeder at ``key``, on this terrain and block."""
+        return (
+            self.seeder == seeder
+            and self.key == key
+            and self.version == version
+            and self.block == block
+        )
 
 
 class Navigator:
     """Builds grid potential fields for one robot, over a quadtree of the cells it can enter.
+
+    The seeders are registered by name when the navigator is created, and :meth:`field_for`
+    hands out their fields.
 
     Attributes:
         quadtree: Where this robot can be and move, read from its memory's terrain.
     """
 
     def __init__(
-        self, terrain: TerrainView, flies: bool, steering: SteeringConfig | None = None
+        self,
+        memory: AgentMemory,
+        flies: bool,
+        seeders: Iterable[FieldSeeder] = (),
+        steering: SteeringConfig | None = None,
     ) -> None:
-        self._terrain: TerrainView = terrain
+        self._memory: AgentMemory = memory
         self._flies: bool = flies
+        self._seeders: dict[str, FieldSeeder] = {seeder.name: seeder for seeder in seeders}
         self._config: SteeringConfig = steering if steering is not None else SteeringConfig()
-        self.quadtree: Quadtree = Quadtree(traversable_cells(terrain, flies))
+        self.quadtree: Quadtree = Quadtree(traversable_cells(memory, flies))
         self._steerer: Steerer = Steerer(QuadtreeSensing(self.quadtree), self._config)
         self._cached: _CachedField | None = None
         self._best_value: float | None = None
@@ -74,58 +90,62 @@ class Navigator:
 
     def update_terrain(self, cells: Iterable[CellId]) -> None:
         """Re-read the given cells from the terrain, after new terrain facts about them."""
-        changes = {cell: can_enter(self._terrain.terrain_at(cell), self._flies) for cell in cells}
+        changes = {cell: can_enter(self._memory.terrain_at(cell), self._flies) for cell in cells}
         if changes:
             self.quadtree.update(changes)
 
-    def field_for(self, seeds: tuple[Seed, ...], robot: CellId) -> GridPotentialField:
-        """The grid potential field towards ``seeds``, fine around the robot's cell.
+    def field_for(self, seeder: str, robot: CellId, now: Time) -> SeededField | None:
+        """The grid potential field of the seeder named ``seeder``, fine around the robot's cell.
 
-        The field is kept, and handed back unchanged, for as long as the seeds, the terrain and
-        the robot's block of the quadtree all stay the same. Following a plan therefore costs
-        one build per block travelled rather than one per step, which matters because building
-        takes tens to hundreds of milliseconds while reading the field back takes microseconds.
+        ``None`` means the seeder has no targets; an unknown name raises ``KeyError``. The
+        field is kept, and handed back unchanged, for as long as the seeder's key, the terrain
+        and the robot's block of the quadtree all stay the same; the seeder is only asked for
+        its seeds when one of them changed. Following a plan therefore costs one build per
+        block travelled rather than one per step, which matters because building takes tens to
+        hundreds of milliseconds while reading the field back takes microseconds.
         """
+        found = self._seeders[seeder]
+        key = found.field_key(self._memory, now)
         block = self._block_of(robot)
         cached = self._cached
-        if cached is not None and cached.matches(seeds, self.quadtree.version, block):
+        if cached is not None and cached.matches(seeder, key, self.quadtree.version, block):
             return cached.field
-        field = build_grid_potential_field(seeds, self.quadtree, robot)
+
+        seeds = found.seeds(self._memory, robot, now)
+        field: SeededField | None = None
+        if seeds:
+            field = SeededField(seeds, build_grid_potential_field(seeds, self.quadtree, robot))
         self._cached = _CachedField(
-            seeds=seeds, version=self.quadtree.version, block=block, field=field
+            seeder=seeder, key=key, version=self.quadtree.version, block=block, field=field
         )
         self._forget_plan()
         return field
 
-    def step_towards(self, seeds: tuple[Seed, ...], robot: CellId) -> Move | Idle:
-        """The one movement action of this decision point, on the way towards ``seeds``.
+    def step_towards(self, seeded: SeededField, robot: CellId) -> Move | Idle:
+        """The one movement action of this decision point, on the way towards a field's targets.
 
         A field guides the robot while it can: the robot steps into the neighbouring cell the
         field points at, which is one step of a route that is near-optimal around the obstacles
         the quadtree knows. The reactive ``Steerer`` takes over when the field cannot guide —
         no target is reachable, or following the field stopped bringing the robot closer, which
         is how the window's edge can make a robot turn back and forth. The steerer then walks
-        towards the target the objective named, and gives way again as soon as the field points
+        towards the target the seeder named, and gives way again as soon as the field points
         forward once more.
 
         Args:
-            seeds: The targets of the objective being pursued, as the objective scored them.
+            seeded: The field to follow, from :meth:`field_for`.
             robot: The robot's current cell, the origin the step is taken from.
         """
-        if not seeds:
-            self._forget_plan()
-            return Idle()
-
-        field = self.field_for(seeds, robot)
+        field = seeded.field
         target = field.target_for(robot)
         if target == robot:
             self._forget_plan()
             return Idle()
         if target is None:
-            # No wave reaches this robot, so the field has no route to offer. The objective's
+            # No wave reaches this robot, so the field has no route to offer. The seeder's
             # targets are known all the same, so the steerer walks towards the most attractive
             # one and stalls if it is walled off for good, which is how the brain hears about it.
-            return self._steer_towards(_attractive_seed(seeds).cell, robot)
+            return self._steer_towards(_attractive_seed(seeded.seeds).cell, robot)
 
         step = field.next_cell(robot)
         if step is not None and self._plan_progresses(field.value_at(robot)):

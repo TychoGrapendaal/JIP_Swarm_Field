@@ -73,7 +73,8 @@ Docs, comments and logging:
 
 - Write docstrings for public functions and classes, except trivial one/two-liners, getters/setters and other obvious cases. Always document complex or flow-central functions.
 - Keep comments and docstrings relevant to the code and its caller. Don't put `.md`-level documentation in source. To refer to other code, name the class or file instead of describing it, so the note doesn't rot when that code changes.
-- **Logging** goes through the single, globally configured logger — don't scatter `print` statements for diagnostics.
+- **Logging** goes through the standard `logging` module, configured once at the entry point: each module takes `logger = logging.getLogger(__name__)`. Don't scatter `print` statements for diagnostics.
+- **Log every non-fatal error.** When the code recovers from something that should not happen instead of raising — falls back to `Idle`, skips an input, uses a default — log a warning that says what happened and with which values, so the fallback never goes unnoticed. Fatal errors raise.
 
 ## Tests
 
