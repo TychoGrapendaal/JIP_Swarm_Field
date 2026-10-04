@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import math
+from collections.abc import Hashable
 from pathlib import Path
 from random import Random
 
@@ -34,14 +35,16 @@ from matplotlib.animation import FuncAnimation
 
 from swarm_field.contracts import (
     BodyType,
+    CellId,
     Command,
     FieldGeometry,
     InjectInfestation,
-    Move,
     Pause,
     RobotId,
     SetTimeScale,
     StepOnce,
+    SwarmAgent,
+    Time,
 )
 from swarm_field.simulation import (
     PestDynamicsConfig,
@@ -57,8 +60,11 @@ from swarm_field.swarm import (
     AgentMemory,
     ComposedAgent,
     DecisionContext,
+    FollowField,
+    MemoryView,
     Navigator,
 )
+from swarm_field.swarm.field import Seed
 from swarm_field.visualization import MatplotlibRenderer
 
 FIELD_WIDTH = 24
@@ -74,22 +80,52 @@ SPEED_BY_BODY = {
 }
 
 
-class WanderBehavior:
-    """A minimal exploration behavior: propose a move to a random walkable neighbour.
+class _WanderSeeder:
+    """Stand-in for the EXPLORE seeder (#41): a random walk over believed ground.
 
-    The world owns boundary handling: an out-of-field target resolves to ``Idle`` and the
-    robot decides again after the stationary interval.
+    It names one random neighbouring cell as the wander field's only target, and asks for a new
+    one at every decision point by making the field key the decision time. The navigator then
+    rebuilds the field per tick and the robot steps towards it. The target is clamped into the
+    field, so it is never the unreachable outside cell a robot standing at the edge would pick.
+
+    A real exploration algorithm would seed unvisited or stale cells instead of a random
+    neighbour, and would keep them long enough to be worth walking to.
     """
 
     name: str = "wander"
 
-    def __init__(self, rng: Random) -> None:
+    def __init__(self, field: FieldGeometry, rng: Random) -> None:
+        self._field: FieldGeometry = field
         self._rng: Random = rng
 
-    def propose(self, ctx: DecisionContext) -> ActionCandidate:
+    def field_key(self, memory: MemoryView, now: Time) -> Hashable:
+        return now
+
+    def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
         dx, dy = self._rng.choice(((1, 0), (0, 1), (-1, 0), (0, -1)))
-        x, y = ctx.self_state.position
-        return ActionCandidate(action=Move(to=(x + dx, y + dy)), score=1.0, source=self.name)
+        x = min(max(robot[0] + dx, 0), self._field.width - 1)
+        y = min(max(robot[1] + dy, 0), self._field.height - 1)
+        return (Seed((x, y), 0.0),)
+
+
+class WanderBehavior:
+    """A minimal exploration behavior: bid to follow the wander field.
+
+    The behaviour never moves the robot itself; it names the seeder whose field to follow and
+    the navigator takes the step. Standing on the field's target needs no handling here: the
+    navigator returns ``Idle`` for that case.
+    """
+
+    name: str = "wander"
+
+    def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
+        candidate = ActionCandidate(
+            action=FollowField(_WanderSeeder.name),
+            score=1.0,
+            source=self.name,
+            target=None,
+        )
+        return (candidate,)
 
 
 def build_context(seed: int) -> SimulationContext:
@@ -126,14 +162,20 @@ def build_context(seed: int) -> SimulationContext:
         world.cell(cell).obstacle = True
 
     rng = Random(seed)
-    agents = {}
+    agents: dict[RobotId, SwarmAgent] = {}
     for robot_id in range(len(robots)):
         memory = AgentMemory(robot_id, field)
         agents[robot_id] = ComposedAgent(
             robot_id=robot_id,
-            behaviors=[WanderBehavior(rng)],
+            behaviors=[WanderBehavior()],
             memory=memory,
-            navigator=Navigator(memory, flies=False),
+            navigator=Navigator(
+                memory,
+                flies=False,
+                # Its own random source, so a robot's walk does not depend on how many draws
+                # its peers happened to make first.
+                seeders=[_WanderSeeder(field, Random(seed + robot_id))],
+            ),
         )
     ctx = SimulationContext(
         now=0,

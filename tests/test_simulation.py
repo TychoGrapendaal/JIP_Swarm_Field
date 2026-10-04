@@ -1,5 +1,6 @@
 """Tests for the discrete-event simulation core and pest dynamics."""
 
+from collections.abc import Hashable
 from dataclasses import dataclass
 from random import Random
 from typing import override
@@ -10,6 +11,7 @@ from swarm_field.contracts import (
     Action,
     AgentInspection,
     BodyType,
+    CellId,
     Decision,
     FieldGeometry,
     Idle,
@@ -31,12 +33,13 @@ from swarm_field.simulation import (
     WorldTick,
 )
 from swarm_field.swarm import (
-    ActionCandidate,
     AgentMemory,
     ComposedAgent,
-    DecisionContext,
+    MemoryView,
     Navigator,
+    TreatInfestation,
 )
+from swarm_field.swarm.field import Seed
 
 
 def _context() -> SimulationContext:
@@ -57,16 +60,19 @@ def _context() -> SimulationContext:
     )
 
 
-class _FixedMoveBehavior:
-    """A minimal fake behavior that always proposes one direct move."""
+class _FixedTargetSeeder:
+    """One fixed target, so a behaviour has a field to follow without any pest logic."""
 
-    name: str = "fixed-move"
+    name: str = "fixed-target"
 
-    def __init__(self, target: tuple[int, int]) -> None:
-        self._target: tuple[int, int] = target
+    def __init__(self, target: CellId) -> None:
+        self._target: CellId = target
 
-    def propose(self, ctx: DecisionContext) -> ActionCandidate:
-        return ActionCandidate(action=Move(to=self._target), score=1.0, source=self.name)
+    def field_key(self, memory: MemoryView, now: Time) -> Hashable:
+        return None
+
+    def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
+        return (Seed(self._target, 0.0),)
 
 
 @dataclass
@@ -300,15 +306,16 @@ def test_robot_decision_drives_a_real_brain() -> None:
     )
     robot = RobotState(robot_id=0, position=(2, 2), body=BodyType.SCOUT, speed_mps=2.0)
     memory = AgentMemory(0, field)
+    seeder = _FixedTargetSeeder((2, 3))
     ctx = SimulationContext(
         now=0,
         rng=Random(0),
         agents={
             0: ComposedAgent(
                 robot_id=0,
-                behaviors=[_FixedMoveBehavior((2, 3))],
+                behaviors=[TreatInfestation(seeder.name)],
                 memory=memory,
-                navigator=Navigator(memory, flies=False),
+                navigator=Navigator(memory, flies=False, seeders=[seeder]),
             )
         },
         world=WorldState(field, robots=[robot]),
