@@ -316,7 +316,7 @@ flowchart LR
 
 | Event | On handling | Schedules |
 |---|---|---|
-| `RobotDecision` | build the robot's `Perception`, call `SwarmAgent.decide`, apply the action, hand `outbox` to the channel | the robot's next event — a cell arrival while moving, or the next decision interval while stationary |
+| `RobotDecision` | build the robot's `Perception`, call `SwarmAgent.decide`, apply the action, hand `outbox` to the channel | the robot's next fixed decision interval |
 | *CellArrival* (to add) | update the robot's cell / occupancy | usually a `RobotDecision` on arrival |
 | `WorldTick` | advance infestation dynamics one step | itself, at the next coarse cadence |
 | *MetricSample* (to add) | record a metrics sample | itself, periodically |

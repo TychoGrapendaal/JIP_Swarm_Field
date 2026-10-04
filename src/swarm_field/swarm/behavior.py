@@ -19,7 +19,8 @@ from swarm_field.contracts import (
 from swarm_field.swarm.field import BoundingBox, GridPotentialField, MixedGraph
 from swarm_field.swarm.memory import MemoryView
 from swarm_field.swarm.navigator import Navigator
-from swarm_field.swarm.seeder import ExploreSeeder, SeededField, TreatSeeder
+from swarm_field.swarm.seeder import SeededField, TreatSeeder
+
 
 
 @dataclass(frozen=True)
@@ -135,7 +136,7 @@ class ExploreBehaviour:
 
     name: str = "explore"
 
-    def __init__(self, seeder: str = ExploreSeeder.name) -> None:
+    def __init__(self, seeder: str = SeededField.name) -> None:
         self._seeder: str = seeder
         self._max_candidates: int = 16 # Maximum number of candidates to propose
         self._dispersion_robot_threshold: int = 15 # Minimum number of robots to include dispersion score
