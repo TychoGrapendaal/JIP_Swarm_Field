@@ -1,10 +1,10 @@
 """Component A — the swarm algorithm (the robot brain).
 
 A brain is a ``ComposedAgent`` assembled from a memory, a navigator and a list of behaviors,
-each a small piece of decision logic proposing scored candidate actions. Behaviors that move
-towards targets hand their objective's targets to the navigator, which follows them over a grid
-potential field of the terrain the robot believes in, with a reactive ``Steerer`` to fall back
-on.
+each a small piece of decision logic proposing scored candidates. Behaviors that move towards
+targets propose ``FollowField`` with the name of a ``FieldSeeder`` registered in the navigator;
+if that candidate wins, the navigator follows the seeder's grid potential field over the terrain
+the robot believes in, with a reactive ``Steerer`` to fall back on.
 """
 
 from swarm_field.contracts import Vector2
@@ -12,14 +12,14 @@ from swarm_field.swarm.behavior import (
     ActionCandidate,
     Behavior,
     DecisionContext,
-    Explore,
-    PotentialField,
+    FollowField,
+    Intent,
     TreatInfestation,
 )
 from swarm_field.swarm.brain import ComposedAgent
 from swarm_field.swarm.memory import AgentMemory, DecayConfig, MemoryView
 from swarm_field.swarm.navigator import Navigator
-from swarm_field.swarm.objective import Objective, TreatObjective
+from swarm_field.swarm.seeder import FieldSeeder, SeededField, TreatSeeder
 from swarm_field.swarm.steering import (
     QuadtreeSensing,
     Sensing,
@@ -34,16 +34,17 @@ __all__ = [
     "ComposedAgent",
     "DecayConfig",
     "DecisionContext",
-    "Explore",
+    "FieldSeeder",
+    "FollowField",
+    "Intent",
     "MemoryView",
     "Navigator",
-    "Objective",
-    "PotentialField",
     "QuadtreeSensing",
+    "SeededField",
     "Sensing",
     "Steerer",
     "SteeringConfig",
     "TreatInfestation",
-    "TreatObjective",
+    "TreatSeeder",
     "Vector2",
 ]

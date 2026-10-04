@@ -54,10 +54,10 @@ from swarm_field.swarm import (
     AgentMemory,
     Behavior,
     ComposedAgent,
+    FieldSeeder,
     Navigator,
-    Objective,
     TreatInfestation,
-    TreatObjective,
+    TreatSeeder,
 )
 
 T = TypeVar("T")
@@ -92,7 +92,7 @@ class Registry[T]:
 
 
 BEHAVIORS: Registry[Behavior] = Registry()
-OBJECTIVES: Registry[Objective] = Registry()
+SEEDERS: Registry[FieldSeeder] = Registry()
 
 _NOISE_SEED_OFFSET = 0x5EED
 """Keeps the fault-injection random stream distinct from the world's for a given seed."""
@@ -100,15 +100,21 @@ _NOISE_SEED_OFFSET = 0x5EED
 
 @BEHAVIORS.register("treat-infestation")
 def _build_treat_infestation(params: dict[str, Any], rng: Random) -> TreatInfestation:
-    """Build the pest-response behaviour over the objective the spec names."""
-    objective = OBJECTIVES.build(params.get("objective", "treat"), params, rng)
-    return TreatInfestation(objective)
+    """Build the pest-response behaviour, following the TREAT seeder the spec names first.
+
+    Raises:
+        ValueError: If the spec names no seeder, so there is no field to follow.
+    """
+    seeders: tuple[str, ...] = tuple(params.get("seeders", (TreatSeeder.name,)))
+    if not seeders:
+        raise ValueError("treat-infestation needs a seeder to follow")
+    return TreatInfestation(seeders[0])
 
 
-@OBJECTIVES.register("treat")
-def _build_treat_objective(params: dict[str, Any], rng: Random) -> TreatObjective:
-    """Build the TREAT objective. It has no parameters yet, so it takes none."""
-    return TreatObjective()
+@SEEDERS.register("treat")
+def _build_treat_seeder(params: dict[str, Any], rng: Random) -> TreatSeeder:
+    """Build the TREAT seeder. It has no parameters yet, so it takes none."""
+    return TreatSeeder()
 
 
 @dataclass(frozen=True)
@@ -117,19 +123,21 @@ class BrainSpec:
 
     This is the data-driven assembly of architecture §A.4. The arbiter and communication
     strategy have no registry entries because ``ComposedAgent`` does not accept them yet, and
-    ``explore`` has none because it is not a ``Behavior`` yet: it builds force maps but has no
-    ``propose``. Each is added when the part behind it exists.
+    ``explore`` has none because there is no EXPLORE seeder yet: ``TreatSeeder`` is the only
+    seeder that exists. Each is added when the part behind it exists.
 
     Attributes:
         behaviors: Registry names of the behaviors, combined at every decision point. Order
             does not matter, the orchestrator scores them all.
-        objective: Registry name of the objective those behaviors follow.
+        seeders: Registry names of the seeders to register in the navigator, which is how a
+            behaviour reaches a field: it names one of them. A behaviour that follows a single
+            seeder takes the first name.
         navigator: Registry name of the movement layer. Only ``"potential-field"`` exists.
         params: Per-part parameters, passed through to the named factory.
     """
 
     behaviors: tuple[str, ...] = ("treat-infestation",)
-    objective: str = "treat"
+    seeders: tuple[str, ...] = ("treat",)
     navigator: str = "potential-field"
     params: dict[str, Any] = field(default_factory=dict)
 
@@ -513,31 +521,34 @@ def build_agent(
         robot_id=robot_id,
         behaviors=behaviors,
         memory=memory,
-        navigator=build_navigator(spec, memory),
+        navigator=build_navigator(spec, memory, rng),
     )
 
 
 def _params_for(spec: BrainSpec) -> dict[str, Any]:
-    """The spec's shared parameters, with the objective the spec names folded in.
+    """The spec's shared parameters, with the seeders the spec names folded in.
 
-    The objective is a field of its own rather than a parameter so that swapping it does not
-    mean restating it, and so that ``BrainSpec.objective`` is the only place it is named.
+    The seeders are a field of their own rather than parameters so that swapping one does not
+    mean restating it, and so that ``BrainSpec.seeders`` is the only place the names are given.
     """
-    return {**spec.params, "objective": spec.objective}
+    return {**spec.params, "seeders": spec.seeders}
 
 
-def build_navigator(spec: BrainSpec, memory: AgentMemory) -> Navigator:
-    """Build the movement layer named by a spec.
+def build_navigator(spec: BrainSpec, memory: AgentMemory, rng: Random) -> Navigator:
+    """Build the movement layer named by a spec, over the seeders the spec names.
 
     Every v1 body is a ground robot, so the potential field is planned over land the robot
     believes it can enter. An aerial body would pass ``flies=True`` and ignore crop cells.
 
     Raises:
         ValueError: If the spec names a navigator that is not registered yet.
+        KeyError: If the spec names a seeder that is not registered.
     """
     if spec.navigator != "potential-field":
         raise ValueError(f"unknown navigator: {spec.navigator}")
-    return Navigator(memory, flies=False)
+    params = _params_for(spec)
+    seeders: list[FieldSeeder] = [SEEDERS.build(name, params, rng) for name in spec.seeders]
+    return Navigator(memory, flies=False, seeders=seeders)
 
 
 def build_experiment(

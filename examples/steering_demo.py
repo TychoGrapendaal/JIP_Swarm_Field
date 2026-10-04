@@ -6,8 +6,7 @@ wall-following climbs the wall's east face up to that gap, rounds it, and descen
 infested cell — then the demo treats it. Each decision point yields one direct
 ``Move(to=CellId)`` applied by ``WorldState``; the ``Sensing`` probe reads ground-truth
 walkability as a stand-in for future perception. This is the reactive layer the ``Navigator``
-falls back on when a potential field cannot guide a robot; the potential field itself is
-demonstrated in ``potential_field_demo.py``.
+falls back on when a potential field cannot guide a robot.
 
 Run from the repository root with:
     uv run python examples/steering_demo.py

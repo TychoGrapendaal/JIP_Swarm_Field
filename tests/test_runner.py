@@ -22,7 +22,7 @@ from swarm_field.runner import (
     sweep_scenarios,
 )
 from swarm_field.simulation import MetricsConfig, build_scenario
-from swarm_field.swarm import TreatInfestation, TreatObjective
+from swarm_field.swarm import TreatInfestation, TreatSeeder
 
 
 def _config(
@@ -190,14 +190,15 @@ def test_a_label_cannot_escape_the_output_directory(tmp_path: Path) -> None:
     assert csv_path.parent == tmp_path
 
 
-def test_the_named_objective_reaches_the_assembled_brain() -> None:
-    """A spec's objective must decide the objective, not a parameter default."""
-    spec = BrainSpec(objective="treat", params={"objective": "ignored"})
+def test_the_named_seeder_reaches_the_behaviour_and_the_navigator() -> None:
+    """A spec's seeders must decide the field, not a parameter default."""
+    spec = BrainSpec(seeders=("treat",), params={"seeders": ("ignored",)})
     agent = build_agent(spec, 1, build_scenario(ScenarioId.S1).field, Random(0))
     behavior = agent.behaviors[0]
 
     assert isinstance(behavior, TreatInfestation)
-    assert isinstance(behavior.objective, TreatObjective)
+    # None rather than a KeyError: the TREAT seeder is registered but has no targets yet (#40).
+    assert agent.navigator.field_for(TreatSeeder.name, (0, 0), 0) is None
 
 
 def test_build_run_leaves_the_pest_dynamics_the_run_random_source() -> None:
@@ -226,6 +227,19 @@ def test_an_unregistered_behavior_is_refused() -> None:
         label="bad",
         scenario=build_scenario(ScenarioId.S1, seed=1),
         brain=BrainSpec(behaviors=("gossip",)),
+        until=1_000,
+        metrics=MetricsConfig(period=1_000),
+    )
+
+    with pytest.raises(KeyError):
+        run_experiment(config)
+
+
+def test_an_unregistered_seeder_is_refused() -> None:
+    config = ExperimentConfig(
+        label="bad",
+        scenario=build_scenario(ScenarioId.S1, seed=1),
+        brain=BrainSpec(seeders=("gossip",)),
         until=1_000,
         metrics=MetricsConfig(period=1_000),
     )
