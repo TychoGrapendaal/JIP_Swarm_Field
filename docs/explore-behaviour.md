@@ -244,6 +244,14 @@ The method then:
 
 So `fast_spread` is a simple emergency strategy: if normal exploration is blocked or crowded, choose the least congested boundary cell and propose that as the fallback target.
 
+## Still need to implement
+
+Following is something still haven't done yet:
+
+- change the `FieldSeeder` to the corresponding field when it was done.
+- implement the test
+- a demo (?)
+
 ## Further improvements
 
 The current implementation is a usable heuristic, but there are several natural improvements:
