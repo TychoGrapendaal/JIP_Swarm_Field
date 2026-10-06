@@ -43,7 +43,7 @@ Run all checks together:
 uv run ruff check . && uv run ruff format --check . && uv run pyrefly check && uv run pytest
 ```
 
-Time the quadtree potential field against a plain Dijkstra over every cell (takes about half a minute; not part of `pytest`):
+Time the quadtree potential field against a plain Dijkstra over every cell, and a robot's trip with one and with two fields (takes about two minutes; not part of `pytest`):
 
 ```bash
 uv run python -m tests.benchmark_field --sizes 100 250 500

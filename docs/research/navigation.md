@@ -1,6 +1,6 @@
 # Research note — goal-directed navigation for the utility robot
 
-Status: describes the approach implemented in `src/swarm_field/swarm/navigator.py` and `src/swarm_field/swarm/steering.py` (v1), the A.3 navigation seam that turns an objective's targets into a `Move(to=CellId)` action (the high-level world model has no turn/facing). This note covers only goal-directed navigation for the utility (killer) land robot, which must steer toward a sensed pest while staying on passable ground (it cannot cut through crops). Coverage planning for the explorer is a related but separate problem, sketched in "Coverage control". The design context lives in `docs/navigation-module.md`; the domain background in the literature review (§3.2).
+Status: describes the approach implemented in `src/swarm_field/swarm/provider.py`, `src/swarm_field/swarm/navigator.py` and `src/swarm_field/swarm/steering.py` (v1), the A.3 navigation seam that turns an objective's targets into a `Move(to=CellId)` action (the high-level world model has no turn/facing). This note covers only goal-directed navigation for the utility (killer) land robot, which must steer toward a sensed pest while staying on passable ground (it cannot cut through crops). Coverage planning for the explorer is a related but separate problem, sketched in "Coverage control". The design context lives in `docs/navigation-module.md`; the domain background in the literature review (§3.2).
 
 ## The problem
 
@@ -20,7 +20,7 @@ Coverage control (Cortés, Martínez & Bullo 2004) drives a team to spread so th
 
 ## The chosen approach
 
-Two layers behind one seam, `Navigator.step_towards(seeded, robot) -> Move | Idle` along the field `Navigator.field_for(seeder, robot, now)` built from a seeder's targets, ordered by what they can do rather than by how far away the goal is: the potential field guides whenever it can, and the reactive wall-follow is the fallback.
+Two layers behind one seam, `Navigator.step_towards(seeded, robot) -> Move | Idle` along the field `FieldProvider.field_for(seeder, robot, now)` built from a seeder's targets, ordered by what they can do rather than by how far away the goal is: the potential field guides whenever it can, and the reactive wall-follow is the fallback.
 
 **First the field.** The objective's targets are seeded into a Dijkstra potential field over the quadtree of the robot's believed terrain, and the robot steps into the neighbouring cell the field points at. A field is better than a wall-follow at *every* distance, not only far away: it is the only one of the two that can see around a corner, so it needs no proximity test to trigger. Wall-following is a policy for a robot that has nothing else, which is a rare robot in this swarm. The field is the planner; the quadtree bounds its search to the robot's own 16 × 16 block and its neighbours, so a rebuild stays cheap, and it is reused while the targets, the terrain and that block are unchanged. What it cannot do is tell the robot to go *around* a field it has never seen, or through ground it believes is clear and is not.
 
