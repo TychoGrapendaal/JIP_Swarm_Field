@@ -38,16 +38,22 @@ class _FixedSeeder:
         return self._seeds
 
 
-def _navigator(obstacles: set[CellId], seeder: _FixedSeeder | None = None) -> Navigator:
-    """A navigator over a 40-by-40 field that knows the given cells as obstacles."""
-    memory = AgentMemory(1, _FIELD)
-    facts = [
+def _obstacle_facts(obstacles: set[CellId]) -> list[TerrainObservation]:
+    return [
         TerrainObservation(
             cell=cell, confidence=1.0, observed_at=0, source=1, terrain=Terrain.OBSTACLE
         )
         for cell in sorted(obstacles)
     ]
-    memory.merge(facts)
+
+
+def _navigator(
+    obstacles: set[CellId], seeder: _FixedSeeder | None = None, memory: AgentMemory | None = None
+) -> Navigator:
+    """A navigator over a 40-by-40 field that knows the given cells as obstacles."""
+    if memory is None:
+        memory = AgentMemory(1, _FIELD)
+    memory.merge(_obstacle_facts(obstacles))
     seeders: list[_FixedSeeder] = []
     if seeder is not None:
         seeders.append(seeder)
@@ -82,7 +88,8 @@ def test_the_field_walks_the_robot_around_a_wall_to_its_target() -> None:
 def test_the_field_is_reused_until_the_key_the_block_or_the_terrain_changes() -> None:
     """A field is kept for as long as it still answers for the same plan."""
     seeder = _FixedSeeder((Seed((30, 30), 0.0),))
-    navigator = _navigator(set(), seeder)
+    memory = AgentMemory(1, _FIELD)
+    navigator = _navigator(set(), seeder, memory)
 
     in_first_block = navigator.field_for(seeder.name, (0, 0), 0)
     assert navigator.field_for(seeder.name, (3, 3), 1_000) is in_first_block
@@ -92,6 +99,10 @@ def test_the_field_is_reused_until_the_key_the_block_or_the_terrain_changes() ->
     assert in_next_block is not in_first_block
     assert navigator.field_for(seeder.name, (17, 0), 0) is in_next_block
 
+    navigator.update_terrain([(1, 1)])
+    assert navigator.field_for(seeder.name, (17, 0), 0) is in_next_block
+
+    memory.merge(_obstacle_facts({(1, 1)}))
     navigator.update_terrain([(1, 1)])
     after_terrain = navigator.field_for(seeder.name, (17, 0), 0)
     assert after_terrain is not in_next_block
