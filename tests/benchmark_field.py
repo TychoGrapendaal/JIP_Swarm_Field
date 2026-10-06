@@ -25,7 +25,7 @@ from time import perf_counter
 import numpy as np
 
 from swarm_field.contracts import CellId, FieldGeometry, Idle, Terrain, TerrainObservation, Time
-from swarm_field.swarm import AgentMemory, MemoryView, Navigator
+from swarm_field.swarm import AgentMemory, FieldProvider, MemoryView, Navigator
 from swarm_field.swarm.field import Quadtree, Seed, build_grid_potential_field, traversable_cells
 
 _WHOLE_FIELD_BLOCKS = 1_000
@@ -168,11 +168,12 @@ def measure_field_build(
 def walk_navigator_trip(memory: AgentMemory, start: CellId, target: CellId) -> TripResult:
     """Walk a robot from ``start`` along the navigator's fields until it stops."""
     seeder = FixedTargetSeeder(target)
-    navigator = Navigator(memory, flies=False, seeders=[seeder])
+    fields = FieldProvider(memory, flies=False, seeders=[seeder])
+    navigator = Navigator(fields.quadtree)
     route = [start]
     started = perf_counter()
     for _ in range(10 * memory.width * memory.height):
-        seeded = navigator.field_for(seeder.name, route[-1], 0)
+        seeded = fields.field_for(seeder.name, route[-1], 0)
         if seeded is None:
             break
         action = navigator.step_towards(seeded, route[-1])
