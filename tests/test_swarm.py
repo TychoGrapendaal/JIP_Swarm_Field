@@ -8,6 +8,7 @@ from swarm_field.contracts import (
     FieldGeometry,
     Idle,
     InfestationObservation,
+    MessageKind,
     Move,
     Observation,
     PeerObservation,
@@ -195,3 +196,62 @@ def test_a_winning_follow_field_becomes_a_step_along_the_field() -> None:
 
     assert decision.action == Move((1, 1))
     assert agent.inspect().current_goal == TreatInfestation.name
+
+
+def test_agent_broadcasts_its_memory_and_peer_learns_it() -> None:
+    sender = _agent([])
+    receiver_memory = AgentMemory(2, _FIELD)
+    receiver = ComposedAgent(
+        robot_id=2,
+        behaviors=[],
+        memory=receiver_memory,
+        navigator=Navigator(receiver_memory, flies=False, seeders=[]),
+    )
+    fact = InfestationObservation(
+        cell=(6, 6),
+        confidence=1.0,
+        observed_at=0,
+        source=1,
+        severity=0.8,
+        pest=None,
+    )
+
+    first = sender.decide(
+        Perception(
+            time=0,
+            self_state=RobotSelfState(
+                robot_id=1,
+                position=(0, 0),
+                battery=1.0,
+                body=BodyType.SCOUT,
+                speed_mps=1.0,
+                consumable=1.0,
+                health=1.0,
+            ),
+            sensed=[fact],
+            inbox=[],
+        )
+    )
+
+    assert len(first.outbox) == 1
+    assert first.outbox[0].kind is MessageKind.KNOWLEDGE
+    assert first.outbox[0].payload == (fact,)
+
+    receiver.decide(
+        Perception(
+            time=5_000,
+            self_state=RobotSelfState(
+                robot_id=2,
+                position=(0, 0),
+                battery=1.0,
+                body=BodyType.SCOUT,
+                speed_mps=1.0,
+                consumable=1.0,
+                health=1.0,
+            ),
+            sensed=[],
+            inbox=first.outbox,
+        )
+    )
+
+    assert receiver_memory.infestation_at((6, 6)) == fact
