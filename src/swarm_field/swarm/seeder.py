@@ -65,20 +65,15 @@ class SeededField:
 
 
 class TreatSeeder:
-<<<<<<< HEAD
     """Seeds the TREAT field: draws the robot to remembered infestations.
 
     Each infested cell attracts by its severity times the memory's confidence in it, and
     clustered infestations attract more than isolated ones. Rebuilt once a minute.
     """
-=======
-    """Mock of the TREAT seeder: known pests, weighted by severity and confidence (#40)."""
->>>>>>> main
 
     name: str = "treat"
 
     def field_key(self, memory: MemoryView, now: Time) -> Hashable:
-<<<<<<< HEAD
         return now // (TimeUnit.MINUTE)
 
     def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
@@ -111,13 +106,3 @@ class TreatSeeder:
         for s, new_value in zip(seeds, new_values, strict=True):
             updated_seeds.append(Seed(s.cell, new_value))
         return updated_seeds
-=======
-        # TODO (#40): a key that changes when the known pests do (see FieldSeeder.field_key).
-        return None
-
-    def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
-        # TODO (#40): one seed per known pest, with start value -beta * severity * confidence
-        # (see docs/robot-memory-and-navigation.md, "How to use it"). For now there are no
-        # targets.
-        return ()
->>>>>>> main
