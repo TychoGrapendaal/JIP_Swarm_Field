@@ -10,14 +10,10 @@ from collections.abc import Hashable
 from dataclasses import dataclass
 from typing import Protocol
 
-<<<<<<< HEAD
 import numpy as np
 from scipy.spatial.distance import cdist
 
 from swarm_field.contracts import CellId, Time, TimeUnit
-=======
-from swarm_field.contracts import CellId, Time
->>>>>>> main
 from swarm_field.swarm.field import GridPotentialField, Seed
 from swarm_field.swarm.memory import MemoryView
 
