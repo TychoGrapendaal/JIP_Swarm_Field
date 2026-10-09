@@ -6,12 +6,12 @@ the brain is assembled. Behaviours ask the navigator for a seeder's field by tha
 the navigator calls the seeder, whenever its cached field no longer answers.
 """
 
-import numpy as np
-from scipy.spatial.distance import cdist
-
 from collections.abc import Hashable
 from dataclasses import dataclass
 from typing import Protocol
+
+import numpy as np
+from scipy.spatial.distance import cdist
 
 from swarm_field.contracts import CellId, Time, TimeUnit
 from swarm_field.swarm.field import GridPotentialField, Seed
@@ -84,8 +84,7 @@ class TreatSeeder:
         updated_seeds = self.reinforce_clustered_seeds(seeds)
         return tuple(updated_seeds)
 
-
-    def reinforce_clustered_seeds(self, seeds: list[Seed], sigma=1.0) -> list[Seed]:
+    def reinforce_clustered_seeds(self, seeds: list[Seed], sigma: float = 1.0) -> list[Seed]:
         """Update each value by the values of its neighbours, so clusters attract more.
 
         Every seed gains the other seeds' values, weighted by a Gaussian of their Euclidean
@@ -100,6 +99,6 @@ class TreatSeeder:
         new_values = values + weights.dot(values)
 
         updated_seeds = []
-        for s, new_value in zip(seeds, new_values):
+        for s, new_value in zip(seeds, new_values, strict=True):
             updated_seeds.append(Seed(s.cell, new_value))
         return updated_seeds

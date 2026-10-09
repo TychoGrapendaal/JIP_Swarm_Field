@@ -101,15 +101,20 @@ class Behavior(Protocol):
 
 
 class TreatInfestation:
+    """The pest-response behaviour: follow the field of the TREAT seeder and treat on arrival."""
+
     name: str = "treat-infestation"
+
+    def __init__(self, seeder: str = TreatSeeder.name) -> None:
+        self._seeder: str = seeder
 
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
         position = ctx.self_state.position
-        seeded = ctx.fields.field_for(TreatSeeder.name, position, ctx.time)
-        if seeded is None:                                    # no known pests: no bid
+        seeded = ctx.fields.field_for(self._seeder, position, ctx.time)
+        if seeded is None:  # no known pests: no bid
             return ()
         target = seeded.field.target_for(position)
-        score = -seeded.field.value_at(position)              # lower potential is better
-        if target == position:                                # on the pest: treat it
+        score = -seeded.field.value_at(position)  # lower potential is better
+        if target == position:  # on the pest: treat it
             return (ActionCandidate(Treat(position), score, self.name, target),)
-        return (ActionCandidate(FollowField(TreatSeeder.name), score, self.name, target),)
+        return (ActionCandidate(FollowField(self._seeder), score, self.name, target),)
