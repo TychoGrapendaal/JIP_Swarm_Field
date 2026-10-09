@@ -370,7 +370,7 @@ class SwarmAgent(Protocol):        # implemented by A, called by B
     def inspect(self) -> AgentInspection: ...   # read-only, for C.1 "click a robot"
 ```
 
-The Simulation constructs one `SwarmAgent` per robot and calls `decide()` at each of that robot's **decision events** (when it arrives at a cell, or on a fixed interval while stationary), applies the returned `action`, and hands `outbox` to the channel (B.3). `inspect()` lets Visualization read a robot's memory / current goal **without** the frontend reaching into the algorithm's internals (preserves boundary principle 4).
+The Simulation constructs one `SwarmAgent` per robot and calls `decide()` at each of that robot's **fixed-interval decision events**, independent of when the previous movement finishes, applies the returned `action`, and hands `outbox` to the channel (B.3). `inspect()` lets Visualization read a robot's memory / current goal **without** the frontend reaching into the algorithm's internals (preserves boundary principle 4).
 
 ```mermaid
 sequenceDiagram
@@ -463,7 +463,7 @@ Owns ground truth, drives time, delivers messages, defines scenarios, records me
 ### B.2 Simulation Loop (discrete-event)
 
 - **Responsibility:** drive the run as a **discrete-event loop** — pop the earliest event from a time-ordered queue, advance the clock to it, handle it; handlers schedule follow-up events. There is no fixed `dt`.
-- **Requirements:** on a robot **decision event**, build the robot's `Perception`, call `SwarmAgent.decide()`, apply the `action` to B.1, hand `outbox` to B.3, and schedule that robot's **next event** (a cell arrival while moving, or the next decision interval while stationary); run recurring **world events** (infestation dynamics) on their own coarse cadence; be deterministic given a seed (ties broken by `time`, then world-before-robot, then `robot_id`).
+- **Requirements:** on a robot **decision event**, build the robot's `Perception`, call `SwarmAgent.decide()`, apply the `action` to B.1, hand `outbox` to B.3, and schedule that robot's **next fixed decision event**; run recurring **world events** (infestation dynamics) on their own coarse cadence; be deterministic given a seed (ties broken by `time`, then world-before-robot, then `robot_id`).
 - **Consumes:** `SwarmAgent`s (from A), B.1, B.3. **Provides:** the run; assembles a `WorldSnapshot` on demand.
 - **NOT its concern:** robot logic (A); rendering (C).
 - **Open decisions (team):** the stationary-robot decision interval; how finely to sub-schedule sensing; the exact event tie-break key. All invisible to A.
