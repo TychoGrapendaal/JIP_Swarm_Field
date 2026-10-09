@@ -101,26 +101,15 @@ class Behavior(Protocol):
 
 
 class TreatInfestation:
-    """Skeleton of the pest-response behaviour: follow the field of the TREAT seeder."""
-
     name: str = "treat-infestation"
-
-    def __init__(self, seeder: str = TreatSeeder.name) -> None:
-        self._seeder: str = seeder
 
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
         position = ctx.self_state.position
-        seeded = ctx.fields.field_for(self._seeder, position, ctx.time)
-        if seeded is None:
+        seeded = ctx.fields.field_for(TreatSeeder.name, position, ctx.time)
+        if seeded is None:                                    # no known pests: no bid
             return ()
         target = seeded.field.target_for(position)
-        if target == position:
-            # TODO (#40): standing on a pest: propose Treat(cell=position).
-            return ()
-        # TODO (#39): a score on the scale shared by all behaviours. Lower potential is better,
-        # so negate it for now.
-        score = -seeded.field.value_at(position)
-        candidate = ActionCandidate(
-            action=FollowField(self._seeder), score=score, source=self.name, target=target
-        )
-        return (candidate,)
+        score = -seeded.field.value_at(position)              # lower potential is better
+        if target == position:                                # on the pest: treat it
+            return (ActionCandidate(Treat(position), score, self.name, target),)
+        return (ActionCandidate(FollowField(TreatSeeder.name), score, self.name, target),)

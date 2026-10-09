@@ -6,11 +6,14 @@ the brain is assembled. Behaviours ask the navigator for a seeder's field by tha
 the navigator calls the seeder, whenever its cached field no longer answers.
 """
 
+import numpy as np
+from scipy.spatial.distance import cdist
+
 from collections.abc import Hashable
 from dataclasses import dataclass
 from typing import Protocol
 
-from swarm_field.contracts import CellId, Time
+from swarm_field.contracts import CellId, Time, TimeUnit
 from swarm_field.swarm.field import GridPotentialField, Seed
 from swarm_field.swarm.memory import MemoryView
 
@@ -58,16 +61,45 @@ class SeededField:
 
 
 class TreatSeeder:
-    """Mock of the TREAT seeder: known pests, weighted by severity and confidence (#40)."""
+    """Seeds the TREAT field: draws the robot to remembered infestations.
+
+    Each infested cell attracts by its severity times the memory's confidence in it, and
+    clustered infestations attract more than isolated ones. Rebuilt once a minute.
+    """
 
     name: str = "treat"
 
     def field_key(self, memory: MemoryView, now: Time) -> Hashable:
-        # TODO (#40): a key that changes when the known pests do (see FieldSeeder.field_key).
-        return None
+        return now // (TimeUnit.MINUTE)
 
     def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
-        # TODO (#40): one seed per known pest, with start value -beta * severity * confidence
-        # (see docs/robot-memory-and-navigation.md, "How to use it"). For now there are no
-        # targets.
-        return ()
+        seeds: list[Seed] = []
+        for pest in memory.infestations():
+            if pest.severity > 0:
+                value = pest.severity * memory.confidence(pest, now)
+                seeds.append(Seed(pest.cell, -10 * value))
+
+        if len(seeds) == 0:
+            return ()
+        updated_seeds = self.reinforce_clustered_seeds(seeds)
+        return tuple(updated_seeds)
+
+
+    def reinforce_clustered_seeds(self, seeds: list[Seed], sigma=1.0) -> list[Seed]:
+        """Update each value by the values of its neighbours, so clusters attract more.
+
+        Every seed gains the other seeds' values, weighted by a Gaussian of their Euclidean
+        distance in cells; ``sigma`` is the width of that Gaussian.
+        """
+        coords = np.array([s.cell for s in seeds])
+        values = np.array([s.value for s in seeds])
+
+        dist_matrix = cdist(coords, coords, metric="euclidean")
+        weights = np.exp(-((dist_matrix / sigma) ** 2))
+        np.fill_diagonal(weights, 0)
+        new_values = values + weights.dot(values)
+
+        updated_seeds = []
+        for s, new_value in zip(seeds, new_values):
+            updated_seeds.append(Seed(s.cell, new_value))
+        return updated_seeds
