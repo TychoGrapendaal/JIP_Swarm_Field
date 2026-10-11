@@ -49,6 +49,12 @@ Time the quadtree potential field against a plain Dijkstra over every cell, and 
 uv run python -m tests.benchmark_field --sizes 100 250 500
 ```
 
+Compare variants and parameters of the EXPLORE seeder: five robots exploring a 32 × 32 field for three simulated hours, four seeds per variant, spread over processes (takes about ten minutes on 20 cores; not part of `pytest`). The results are in [`docs/explore.md`](docs/explore.md):
+
+```bash
+uv run python -m tests.benchmark_explore --size 32 --hours 3 --seeds 4 --jobs 20
+```
+
 ## Demonstrations
 
 > **Note:** The examples below are demonstration and visualization tools for the current world model and potential-field prototype. They are not the final swarm exploration or communication implementation.
@@ -88,6 +94,20 @@ For an even larger test:
 ```bash
 uv run --with matplotlib python examples/mass_swarm_visualization.py --robots 1000 --seed 7
 ```
+
+### Exploration demonstration (#41)
+
+```bash
+uv run python examples/explore_demo.py
+```
+
+Five scouts explore and keep monitoring a field with the EXPLORE seeder, drawn by the general-purpose `SimulationViewer`. The overlay shades how stale each cell is in ground truth, trails show where the robots went, dashed lines the target each robot is heading for, and a panel the coverage measures (coverage, idleness, redundancy). `--no-discount` turns off the peer discount, `--blocks 8 16` makes the blocks grow with the distance, and `--obstacles` adds a river with one bridge. Record a video instead of opening a window:
+
+```bash
+uv run python examples/explore_demo.py --blocks 8 --save explore.mp4
+```
+
+`SimulationViewer` (in `swarm_field.visualization`) works for any run: give it a function from a time to a `WorldSnapshot` (e.g. `ExploreRun.snapshot_at`), and optionally a per-cell overlay, the robots' goals and the lines of the panel.
 
 ### Wall-following steering demonstration
 
@@ -129,8 +149,7 @@ uv run --with matplotlib python examples/renderer_demo.py --frames 60 --save fra
 
 ## Current demonstration limitations
 
-- The exploration behavior is currently a simple baseline and is not yet a dedicated coverage/exploration algorithm.
-- Goal-directed navigation uses a potential field over the robot's believed terrain, with a reactive wall-follow as its fallback. Exploration is being rebuilt on the same fields (#41).
+- Goal-directed navigation and exploration use potential fields over the robot's believed terrain, with a reactive wall-follow as their fallback. Exploration (`ExploreSeeder`, see [`docs/explore.md`](docs/explore.md)) has no behaviour of its own yet; the demo and the benchmark follow its field with a stand-in.
 - Navigation is planned over what the robot believes, so a wrong obstacle belief is followed exactly; there is no observation-based recovery from it yet.
 - The communication channel is implemented, but the current utility behaviour does not yet use peer messages to follow a pest found by another robot.
 - Coarse-grained infestation dynamics are implemented as a scheduled `WorldTick`; the current model supports severity growth, neighbour spread, and stochastic spawning.
