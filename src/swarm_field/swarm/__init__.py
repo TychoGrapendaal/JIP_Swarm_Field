@@ -18,6 +18,7 @@ from swarm_field.swarm.behavior import (
     TreatInfestation,
 )
 from swarm_field.swarm.brain import ComposedAgent
+from swarm_field.swarm.explore import ExploreConfig, ExploreSeeder
 from swarm_field.swarm.memory import AgentMemory, DecayConfig, MemoryView
 from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.provider import FieldProvider
@@ -36,6 +37,8 @@ __all__ = [
     "ComposedAgent",
     "DecayConfig",
     "DecisionContext",
+    "ExploreConfig",
+    "ExploreSeeder",
     "FieldProvider",
     "FieldSeeder",
     "FollowField",
