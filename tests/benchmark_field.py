@@ -108,7 +108,7 @@ class FixedTargetSeeder:
         self.builds: int = 0
         self._target: CellId = target
 
-    def field_key(self, memory: MemoryView, now: Time) -> Hashable:
+    def field_key(self, memory: MemoryView, robot: CellId, now: Time) -> Hashable:
         return None
 
     def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:

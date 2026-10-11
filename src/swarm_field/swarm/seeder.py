@@ -24,13 +24,14 @@ class FieldSeeder(Protocol):
 
     name: str
 
-    def field_key(self, memory: MemoryView, now: Time) -> Hashable:
+    def field_key(self, memory: MemoryView, robot: CellId, now: Time) -> Hashable:
         """A value that changes whenever the seeds would change.
 
         The field is rebuilt only when this key, the terrain or the robot's block changes, so
         the key covers what the seeds depend on and nothing else; terrain is accounted for by
         the field provider. Seeds that drift continuously, such as values weighted by a decaying
-        confidence, need a coarse key, e.g. a memory version plus a time bucket.
+        confidence, need a coarse key, e.g. a memory version plus a time bucket. Like the seeds,
+        the key may depend on the robot's position only through its block.
         """
         ...
 
@@ -62,7 +63,7 @@ class TreatSeeder:
 
     name: str = "treat"
 
-    def field_key(self, memory: MemoryView, now: Time) -> Hashable:
+    def field_key(self, memory: MemoryView, robot: CellId, now: Time) -> Hashable:
         # TODO (#40): a key that changes when the known pests do (see FieldSeeder.field_key).
         return None
 

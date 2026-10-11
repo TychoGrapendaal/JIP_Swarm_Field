@@ -26,7 +26,7 @@ class _CountingSeeder:
         self.seeds_asked: int = 0
         self._seeds: tuple[Seed, ...] = seeds
 
-    def field_key(self, memory: MemoryView, now: Time) -> Hashable:
+    def field_key(self, memory: MemoryView, robot: CellId, now: Time) -> Hashable:
         return self.key
 
     def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:

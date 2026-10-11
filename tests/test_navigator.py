@@ -28,7 +28,7 @@ class _FixedSeeder:
     def __init__(self, seeds: tuple[Seed, ...]) -> None:
         self._seeds: tuple[Seed, ...] = seeds
 
-    def field_key(self, memory: MemoryView, now: Time) -> Hashable:
+    def field_key(self, memory: MemoryView, robot: CellId, now: Time) -> Hashable:
         return None
 
     def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
