@@ -137,3 +137,25 @@ def test_confidence_decays_per_kind() -> None:
 
     assert isclose(memory.confidence(pest, now=decay.infestation), exp(-1))
     assert memory.confidence(terrain, now=10 * decay.infestation) == 1.0
+
+
+def test_last_observed_times_keep_the_newest_observation_per_cell() -> None:
+    memory = _memory()
+
+    memory.merge([_pest((3, 3), 0.0, at=20), _pest((3, 3), 0.4, at=10), _pest((5, 1), 0.0, at=7)])
+
+    times = memory.last_observed_times()
+    assert times[3, 3] == 20
+    assert times[5, 1] == 7
+    assert times[0, 0] == float("-inf")
+
+
+def test_known_obstacles_are_not_monitorable() -> None:
+    memory = _memory()
+
+    memory.merge([_terrain((2, 2), Terrain.OBSTACLE, at=1), _terrain((4, 4), Terrain.FREE, at=1)])
+
+    monitorable = memory.monitorable_cells()
+    assert not monitorable[2, 2]
+    assert monitorable[4, 4]
+    assert monitorable[0, 0]
