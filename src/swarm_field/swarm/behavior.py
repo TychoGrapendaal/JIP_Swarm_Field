@@ -19,6 +19,7 @@ from swarm_field.contracts import (
 from swarm_field.swarm.memory import MemoryView
 from swarm_field.swarm.provider import FieldProvider
 from swarm_field.swarm.seeder import SeededField, TreatSeeder
+from swarm_field.swarm.seeder import TreatSeeder
 
 
 @dataclass(frozen=True)
