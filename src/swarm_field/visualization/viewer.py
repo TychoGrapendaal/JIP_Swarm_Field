@@ -85,7 +85,7 @@ class SimulationViewer:
                 cmap="magma",
                 vmin=0.0,
                 vmax=1.0,
-                alpha=0.45,
+                alpha=0.6,
                 zorder=0.5,
             )
             if self._overlay_label:
