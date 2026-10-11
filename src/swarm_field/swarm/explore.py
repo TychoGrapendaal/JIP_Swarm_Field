@@ -32,9 +32,9 @@ from swarm_field.swarm.memory import MemoryView
 class ExploreConfig:
     """The parameters of the EXPLORE field.
 
-    The defaults did best in ``tests/benchmark_explore.py`` (see ``docs/explore.md``): five
-    robots on a 32 x 32 field, which they sweep in about 45 minutes. ``tau`` should grow with
-    the time the swarm needs to sweep its field.
+    The defaults did best in ``tests/benchmark_explore.py`` (see ``docs/explore.md``) for five
+    robots on a 32 x 32 field. ``tau`` should be about 0.6 times the time the swarm needs to
+    sweep its field once.
 
     Attributes:
         tau: How fast information goes stale: a cell is worth ``1 - exp(-age / tau)``.
