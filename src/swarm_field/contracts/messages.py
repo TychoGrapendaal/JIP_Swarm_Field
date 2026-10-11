@@ -13,11 +13,17 @@ from swarm_field.contracts.ids import RobotId, Time
 class MessageKind(Enum):
     """Discriminates message payloads.
 
-    Real kinds (belief-sharing, stigmergy, claims, ...) are defined once those layers are
-    designed. For now a single placeholder exists, to test that messages are delivered.
+    Further kinds (belief-sharing, stigmergy, claims, ...) are defined once those layers are
+    designed.
+
+    Attributes:
+        HELLO: A placeholder, to test that messages are delivered.
+        STATUS: A robot's report of itself: a ``PeerObservation`` of its own cell and the
+            target it is heading for.
     """
 
     HELLO = auto()
+    STATUS = auto()
 
 
 @dataclass(frozen=True)

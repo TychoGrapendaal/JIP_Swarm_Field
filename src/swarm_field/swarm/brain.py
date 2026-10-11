@@ -4,8 +4,9 @@
 decision point it merges what the robot sensed and received into its memory, keeps the field
 provider's quadtree in sync with new terrain facts, gathers the scored candidates of its
 behaviors, picks the best and turns its intent into one action: the navigator steps along the
-field a ``FollowField`` names, and any other intent passes through. Communication and capability
-gating are added as those parts are built.
+field a ``FollowField`` names, and any other intent passes through. It broadcasts its status (its
+cell and the winner's target) and stores the status reports of its peers. Sharing beliefs and
+capability gating are added as those parts are built.
 """
 
 import logging
@@ -17,7 +18,9 @@ from swarm_field.contracts import (
     Decision,
     Idle,
     Message,
+    MessageKind,
     Observation,
+    PeerObservation,
     Perception,
     RobotId,
     TerrainObservation,
@@ -63,6 +66,7 @@ class ComposedAgent:
         self.fields: FieldProvider = fields
         self.navigator: Navigator = navigator
         self._current_goal: str | None = None
+        self._current_target: CellId | None = None
 
     def decide(self, perception: Perception) -> Decision:
         received = self._facts_received(perception.inbox)
@@ -90,20 +94,21 @@ class ComposedAgent:
         # TODO: an arbiter (fixed-priority overrides such as low battery, hysteresis against
         # switching objectives back and forth) instead of simply taking the highest score.
         best = max(candidates, key=lambda c: c.score, default=None)
-        outbox = self._messages_to_send(perception.time)
-        if best is None:
-            self._current_goal = None
-            return Decision(action=Idle(), outbox=outbox)
-
-        self._current_goal = best.source
-        action = self._action_for(best.action, perception.self_state.position, perception.time)
-        return Decision(action=action, outbox=outbox)
+        action: Action = Idle()
+        self._current_goal = None
+        self._current_target = None
+        if best is not None:
+            self._current_goal = best.source
+            self._current_target = best.target
+            action = self._action_for(best.action, perception.self_state.position, perception.time)
+        return Decision(action=action, outbox=self._messages_to_send(perception))
 
     def inspect(self) -> AgentInspection:
         return AgentInspection(
             robot_id=self.robot_id,
             current_goal=self._current_goal,
             belief=self.memory.snapshot(),
+            current_target=self._current_target,
         )
 
     def _action_for(self, intent: Intent, robot: CellId, now: Time) -> Action:
@@ -117,13 +122,43 @@ class ComposedAgent:
         return self.navigator.step_towards(field, robot)
 
     def _facts_received(self, inbox: list[Message]) -> list[Observation]:
-        """The facts carried by the received messages."""
-        # TODO: decode the facts of belief-sharing messages. No message kind carries facts
-        # yet (MessageKind only has HELLO), so nothing is received for now.
-        return []
+        """The facts carried by the received messages: for now, the peers' status reports."""
+        # TODO: decode the facts of belief-sharing messages, once that message kind exists.
+        facts: list[Observation] = []
+        for message in inbox:
+            if message.kind is not MessageKind.STATUS:
+                continue
+            if not isinstance(message.payload, PeerObservation):
+                logger.warning(
+                    "Skipping a status message from %s with payload %r",
+                    message.sender,
+                    message.payload,
+                )
+                continue
+            facts.append(message.payload)
+        return facts
 
-    def _messages_to_send(self, now: Time) -> list[Message]:
-        """The messages to broadcast at this decision point."""
+    def _messages_to_send(self, perception: Perception) -> list[Message]:
+        """The messages to broadcast at this decision point: the robot's status.
+
+        The status tells peers where the robot is and which target it is heading for, the
+        winning candidate's ``target``, so that they can avoid the same region.
+        """
         # TODO: share memory.records() with robots in range, in a belief-sharing message,
-        # once that message kind exists. Nothing is sent for now.
-        return []
+        # once that message kind exists.
+        status = PeerObservation(
+            cell=perception.self_state.position,
+            confidence=1.0,
+            observed_at=perception.time,
+            source=self.robot_id,
+            peer=self.robot_id,
+            body=perception.self_state.body,
+            target=self._current_target,
+        )
+        message = Message(
+            sender=self.robot_id,
+            sent_at=perception.time,
+            kind=MessageKind.STATUS,
+            payload=status,
+        )
+        return [message]

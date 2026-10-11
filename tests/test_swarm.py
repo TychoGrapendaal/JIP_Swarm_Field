@@ -1,6 +1,7 @@
 """Tests for the composed brain and high-level movement action."""
 
 from collections.abc import Hashable
+from dataclasses import replace
 
 from swarm_field.contracts import (
     BodyType,
@@ -8,6 +9,8 @@ from swarm_field.contracts import (
     FieldGeometry,
     Idle,
     InfestationObservation,
+    Message,
+    MessageKind,
     Move,
     Observation,
     PeerObservation,
@@ -246,3 +249,34 @@ def test_the_winners_field_is_followed_without_rebuilding_either_field() -> None
 
     assert winner.seeds_asked == 1
     assert loser.seeds_asked == 1
+
+
+def test_the_agent_broadcasts_its_cell_and_the_winners_target() -> None:
+    agent = _agent([TreatInfestation(_FixedTargetSeeder.name)], seeders=[_FixedTargetSeeder()])
+
+    decision = agent.decide(_perception(sensed=[]))
+
+    (message,) = decision.outbox
+    assert message.kind is MessageKind.STATUS
+    assert isinstance(message.payload, PeerObservation)
+    assert (message.payload.peer, message.payload.cell) == (1, (0, 0))
+    assert message.payload.target == (5, 5)
+    assert agent.inspect().current_target == (5, 5)
+
+
+def test_a_peers_status_is_stored_as_a_peer_fact() -> None:
+    agent = _agent([])
+    status = PeerObservation(
+        cell=(4, 4),
+        confidence=1.0,
+        observed_at=0,
+        source=2,
+        peer=2,
+        body=BodyType.SCOUT,
+        target=(7, 7),
+    )
+    message = Message(sender=2, sent_at=0, kind=MessageKind.STATUS, payload=status)
+
+    agent.decide(replace(_perception(sensed=[]), inbox=[message]))
+
+    assert list(agent.memory.peers()) == [status]
