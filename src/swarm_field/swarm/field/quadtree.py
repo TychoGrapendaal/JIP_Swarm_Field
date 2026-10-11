@@ -100,6 +100,8 @@ class Quadtree:
         self._directions: tuple[Direction, ...] = _STRAIGHT_DIRECTIONS
         if connectivity == 8:
             self._directions = _STRAIGHT_DIRECTIONS + _DIAGONAL_DIRECTIONS
+        # The hops as plain offsets: `cell_neighbours` runs for every node of every field built.
+        self._offsets: tuple[tuple[int, int], ...] = tuple(d.offset for d in self._directions)
         self._version: int = 0
 
     @property
@@ -162,17 +164,19 @@ class Quadtree:
             a h
         """
         x, y = cell
-        for direction in self._directions:
-            dx, dy = direction.offset
-            neighbour = (x + dx, y + dy)
-            if not self.is_traversable(neighbour):
+        width, height = self.traversable.shape
+        traversable = self.traversable
+        for dx, dy in self._offsets:
+            to_x = x + dx
+            to_y = y + dy
+            if not (0 <= to_x < width and 0 <= to_y < height and traversable[to_x, to_y]):
                 continue
             is_diagonal = dx != 0 and dy != 0
             if is_diagonal and not (
-                self.is_traversable((x + dx, y)) and self.is_traversable((x, y + dy))
+                0 <= y < height and traversable[to_x, y] and 0 <= x < width and traversable[x, to_y]
             ):
                 continue
-            yield neighbour
+            yield (to_x, to_y)
 
     # Queries on leaves.
 
