@@ -13,8 +13,8 @@ See [`docs/high-level-world-model.md`](docs/high-level-world-model.md) for the c
 - Each robot has its own movement speed in metres per second.
 - Movement time is calculated from the distance between cells, cell size, and robot speed.
 - Infestation is represented as a per-cell severity value, providing a coarse-grained basis for later dynamic pest-spread models.
-- Robots receive local obstacle and infestation observations and can use this information to calculate potential-field attraction and repulsion.
-- A robot does not currently know about obstacles or infestations outside its local observation range.
+- A robot senses only the cell it stands on: its crop, infestation and terrain, and the peers sharing it. A cell is a patch of field (about 10 × 10 m) that the robot monitors as a whole.
+- A robot does not know about obstacles or infestations elsewhere unless it starts with a map or learns them from peers.
 - The B.3 range-based communication channel is implemented; higher-level belief sharing is still the algorithm’s responsibility, so distant infestation information only propagates when agents choose to send messages.
 
 ## Requirements
@@ -134,7 +134,7 @@ uv run --with matplotlib python examples/renderer_demo.py --frames 60 --save fra
 - Navigation is planned over what the robot believes, so a wrong obstacle belief is followed exactly; there is no observation-based recovery from it yet.
 - The communication channel is implemented, but the current utility behaviour does not yet use peer messages to follow a pest found by another robot.
 - Coarse-grained infestation dynamics are implemented as a scheduled `WorldTick`; the current model supports severity growth, neighbour spread, and stochastic spawning.
-- Sensing is currently local; distant obstacles and infestations are unknown unless information is later propagated through communication.
+- Sensing covers the robot's own cell only; obstacles elsewhere are unknown unless the robot starts with the terrain map, and infestations elsewhere unless peers share them.
 - The visualization adapter only renders snapshots so far; interactive inspection, time control, and injecting infestations are not implemented yet.
 
 ## Project layout
