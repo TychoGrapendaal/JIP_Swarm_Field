@@ -22,6 +22,7 @@ class _CountingSeeder:
 
     def __init__(self, name: str, seeds: tuple[Seed, ...]) -> None:
         self.name: str = name
+        self.window_blocks: int = 2
         self.key: int = 0
         self.seeds_asked: int = 0
         self._seeds: tuple[Seed, ...] = seeds

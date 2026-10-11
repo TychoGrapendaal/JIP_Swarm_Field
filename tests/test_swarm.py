@@ -137,6 +137,7 @@ class _MultiBehavior:
 
 class _FixedTargetSeeder:
     name: str = "fixed-target"
+    window_blocks: int = 2
 
     def field_key(self, memory: MemoryView, robot: CellId, now: Time) -> Hashable:
         return None
@@ -150,6 +151,7 @@ class _CountingSeeder:
 
     def __init__(self, name: str, target: CellId) -> None:
         self.name: str = name
+        self.window_blocks: int = 2
         self.seeds_asked: int = 0
         self._target: CellId = target
 

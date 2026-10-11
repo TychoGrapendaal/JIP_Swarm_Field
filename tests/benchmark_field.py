@@ -105,6 +105,7 @@ class FixedTargetSeeder:
 
     def __init__(self, target: CellId, name: str = "benchmark") -> None:
         self.name: str = name
+        self.window_blocks: int = 2
         self.builds: int = 0
         self._target: CellId = target
 

@@ -20,9 +20,13 @@ class FieldSeeder(Protocol):
 
     Attributes:
         name: Identifies the seeder in the field provider, and so the field's cache slot.
+        window_blocks: How many blocks of ``Quadtree.max_leaf_side`` cells around the robot's
+            block the field is searched cell by cell; beyond them, leaf by leaf. A smaller
+            window builds faster but measures far routes less exactly.
     """
 
     name: str
+    window_blocks: int
 
     def field_key(self, memory: MemoryView, robot: CellId, now: Time) -> Hashable:
         """A value that changes whenever the seeds would change.
@@ -62,6 +66,7 @@ class TreatSeeder:
     """Mock of the TREAT seeder: known pests, weighted by severity and confidence (#40)."""
 
     name: str = "treat"
+    window_blocks: int = 2
 
     def field_key(self, memory: MemoryView, robot: CellId, now: Time) -> Hashable:
         # TODO (#40): a key that changes when the known pests do (see FieldSeeder.field_key).

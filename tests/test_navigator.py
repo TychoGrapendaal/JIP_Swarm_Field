@@ -24,6 +24,7 @@ class _FixedSeeder:
     """A seeder with fixed seeds and a constant key."""
 
     name: str = "fixed"
+    window_blocks: int = 2
 
     def __init__(self, seeds: tuple[Seed, ...]) -> None:
         self._seeds: tuple[Seed, ...] = seeds

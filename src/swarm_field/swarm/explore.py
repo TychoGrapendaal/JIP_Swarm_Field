@@ -42,6 +42,10 @@ class ExploreConfig:
         spread_peers: Whether to divide a block's values by one plus the number of peers in it
             or heading to it.
         peer_max_age: Peer reports older than this are left out of the discount.
+        window_blocks: How many blocks of ``Quadtree.max_leaf_side`` cells around the robot's
+            block the field is searched cell by cell. The sweep needs only the robot's own
+            block, but beyond the window a block is one leaf, measured from its centre, which
+            makes the neighbouring blocks look farther than they are; 1 keeps them exact.
     """
 
     tau: Time = 30 * TimeUnit.MINUTE
@@ -51,6 +55,7 @@ class ExploreConfig:
     block_side: int = 16
     spread_peers: bool = False
     peer_max_age: Time = TimeUnit.MINUTE
+    window_blocks: int = 1
 
     def block_of(self, cell: CellId) -> CellId:
         """The block containing ``cell``, in block coordinates."""
@@ -77,6 +82,7 @@ class ExploreSeeder:
 
     Attributes:
         config: The parameters of the field.
+        window_blocks: From ``config``; read by the field provider.
     """
 
     name: str = "explore"
@@ -85,9 +91,11 @@ class ExploreSeeder:
         self.config: ExploreConfig = ExploreConfig()
         if config is not None:
             self.config = config
+        self.window_blocks: int = self.config.window_blocks
 
     def field_key(self, memory: MemoryView, robot: CellId, now: Time) -> Hashable:
-        """Changes when a cell of the robot's block is swept or goes stale, and every ``bucket``.
+        """Changes when the robot changes block, when a cell of its block is swept or goes stale,
+        and every ``bucket``.
 
         With ``spread_peers`` it also changes when the peers' blocks do. The mean values of the
         other blocks drift in between; the bucket bounds for how long.
@@ -96,7 +104,8 @@ class ExploreSeeder:
         peers: frozenset[tuple[CellId, int]] = frozenset()
         if self.config.spread_peers:
             peers = frozenset(peers_per_block(memory, now, self.config).items())
-        return (now // self.config.bucket, stale.tobytes(), peers)
+        block = self.config.block_of(robot)
+        return (now // self.config.bucket, block, stale.tobytes(), peers)
 
     def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
         """A seed on every stale cell of the robot's block, and one on every other block.
