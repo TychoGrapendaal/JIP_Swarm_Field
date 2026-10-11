@@ -41,12 +41,24 @@ def _peer(peer: int, cell: CellId, target: CellId | None, at: Time) -> PeerObser
     )
 
 
+def _memory_with_seen_square(
+    side: int, at: Time, except_cells: tuple[CellId, ...] = ()
+) -> AgentMemory:
+    """A memory in which the square of ``side`` cells at (0, 0) was observed at ``at``.
+
+    The ``except_cells`` were never observed, nor was anything outside the square.
+    """
+    memory = AgentMemory(1, _FIELD)
+    facts: list[InfestationObservation] = []
+    for x in range(side):
+        facts.extend(_seen((x, y), at) for y in range(side) if (x, y) not in except_cells)
+    memory.merge(facts)
+    return memory
+
+
 def _memory_with_left_block_seen(at: Time, except_cells: tuple[CellId, ...] = ()) -> AgentMemory:
     """A memory in which every cell of block (0, 0) was observed at ``at``, but ``except_cells``."""
-    memory = AgentMemory(1, _FIELD)
-    cells = [(x, y) for x in range(16) for y in range(16) if (x, y) not in except_cells]
-    memory.merge([_seen(cell, at) for cell in cells])
-    return memory
+    return _memory_with_seen_square(16, at, except_cells)
 
 
 def _seeder(spread_peers: bool = False) -> ExploreSeeder:
@@ -138,3 +150,13 @@ def test_old_peer_reports_are_left_out_of_the_discount() -> None:
     seeds = {seed.cell: seed.value for seed in seeder.seeds(memory, (0, 0), now=100)}
 
     assert seeds[(16, 0)] == pytest.approx(-10.0)
+
+
+def test_blocks_grow_beyond_the_near_blocks_of_each_size() -> None:
+    memory = _memory_with_seen_square(8, at=100, except_cells=((3, 4),))
+    config = ExploreConfig(tau=_TAU, beta=10.0, block_sides=(8, 16), near_blocks=1)
+
+    seeds = ExploreSeeder(config).seeds(memory, robot=(0, 0), now=100)
+
+    # The robot's 8 x 8 block cell by cell, the three 8 x 8 blocks next to it, then 16 x 16.
+    assert {seed.cell for seed in seeds} == {(3, 4), (8, 0), (0, 8), (8, 8), (16, 0)}

@@ -4,10 +4,11 @@ A cell is worth observing again by how long ago it was last observed, ``1 - exp(
 0 right after an observation, close to 1 long after it, and 1 if it was never observed. So
 exploring a new field and monitoring a known one are the same objective.
 
-The robot's own block of ``block_side`` cells is seeded cell by cell, with its stale cells; every
-other block gets one seed, at its stalest cell, worth the block's mean value. One field then does
-both jobs: inside the robot's block it leads to the nearest stale cell, and once the block has no
-stale cell left it leads to the best other block. A robot observes only the cell it stands on, so
+The robot's own block is seeded cell by cell, with its stale cells; every other block gets one
+seed, at its stalest cell, worth the block's mean value. Blocks may grow with the distance from
+the robot (``block_sides``). One field then does both jobs: inside the robot's block it leads to
+the nearest stale cell, and once the block has no stale cell left it leads to the best other
+block. A robot observes only the cell it stands on, so
 every swept cell is a target used up; the key follows the stale cells of the robot's block, and
 the field is rebuilt once per swept cell, but not while the robot travels over fresh ground.
 
@@ -38,7 +39,12 @@ class ExploreConfig:
         beta: How many cells of travel a fully stale cell, or a fully stale block, is worth.
         bucket: How long the mean values of the other blocks may drift before the field is
             rebuilt anyway.
-        block_side: The side of a block in cells; matches ``Quadtree.max_leaf_side``.
+        block_sides: The sides of the blocks in cells, finest first. The robot's own block, of
+            the first side, is seeded cell by cell. The blocks of each side within
+            ``near_blocks`` blocks of the robot's are seeded one per block, and the blocks of
+            the next side cover what lies beyond; the last side covers everything left. With
+            ``(16,)``, every other block is a 16 x 16 block, the quadtree's largest leaf.
+        near_blocks: How many blocks around the robot's each side but the last reaches.
         spread_peers: Whether to divide a block's values by one plus the number of peers in it
             or heading to it.
         peer_max_age: Peer reports older than this are left out of the discount.
@@ -52,14 +58,20 @@ class ExploreConfig:
     stale_threshold: float = 0.5
     beta: float = 32.0
     bucket: Time = 5 * TimeUnit.MINUTE
-    block_side: int = 16
+    block_sides: tuple[int, ...] = (16,)
+    near_blocks: int = 1
     spread_peers: bool = False
     peer_max_age: Time = TimeUnit.MINUTE
     window_blocks: int = 1
 
+    @property
+    def block_side(self) -> int:
+        """The side of the robot's own block: the finest blocks."""
+        return self.block_sides[0]
+
     def block_of(self, cell: CellId) -> CellId:
-        """The block containing ``cell``, in block coordinates."""
-        return (cell[0] // self.block_side, cell[1] // self.block_side)
+        """The robot's own block if it stands on ``cell``, in block coordinates."""
+        return block_containing(cell, self.block_side)
 
 
 @dataclass(frozen=True)
@@ -78,7 +90,7 @@ class BlockValue:
 
 
 class ExploreSeeder:
-    """Seeds the EXPLORE field: the stale cells of the robot's block, and one seed per other block.
+    """Seeds the EXPLORE field: the stale cells of the robot's block, one seed per other block.
 
     Attributes:
         config: The parameters of the field.
@@ -100,60 +112,57 @@ class ExploreSeeder:
         With ``spread_peers`` it also changes when the peers' blocks do. The mean values of the
         other blocks drift in between; the bucket bounds for how long.
         """
-        stale = self._own_block_values(memory, robot, now) > self.config.stale_threshold
-        peers: frozenset[tuple[CellId, int]] = frozenset()
-        if self.config.spread_peers:
-            peers = frozenset(peers_per_block(memory, now, self.config).items())
-        block = self.config.block_of(robot)
-        return (now // self.config.bucket, block, stale.tobytes(), peers)
+        config = self.config
+        cells = _cells_of_block(config.block_of(robot), config.block_side)
+        own_values = cell_values(
+            memory.last_observed_times()[cells],
+            memory.monitorable_cells()[cells],
+            now,
+            config.tau,
+        )
+        stale = own_values > config.stale_threshold
+        peers = frozenset(self._peers_per_block(memory, now, config.block_side).items())
+        return (now // config.bucket, config.block_of(robot), stale.tobytes(), peers)
 
     def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
         """A seed on every stale cell of the robot's block, and one on every other block.
 
         A stale cell starts at ``-beta * v``; another block starts at ``-beta * mean`` on its
-        stalest cell. Both are divided by one plus the peers of their block with
-        ``spread_peers``.
+        stalest cell, the mean taken over the cells no finer block has claimed. With
+        ``spread_peers``, both are divided by one plus the peers of their block.
         """
         config = self.config
         monitorable = memory.monitorable_cells()
         values = cell_values(memory.last_observed_times(), monitorable, now, config.tau)
-        peers: Counter[CellId] = Counter()
-        if config.spread_peers:
-            peers = peers_per_block(memory, now, config)
 
         own = config.block_of(robot)
+        own_cells = _cells_of_block(own, config.block_side)
+        own_values = values[own_cells]
+        own_peers = self._peers_per_block(memory, now, config.block_side)[own]
         seeds: list[Seed] = []
-        for block in block_values(values, monitorable, config.block_side):
-            if block.block != own:
+        for dx, dy in np.argwhere(own_values > config.stale_threshold).tolist():
+            worth = float(own_values[dx, dy]) / (1 + own_peers)
+            cell = (own[0] * config.block_side + dx, own[1] * config.block_side + dy)
+            seeds.append(Seed(cell, -config.beta * worth))
+
+        claimed = np.zeros(values.shape, dtype=np.bool_)
+        claimed[own_cells] = True
+        for level, side in enumerate(config.block_sides):
+            region = ~claimed
+            if level < len(config.block_sides) - 1:
+                region &= _near_cells(robot, side, config.near_blocks, values.shape)
+            peers = self._peers_per_block(memory, now, side)
+            for block in block_values(np.where(region, values, 0.0), monitorable & region, side):
                 worth = block.mean / (1 + peers[block.block])
                 seeds.append(Seed(block.stalest, -config.beta * worth))
-
-        corner_x = own[0] * config.block_side
-        corner_y = own[1] * config.block_side
-        own_values = values[
-            corner_x : corner_x + config.block_side, corner_y : corner_y + config.block_side
-        ]
-        for dx, dy in np.argwhere(own_values > config.stale_threshold).tolist():
-            worth = float(own_values[dx, dy]) / (1 + peers[own])
-            seeds.append(Seed((corner_x + dx, corner_y + dy), -config.beta * worth))
+            claimed |= region
         return tuple(seeds)
 
-    def _own_block_values(
-        self, memory: MemoryView, robot: CellId, now: Time
-    ) -> NDArray[np.float64]:
-        """The values of the cells of the robot's block, ``[dx, dy]`` from its corner."""
-        side = self.config.block_side
-        block_x, block_y = self.config.block_of(robot)
-        cells = (
-            slice(block_x * side, (block_x + 1) * side),
-            slice(block_y * side, (block_y + 1) * side),
-        )
-        return cell_values(
-            memory.last_observed_times()[cells],
-            memory.monitorable_cells()[cells],
-            now,
-            self.config.tau,
-        )
+    def _peers_per_block(self, memory: MemoryView, now: Time, side: int) -> Counter[CellId]:
+        """The peers per block of ``side`` cells with ``spread_peers``, else none."""
+        if not self.config.spread_peers:
+            return Counter()
+        return peers_per_block(memory, now, self.config.peer_max_age, side)
 
 
 def cell_values(
@@ -192,20 +201,47 @@ def block_values(
     return found
 
 
-def peers_per_block(memory: MemoryView, now: Time, config: ExploreConfig) -> Counter[CellId]:
-    """How many peers are in, or heading to, each block, from their recent reports.
+def peers_per_block(memory: MemoryView, now: Time, max_age: Time, side: int) -> Counter[CellId]:
+    """How many peers are in, or heading to, each block of ``side`` cells.
 
-    A peer counts once per block, also when it is heading to a cell of the block it is in.
+    Only reports younger than ``max_age`` count. A peer counts once per block, also when it is
+    heading to a cell of the block it is in.
     """
     counts: Counter[CellId] = Counter()
     for peer in memory.peers():
-        if now - peer.observed_at > config.peer_max_age:
+        if now - peer.observed_at > max_age:
             continue
-        blocks = {config.block_of(peer.cell)}
+        blocks = {block_containing(peer.cell, side)}
         if peer.target is not None:
-            blocks.add(config.block_of(peer.target))
+            blocks.add(block_containing(peer.target, side))
         counts.update(blocks)
     return counts
+
+
+def block_containing(cell: CellId, side: int) -> CellId:
+    """The block of ``side`` cells containing ``cell``, in block coordinates."""
+    return (cell[0] // side, cell[1] // side)
+
+
+def _cells_of_block(block: CellId, side: int) -> tuple[slice, slice]:
+    """The cells of ``block``, as slices of an array indexed ``[x, y]``."""
+    return (
+        slice(block[0] * side, (block[0] + 1) * side),
+        slice(block[1] * side, (block[1] + 1) * side),
+    )
+
+
+def _near_cells(
+    robot: CellId, side: int, near_blocks: int, shape: tuple[int, ...]
+) -> NDArray[np.bool_]:
+    """The cells of the blocks of ``side`` cells within ``near_blocks`` of the robot's."""
+    block_x, block_y = block_containing(robot, side)
+    near = np.zeros(shape, dtype=np.bool_)
+    near[
+        max(0, (block_x - near_blocks) * side) : (block_x + near_blocks + 1) * side,
+        max(0, (block_y - near_blocks) * side) : (block_y + near_blocks + 1) * side,
+    ] = True
+    return near
 
 
 def _cells_per_block[T: np.generic](cells: NDArray[T], side: int) -> NDArray[T]:
