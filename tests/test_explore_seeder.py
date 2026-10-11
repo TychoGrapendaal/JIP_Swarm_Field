@@ -62,7 +62,8 @@ def _memory_with_left_block_seen(at: Time, except_cells: tuple[CellId, ...] = ()
 
 
 def _seeder(spread_peers: bool = False) -> ExploreSeeder:
-    return ExploreSeeder(ExploreConfig(tau=_TAU, beta=10.0, spread_peers=spread_peers))
+    config = ExploreConfig(tau=_TAU, beta=10.0, block_sides=(16,), spread_peers=spread_peers)
+    return ExploreSeeder(config)
 
 
 def test_cell_values_grow_with_age_and_ignore_cells_not_worth_monitoring() -> None:
@@ -145,7 +146,8 @@ def test_peers_discount_the_blocks_they_are_in_or_heading_to() -> None:
 def test_old_peer_reports_are_left_out_of_the_discount() -> None:
     memory = _memory_with_left_block_seen(at=100, except_cells=((3, 4),))
     memory.merge([_peer(2, cell=(20, 5), target=None, at=0)])
-    seeder = ExploreSeeder(ExploreConfig(tau=_TAU, beta=10.0, spread_peers=True, peer_max_age=50))
+    config = ExploreConfig(tau=_TAU, beta=10.0, block_sides=(16,), peer_max_age=50)
+    seeder = ExploreSeeder(config)
 
     seeds = {seed.cell: seed.value for seed in seeder.seeds(memory, (0, 0), now=100)}
 

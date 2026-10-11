@@ -32,6 +32,10 @@ from swarm_field.swarm.memory import MemoryView
 class ExploreConfig:
     """The parameters of the EXPLORE field.
 
+    The defaults did best in ``tests/benchmark_explore.py`` (see ``docs/explore.md``): five
+    robots on a 32 x 32 field, which they sweep in about 45 minutes. ``tau`` should grow with
+    the time the swarm needs to sweep its field.
+
     Attributes:
         tau: How fast information goes stale: a cell is worth ``1 - exp(-age / tau)``.
         stale_threshold: A cell worth more than this is stale, and only stale cells of the
@@ -54,13 +58,13 @@ class ExploreConfig:
             makes the neighbouring blocks look farther than they are; 1 keeps them exact.
     """
 
-    tau: Time = 30 * TimeUnit.MINUTE
+    tau: Time = 40 * TimeUnit.MINUTE
     stale_threshold: float = 0.5
-    beta: float = 32.0
+    beta: float = 64.0
     bucket: Time = 5 * TimeUnit.MINUTE
-    block_sides: tuple[int, ...] = (16,)
+    block_sides: tuple[int, ...] = (8,)
     near_blocks: int = 1
-    spread_peers: bool = False
+    spread_peers: bool = True
     peer_max_age: Time = TimeUnit.MINUTE
     window_blocks: int = 1
 
