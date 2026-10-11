@@ -78,6 +78,8 @@ class ExploreScenario:
         sample_period: The time between two coverage samples; shorter than any move.
         fresh_age: A visit to a cell visited less than this before is redundant.
         measure_from: Idleness is averaged from this time on.
+        seed: Draws when each robot decides first, within one decision interval, so runs with
+            different seeds interleave the robots' decisions differently.
     """
 
     width: int = 32
@@ -92,6 +94,7 @@ class ExploreScenario:
     sample_period: Time = TimeUnit.SECOND
     fresh_age: Time = 30 * TimeUnit.MINUTE
     measure_from: Time = 0
+    seed: int = 0
 
     def field_geometry(self) -> FieldGeometry:
         return FieldGeometry(
@@ -138,6 +141,7 @@ class RandomWaypointSeeder:
     """A baseline: one target cell drawn at random, and a new one once the robot stands on it."""
 
     name: str = "random-waypoint"
+    window_blocks: int = 1
 
     def __init__(self, field: FieldGeometry, obstacles: tuple[CellId, ...], seed: int) -> None:
         blocked = set(obstacles)
@@ -237,7 +241,8 @@ def build_explore_run(scenario: ExploreScenario, seeder_for: SeederFactory) -> E
 
     agents: dict[RobotId, ComposedAgent] = {}
     pool = SharedObservations()
-    context = SimulationContext(now=0, rng=Random(0), agents={}, world=world)
+    rng = Random(scenario.seed)
+    context = SimulationContext(now=0, rng=rng, agents={}, world=world)
     for index, start in enumerate(scenario.starts()):
         robot_id = index + 1
         world.add_robot(
@@ -264,14 +269,28 @@ def build_explore_run(scenario: ExploreScenario, seeder_for: SeederFactory) -> E
         context.agents[robot_id] = agent
         if scenario.share_observations:
             context.agents[robot_id] = SharingAgent(agent, pool)
-        # Staggered by a millisecond each, so the robots decide in a fixed order.
-        context.schedule(RobotDecision(index, robot_id, scenario.decision_interval))
+        first = rng.randrange(scenario.decision_interval)
+        context.schedule(RobotDecision(first, robot_id, scenario.decision_interval))
 
     tracker = CoverageTracker(
         world, fresh_age=scenario.fresh_age, measure_from=scenario.measure_from
     )
     context.schedule(CoverageSample(0, scenario.sample_period, tracker))
     return ExploreRun(scenario, context, agents, tracker)
+
+
+def river_and_rocks(size: int) -> tuple[CellId, ...]:
+    """A river across the middle of the field with one bridge, and a few square rocks."""
+    river_x = size // 2
+    bridge_y = 3 * size // 4
+    cells: list[CellId] = []
+    for y in range(size):
+        if abs(y - bridge_y) > 1:
+            cells.extend([(river_x, y), (river_x + 1, y)])
+    for corner_x, corner_y in ((size // 4, size // 3), (3 * size // 4, size // 5)):
+        for dx in range(3):
+            cells.extend((corner_x + dx, corner_y + dy) for dy in range(3))
+    return tuple(cells)
 
 
 def _terrain_map(world: WorldState) -> list[TerrainObservation]:

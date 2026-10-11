@@ -10,6 +10,7 @@ from swarm_field.experiments.explore import (
     FollowSeederField,
     RandomWaypointSeeder,
     build_explore_run,
+    river_and_rocks,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "FollowSeederField",
     "RandomWaypointSeeder",
     "build_explore_run",
+    "river_and_rocks",
 ]
