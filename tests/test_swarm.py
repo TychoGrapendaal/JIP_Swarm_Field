@@ -24,6 +24,7 @@ from swarm_field.swarm import (
     Behavior,
     ComposedAgent,
     DecisionContext,
+    FieldProvider,
     FieldSeeder,
     FollowField,
     Intent,
@@ -86,11 +87,13 @@ def _sensed(time: Time) -> list[Observation]:
 
 def _agent(behaviors: list[Behavior], seeders: list[FieldSeeder] | None = None) -> ComposedAgent:
     memory = AgentMemory(1, _FIELD)
+    fields = FieldProvider(memory, flies=False, seeders=seeders or [])
     return ComposedAgent(
         robot_id=1,
         behaviors=behaviors,
         memory=memory,
-        navigator=Navigator(memory, flies=False, seeders=seeders or []),
+        fields=fields,
+        navigator=Navigator(fields.quadtree),
     )
 
 
@@ -104,7 +107,7 @@ def _context(
         self_state=perception.self_state,
         sensed=perception.sensed,
         memory=memory,
-        fields=Navigator(memory, flies=False, seeders=seeders or []),
+        fields=FieldProvider(memory, flies=False, seeders=seeders or []),
     )
 
 
@@ -137,6 +140,37 @@ class _FixedTargetSeeder:
 
     def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
         return (Seed((5, 5), 0.0),)
+
+
+class _CountingSeeder:
+    """A seeder with one fixed target, counting how often it is asked for seeds."""
+
+    def __init__(self, name: str, target: CellId) -> None:
+        self.name: str = name
+        self.seeds_asked: int = 0
+        self._target: CellId = target
+
+    def field_key(self, memory: MemoryView, now: Time) -> Hashable:
+        return None
+
+    def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
+        self.seeds_asked += 1
+        return (Seed(self._target, 0.0),)
+
+
+class _FieldFollower:
+    """Reads its seeder's field at every decision point and bids a fixed score to follow it."""
+
+    def __init__(self, seeder: str, score: float) -> None:
+        self.name: str = seeder
+        self._score: float = score
+
+    def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
+        position = ctx.self_state.position
+        seeded = ctx.fields.field_for(self.name, position, ctx.time)
+        assert seeded is not None
+        target = seeded.field.target_for(position)
+        return (ActionCandidate(FollowField(self.name), self._score, self.name, target),)
 
 
 def test_agent_picks_highest_scoring_candidate() -> None:
@@ -177,7 +211,7 @@ def test_sensed_terrain_reaches_memory_and_the_quadtree() -> None:
     agent.decide(_perception(sensed=[wall]))
 
     assert wall in list(agent.memory.records())
-    assert not agent.navigator.quadtree.is_traversable((1, 1))
+    assert not agent.fields.quadtree.is_traversable((1, 1))
 
 
 def test_treat_infestation_bids_to_follow_its_seeders_field() -> None:
@@ -195,3 +229,20 @@ def test_a_winning_follow_field_becomes_a_step_along_the_field() -> None:
 
     assert decision.action == Move((1, 1))
     assert agent.inspect().current_goal == TreatInfestation.name
+
+
+def test_the_winners_field_is_followed_without_rebuilding_either_field() -> None:
+    """Two behaviours read their fields at every decision point; each field is built once."""
+    winner = _CountingSeeder("winner", (5, 5))
+    loser = _CountingSeeder("loser", (0, 9))
+    agent = _agent([_FieldFollower("winner", 2.0), _FieldFollower("loser", 1.0)], [winner, loser])
+    resensed = TerrainObservation(
+        cell=(1, 0), confidence=1.0, observed_at=0, source=1, terrain=Terrain.FREE
+    )
+
+    for _ in range(3):
+        decision = agent.decide(_perception(sensed=[resensed]))
+        assert decision.action == Move((1, 1))
+
+    assert winner.seeds_asked == 1
+    assert loser.seeds_asked == 1
