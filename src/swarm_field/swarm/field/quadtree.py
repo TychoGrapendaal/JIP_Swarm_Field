@@ -104,10 +104,12 @@ class Quadtree:
 
     @property
     def version(self) -> int:
-        """Counts the updates to the traversability; a new value on every one of them.
+        """Counts the changes to the traversability; a new value whenever a cell changed.
 
         A caller that keeps something derived from the quadtree — a potential field, say —
-        compares this to notice that it was built on terrain that has since changed.
+        compares this to notice that it was built on terrain that has since changed. An update
+        that only repeats what the quadtree already holds, such as a robot re-sensing known
+        terrain, keeps the version.
         """
         return self._version
 
@@ -122,14 +124,20 @@ class Quadtree:
     def update(self, changes: Mapping[CellId, bool]) -> None:
         """Set the traversability of the changed cells and rebuild only the leaves around them.
 
-        Every leaf lies inside one aligned block of ``max_leaf_side`` cells, so a change can
-        only affect the leaves of the block it falls in; the other blocks stay as they are.
+        Cells given their current traversability are skipped, and if none is left the
+        quadtree, its version included, stays as it is. Every leaf lies inside one aligned
+        block of ``max_leaf_side`` cells, so a change can only affect the leaves of the block
+        it falls in; the other blocks stay as they are.
         """
         side = self.max_leaf_side
         blocks: set[CellId] = set()
         for (x, y), traversable in changes.items():
+            if self.traversable[x, y] == traversable:
+                continue
             self.traversable[x, y] = traversable
             blocks.add((x - x % side, y - y % side))
+        if not blocks:
+            return
         for block_x, block_y in blocks:
             block = (slice(block_x, block_x + side), slice(block_y, block_y + side))
             self.leaf_size[block] = find_leaves(self.traversable[block], side)

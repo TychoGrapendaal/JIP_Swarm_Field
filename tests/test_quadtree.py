@@ -148,6 +148,16 @@ def test_update_rebuilds_the_same_leaves_as_a_fresh_build() -> None:
     assert np.array_equal(quadtree.leaf_size, find_leaves(traversable, max_leaf_side=16))
 
 
+def test_version_changes_only_when_a_cell_does() -> None:
+    quadtree = Quadtree(np.ones((8, 8), dtype=np.bool_), max_leaf_side=4)
+
+    quadtree.update({(1, 1): True, (2, 2): True})
+    assert quadtree.version == 0
+
+    quadtree.update({(1, 1): True, (2, 2): False})
+    assert quadtree.version == 1
+
+
 def test_leaf_side_must_be_a_power_of_two() -> None:
     with pytest.raises(ValueError):
         Quadtree(np.ones((8, 8), dtype=np.bool_), max_leaf_side=12)
