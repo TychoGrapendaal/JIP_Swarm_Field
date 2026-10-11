@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 SnapshotSource = Callable[[Time], WorldSnapshot]
 """The world at a time, e.g. after running the simulation up to it."""
 CellOverlay = Callable[[WorldSnapshot], NDArray[np.float64]]
-"""One value from 0 to 1 per cell, indexed ``[x, y]``."""
+"""One value from 0 to 1 per cell, indexed ``[x, y]``; a cell holding NaN is left undrawn."""
 GoalSource = Callable[[], Mapping[RobotId, CellId]]
 """The cell each robot is heading for."""
 PanelSource = Callable[[WorldSnapshot], Sequence[str]]
@@ -51,6 +51,7 @@ class SimulationViewer:
         source: SnapshotSource,
         overlay: CellOverlay | None = None,
         overlay_label: str = "",
+        overlay_colormap: str = "viridis",
         goals: GoalSource | None = None,
         panel: PanelSource | None = None,
         trail_length: int = 30,
@@ -61,6 +62,7 @@ class SimulationViewer:
         self._source: SnapshotSource = source
         self._overlay: CellOverlay | None = overlay
         self._overlay_label: str = overlay_label
+        self._overlay_colormap: str = overlay_colormap
         self._goals: GoalSource | None = goals
         self._panel: PanelSource | None = panel
         self._trails: dict[RobotId, deque[CellId]] = {}
@@ -82,7 +84,7 @@ class SimulationViewer:
                 origin="lower",
                 interpolation="none",
                 extent=(0, field.width, 0, field.height),
-                cmap="magma",
+                cmap=self._overlay_colormap,
                 vmin=0.0,
                 vmax=1.0,
                 alpha=0.6,

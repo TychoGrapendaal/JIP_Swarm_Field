@@ -74,7 +74,11 @@ def main() -> None:
 
     def staleness(snapshot: WorldSnapshot) -> NDArray[np.float64]:
         age = snapshot.time - np.maximum(run.tracker.last_visits(), 0.0)
-        return 1.0 - np.exp(-age / config.tau)
+        values = 1.0 - np.exp(-age / config.tau)
+        for cell, state in snapshot.cells.items():
+            if state.obstacle:
+                values[cell] = np.nan
+        return values
 
     def panel(snapshot: WorldSnapshot) -> list[str]:
         return panel_lines(run, snapshot.time, config)
