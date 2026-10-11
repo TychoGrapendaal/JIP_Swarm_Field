@@ -1,9 +1,7 @@
 """Composable robot behaviours for the high-level cell model."""
 
-from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
-from heapq import nlargest
-from math import ceil, exp, hypot, isfinite
+from math import isfinite
 from typing import Protocol
 
 from swarm_field.contracts import (
@@ -18,11 +16,9 @@ from swarm_field.contracts import (
     Time,
     Treat,
 )
-from swarm_field.swarm.field import BoundingBox, GridPotentialField, MixedGraph
 from swarm_field.swarm.memory import MemoryView
 from swarm_field.swarm.provider import FieldProvider
 from swarm_field.swarm.seeder import SeededField, TreatSeeder
-
 
 
 @dataclass(frozen=True)
@@ -147,7 +143,7 @@ class ExploreBehaviour:
         self._seeder: str = seeder
         self._weights: list[float] = [1 / 3, 1 / 3, 1 / 3]
         self._previous_time: Time | None = None
-        
+
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
         """Build this robot's exploration candidate for the current decision.
 
@@ -172,15 +168,13 @@ class ExploreBehaviour:
         weights = self._update_weight(ctx, self._weights, previous_time)
         self._weights = weights
         self._previous_time = ctx.time
-        score = sum(w * s for w, s in zip(weights, criteria_scores))
+        score = sum(w * s for w, s in zip(weights, criteria_scores, strict=True))
         action = FollowField(self._seeder)
         if seeded_field is None or target is None or target == position:
             action = Idle()
-        candidate = ActionCandidate(
-            action=action, score=score, source=self.name, target=target
-        )
+        candidate = ActionCandidate(action=action, score=score, source=self.name, target=target)
         return (candidate,)
-    
+
     def _body_type_criteria(self, inbox: list[Message]) -> float:
         """Return the 1 - (fraction of nearby robots that are scouts)."""
         peer_observations = [
@@ -198,9 +192,7 @@ class ExploreBehaviour:
         if seeded_field is None:
             return 1.0
         scores = [
-            result.value
-            for result in seeded_field.field.settled.values()
-            if isfinite(result.value)
+            result.value for result in seeded_field.field.settled.values() if isfinite(result.value)
         ]
         if not scores:
             return 1.0
@@ -214,7 +206,7 @@ class ExploreBehaviour:
         if total_cells == 0:
             return 1.0
         unexplored_cells = sum(
-            1 for result in seeded_field.field.settled.values() if result.value == float(1.0)
+            1 for result in seeded_field.field.settled.values() if result.value == 1.0
         )
         return 1 - (unexplored_cells / total_cells)
 
@@ -239,12 +231,14 @@ class ExploreBehaviour:
         if ctx.time <= previous_time:
             return old_weights
         importance = [
-            1.0, # Weight for body type criteria
-            1.0, # Weight for explore score criteria
-            1.0, # Weight for unexplored criteria
+            1.0,  # Weight for body type criteria
+            1.0,  # Weight for explore score criteria
+            1.0,  # Weight for unexplored criteria
         ]
         total_weight = sum(importance)
         normalized_weights = [w / total_weight for w in importance]
-        weights = [alpha * nw + (1 - alpha) * ow for nw, ow in zip(normalized_weights, old_weights)]
+        weights = [
+            alpha * nw + (1 - alpha) * ow
+            for nw, ow in zip(normalized_weights, old_weights, strict=True)
+        ]
         return weights
-

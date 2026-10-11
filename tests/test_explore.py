@@ -15,12 +15,10 @@ from swarm_field.contracts import (
 )
 from swarm_field.swarm.behavior import DecisionContext, ExploreBehaviour, FollowField
 from swarm_field.swarm.field import Seed
-from swarm_field.swarm.memory import AgentMemory
+from swarm_field.swarm.memory import AgentMemory, MemoryView
 from swarm_field.swarm.provider import FieldProvider
 
-_FIELD = FieldGeometry(
-    width=10, height=10, cell_size=1.0, row_sp=0.0, in_row_sp=0.0, headland=0.0
-)
+_FIELD = FieldGeometry(width=10, height=10, cell_size=1.0, row_sp=0.0, in_row_sp=0.0, headland=0.0)
 
 
 class _ExploreSeeder:
@@ -29,10 +27,10 @@ class _ExploreSeeder:
     def __init__(self, target: CellId | None) -> None:
         self._target: CellId | None = target
 
-    def field_key(self, memory: AgentMemory, now: Time) -> Hashable:
+    def field_key(self, memory: MemoryView, now: Time) -> Hashable:
         return None
 
-    def seeds(self, memory: AgentMemory, robot: CellId, now: Time) -> tuple[Seed, ...]:
+    def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
         if self._target is None:
             return ()
         return (Seed(self._target, 0.0),)
