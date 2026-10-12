@@ -190,7 +190,7 @@ def test_a_label_cannot_escape_the_output_directory(tmp_path: Path) -> None:
     assert csv_path.parent == tmp_path
 
 
-def test_the_named_seeder_reaches_the_behaviour_and_the_navigator() -> None:
+def test_the_named_seeder_reaches_the_behaviour_and_the_field_provider() -> None:
     """A spec's seeders must decide the field, not a parameter default."""
     spec = BrainSpec(seeders=("treat",), params={"seeders": ("ignored",)})
     agent = build_agent(spec, 1, build_scenario(ScenarioId.S1).field, Random(0))
@@ -198,7 +198,7 @@ def test_the_named_seeder_reaches_the_behaviour_and_the_navigator() -> None:
 
     assert isinstance(behavior, TreatInfestation)
     # None rather than a KeyError: the TREAT seeder is registered but has no targets yet (#40).
-    assert agent.navigator.field_for(TreatSeeder.name, (0, 0), 0) is None
+    assert agent.fields.field_for(TreatSeeder.name, (0, 0), 0) is None
 
 
 def test_build_run_leaves_the_pest_dynamics_the_run_random_source() -> None:

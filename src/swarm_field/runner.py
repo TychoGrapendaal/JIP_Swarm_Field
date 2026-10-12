@@ -54,6 +54,7 @@ from swarm_field.swarm import (
     AgentMemory,
     Behavior,
     ComposedAgent,
+    FieldProvider,
     FieldSeeder,
     Navigator,
     TreatInfestation,
@@ -517,11 +518,13 @@ def build_agent(
     behaviors: list[Behavior] = [
         BEHAVIORS.build(name, _params_for(spec), rng) for name in spec.behaviors
     ]
+    fields = build_field_provider(spec, memory, rng)
     return ComposedAgent(
         robot_id=robot_id,
         behaviors=behaviors,
         memory=memory,
-        navigator=build_navigator(spec, memory, rng),
+        fields=fields,
+        navigator=Navigator(fields.quadtree),
     )
 
 
@@ -534,8 +537,8 @@ def _params_for(spec: BrainSpec) -> dict[str, Any]:
     return {**spec.params, "seeders": spec.seeders}
 
 
-def build_navigator(spec: BrainSpec, memory: AgentMemory, rng: Random) -> Navigator:
-    """Build the movement layer named by a spec, over the seeders the spec names.
+def build_field_provider(spec: BrainSpec, memory: AgentMemory, rng: Random) -> FieldProvider:
+    """Build the potential fields of the navigator named by a spec, over the seeders it names.
 
     Every v1 body is a ground robot, so the potential field is planned over land the robot
     believes it can enter. An aerial body would pass ``flies=True`` and ignore crop cells.
@@ -548,7 +551,7 @@ def build_navigator(spec: BrainSpec, memory: AgentMemory, rng: Random) -> Naviga
         raise ValueError(f"unknown navigator: {spec.navigator}")
     params = _params_for(spec)
     seeders: list[FieldSeeder] = [SEEDERS.build(name, params, rng) for name in spec.seeders]
-    return Navigator(memory, flies=False, seeders=seeders)
+    return FieldProvider(memory, flies=False, seeders=seeders)
 
 
 def build_experiment(
