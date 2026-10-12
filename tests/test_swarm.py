@@ -236,6 +236,67 @@ def test_a_winning_follow_field_becomes_a_step_along_the_field() -> None:
     assert agent.inspect().current_goal == TreatInfestation.name
 
 
+def test_agent_broadcasts_its_memory_and_peer_learns_it() -> None:
+    sender = _agent([])
+    receiver_memory = AgentMemory(2, _FIELD)
+    receiver_fields = FieldProvider(receiver_memory, flies=False, seeders=[])
+    receiver = ComposedAgent(
+        robot_id=2,
+        behaviors=[],
+        memory=receiver_memory,
+        fields=receiver_fields,
+        navigator=Navigator(receiver_fields.quadtree),
+    )
+    fact = InfestationObservation(
+        cell=(6, 6),
+        confidence=1.0,
+        observed_at=0,
+        source=1,
+        severity=0.8,
+        pest=None,
+    )
+
+    first = sender.decide(
+        Perception(
+            time=0,
+            self_state=RobotSelfState(
+                robot_id=1,
+                position=(0, 0),
+                battery=1.0,
+                body=BodyType.SCOUT,
+                speed_mps=1.0,
+                consumable=1.0,
+                health=1.0,
+            ),
+            sensed=[fact],
+            inbox=[],
+        )
+    )
+
+    knowledge, _status = first.outbox
+    assert knowledge.kind is MessageKind.KNOWLEDGE
+    assert knowledge.payload == (fact,)
+
+    receiver.decide(
+        Perception(
+            time=5_000,
+            self_state=RobotSelfState(
+                robot_id=2,
+                position=(0, 0),
+                battery=1.0,
+                body=BodyType.SCOUT,
+                speed_mps=1.0,
+                consumable=1.0,
+                health=1.0,
+            ),
+            sensed=[],
+            inbox=first.outbox,
+        )
+    )
+
+    assert receiver_memory.infestation_at((6, 6)) == fact
+
+
 def test_the_winners_field_is_followed_without_rebuilding_either_field() -> None:
     """Two behaviours read their fields at every decision point; each field is built once."""
     winner = _CountingSeeder("winner", (5, 5))
@@ -258,7 +319,7 @@ def test_the_agent_broadcasts_its_cell_and_the_winners_target() -> None:
 
     decision = agent.decide(_perception(sensed=[]))
 
-    (message,) = decision.outbox
+    _knowledge, message = decision.outbox
     assert message.kind is MessageKind.STATUS
     assert isinstance(message.payload, PeerObservation)
     assert (message.payload.peer, message.payload.cell) == (1, (0, 0))

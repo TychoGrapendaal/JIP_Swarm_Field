@@ -4,12 +4,13 @@
 decision point it merges what the robot sensed and received into its memory, keeps the field
 provider's quadtree in sync with new terrain facts, gathers the scored candidates of its
 behaviors, picks the best and turns its intent into one action: the navigator steps along the
-field a ``FollowField`` names, and any other intent passes through. It broadcasts its status (its
-cell and the winner's target) and stores the status reports of its peers. Sharing beliefs and
-capability gating are added as those parts are built.
+field a ``FollowField`` names, and any other intent passes through. It broadcasts its memory and
+its status (its cell and the winner's target), and merges what its peers broadcast. Capability
+gating is added once it is built.
 """
 
 import logging
+from typing import cast
 
 from swarm_field.contracts import (
     Action,
@@ -20,6 +21,7 @@ from swarm_field.contracts import (
     Message,
     MessageKind,
     Observation,
+    ObservationBase,
     PeerObservation,
     Perception,
     RobotId,
@@ -122,30 +124,38 @@ class ComposedAgent:
         return self.navigator.step_towards(field, robot)
 
     def _facts_received(self, inbox: list[Message]) -> list[Observation]:
-        """The facts carried by the received messages: for now, the peers' status reports."""
-        # TODO: decode the facts of belief-sharing messages, once that message kind exists.
+        """The facts carried by the received messages: memory snapshots and status reports."""
         facts: list[Observation] = []
         for message in inbox:
-            if message.kind is not MessageKind.STATUS:
-                continue
-            if not isinstance(message.payload, PeerObservation):
-                logger.warning(
-                    "Skipping a status message from %s with payload %r",
-                    message.sender,
-                    message.payload,
-                )
-                continue
-            facts.append(message.payload)
+            if message.kind is MessageKind.KNOWLEDGE:
+                if not isinstance(message.payload, (tuple, list)):
+                    continue
+                for fact in message.payload:
+                    if isinstance(fact, ObservationBase):
+                        facts.append(cast(Observation, fact))
+            elif message.kind is MessageKind.STATUS:
+                if not isinstance(message.payload, PeerObservation):
+                    logger.warning(
+                        "Skipping a status message from %s with payload %r",
+                        message.sender,
+                        message.payload,
+                    )
+                    continue
+                facts.append(message.payload)
         return facts
 
     def _messages_to_send(self, perception: Perception) -> list[Message]:
-        """The messages to broadcast at this decision point: the robot's status.
+        """The messages to broadcast at this decision point: the memory and the robot's status.
 
         The status tells peers where the robot is and which target it is heading for, the
         winning candidate's ``target``, so that they can avoid the same region.
         """
-        # TODO: share memory.records() with robots in range, in a belief-sharing message,
-        # once that message kind exists.
+        knowledge = Message(
+            sender=self.robot_id,
+            sent_at=perception.time,
+            kind=MessageKind.KNOWLEDGE,
+            payload=tuple(self.memory.records()),
+        )
         status = PeerObservation(
             cell=perception.self_state.position,
             confidence=1.0,
@@ -155,10 +165,10 @@ class ComposedAgent:
             body=perception.self_state.body,
             target=self._current_target,
         )
-        message = Message(
+        status_message = Message(
             sender=self.robot_id,
             sent_at=perception.time,
             kind=MessageKind.STATUS,
             payload=status,
         )
-        return [message]
+        return [knowledge, status_message]
