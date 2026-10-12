@@ -9,6 +9,7 @@ gating are added as those parts are built.
 """
 
 import logging
+from typing import cast
 
 from swarm_field.contracts import (
     Action,
@@ -17,7 +18,9 @@ from swarm_field.contracts import (
     Decision,
     Idle,
     Message,
+    MessageKind,
     Observation,
+    ObservationBase,
     Perception,
     RobotId,
     TerrainObservation,
@@ -118,12 +121,24 @@ class ComposedAgent:
 
     def _facts_received(self, inbox: list[Message]) -> list[Observation]:
         """The facts carried by the received messages."""
-        # TODO: decode the facts of belief-sharing messages. No message kind carries facts
-        # yet (MessageKind only has HELLO), so nothing is received for now.
-        return []
+        facts: list[Observation] = []
+        for message in inbox:
+            if message.kind is not MessageKind.KNOWLEDGE:
+                continue
+            if not isinstance(message.payload, (tuple, list)):
+                continue
+            for fact in message.payload:
+                if isinstance(fact, ObservationBase):
+                    facts.append(cast(Observation, fact))
+        return facts
 
     def _messages_to_send(self, now: Time) -> list[Message]:
         """The messages to broadcast at this decision point."""
-        # TODO: share memory.records() with robots in range, in a belief-sharing message,
-        # once that message kind exists. Nothing is sent for now.
-        return []
+        return [
+            Message(
+                sender=self.robot_id,
+                sent_at=now,
+                kind=MessageKind.KNOWLEDGE,
+                payload=tuple(self.memory.records()),
+            )
+        ]
