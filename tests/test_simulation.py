@@ -35,6 +35,7 @@ from swarm_field.simulation import (
 from swarm_field.swarm import (
     AgentMemory,
     ComposedAgent,
+    FieldProvider,
     MemoryView,
     Navigator,
     TreatInfestation,
@@ -307,6 +308,7 @@ def test_robot_decision_drives_a_real_brain() -> None:
     robot = RobotState(robot_id=0, position=(2, 2), body=BodyType.SCOUT, speed_mps=2.0)
     memory = AgentMemory(0, field)
     seeder = _FixedTargetSeeder((2, 3))
+    fields = FieldProvider(memory, flies=False, seeders=[seeder])
     ctx = SimulationContext(
         now=0,
         rng=Random(0),
@@ -315,7 +317,8 @@ def test_robot_decision_drives_a_real_brain() -> None:
                 robot_id=0,
                 behaviors=[TreatInfestation(seeder.name)],
                 memory=memory,
-                navigator=Navigator(memory, flies=False, seeders=[seeder]),
+                fields=fields,
+                navigator=Navigator(fields.quadtree),
             )
         },
         world=WorldState(field, robots=[robot]),
