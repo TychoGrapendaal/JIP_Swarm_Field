@@ -78,7 +78,6 @@ def main() -> None:
     def staleness(snapshot: WorldSnapshot) -> NDArray[np.float64]:
         visits = np.maximum(run.tracker.last_visits(), 0.0)
         values = cell_values(visits, monitorable, snapshot.time, config.revisit_age)
-        values = np.minimum(values, 1.0)
         for cell, state in snapshot.cells.items():
             if state.obstacle:
                 values[cell] = np.nan

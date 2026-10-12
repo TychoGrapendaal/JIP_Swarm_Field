@@ -1,8 +1,9 @@
 """The EXPLORE seeder: draws robots to the cells whose information is the stalest.
 
 A cell is worth observing again by how long ago it was last observed. It is worth nothing until
-``revisit_age`` has passed; then it is stale, worth 0.5 at the revisit age and more as it ages
-(``Growth``). So exploring a new field and monitoring a known one are the same objective.
+``revisit_age`` ``A`` has passed; then it is stale, worth ``1 - 2^(-age / A)``: 0.5 at the revisit
+age, approaching 1, and 1 if it was never observed. So exploring a new field and monitoring a
+known one are the same objective.
 
 The robot's own block is seeded cell by cell, with its stale cells; every other block gets one
 seed, on its stalest cell and worth that cell's value, so a forgotten cell is never hidden in a
@@ -20,7 +21,6 @@ plus the number of peers in it or heading to it.
 from collections import Counter
 from collections.abc import Hashable
 from dataclasses import dataclass
-from enum import Enum, auto
 
 import numpy as np
 from numpy.typing import NDArray
@@ -28,22 +28,6 @@ from numpy.typing import NDArray
 from swarm_field.contracts import CellId, Time, TimeUnit
 from swarm_field.swarm.field import Seed
 from swarm_field.swarm.memory import MemoryView
-
-
-class Growth(Enum):
-    """How a stale cell's value grows with its age past the revisit age ``A``.
-
-    Both are worth 0.5 at ``A``.
-
-    Attributes:
-        SATURATING: ``1 - 2^(-age / A)``, approaching 1; a never-observed cell is worth 1.
-        LINEAR: ``age / 2A``, without bound, so a forgotten cell ends up beating every other
-            one. A never-observed cell counts as observed when the run started (time 0), but is
-            worth at least 1.
-    """
-
-    SATURATING = auto()
-    LINEAR = auto()
 
 
 @dataclass(frozen=True)
@@ -57,7 +41,6 @@ class ExploreConfig:
         revisit_age: How long a cell is worth nothing after it was observed. From then on it is
             stale, worth ``1 - 2^(-age / revisit_age)``, and only the stale cells of the robot's
             own block are seeded; the block is done when none is left.
-        growth: How a stale cell's value grows with its age.
         beta: How many cells of travel a fully stale cell, or a fully stale block, is worth.
         bucket: How long the mean values of the other blocks may drift before the field is
             rebuilt anyway.
@@ -77,7 +60,6 @@ class ExploreConfig:
     """
 
     revisit_age: Time = 28 * TimeUnit.MINUTE
-    growth: Growth = Growth.LINEAR
     beta: float = 64.0
     bucket: Time = 5 * TimeUnit.MINUTE
     block_sides: tuple[int, ...] = (8,)
@@ -141,7 +123,6 @@ class ExploreSeeder:
             memory.monitorable_cells()[cells],
             now,
             config.revisit_age,
-            config.growth,
         )
         stale = own_values > 0.0
         peers = frozenset(self._peers_per_block(memory, now, config.block_side).items())
@@ -156,9 +137,7 @@ class ExploreSeeder:
         """
         config = self.config
         monitorable = memory.monitorable_cells()
-        values = cell_values(
-            memory.last_observed_times(), monitorable, now, config.revisit_age, config.growth
-        )
+        values = cell_values(memory.last_observed_times(), monitorable, now, config.revisit_age)
 
         own = config.block_of(robot)
         own_cells = _cells_of_block(own, config.block_side)
@@ -191,24 +170,15 @@ class ExploreSeeder:
 
 
 def cell_values(
-    last_seen: NDArray[np.float64],
-    monitorable: NDArray[np.bool_],
-    now: Time,
-    revisit_age: Time,
-    growth: Growth = Growth.SATURATING,
+    last_seen: NDArray[np.float64], monitorable: NDArray[np.bool_], now: Time, revisit_age: Time
 ) -> NDArray[np.float64]:
-    """What observing each cell again is worth, growing with its age as ``growth`` says.
+    """What observing each cell again is worth: ``1 - 2^(-age / revisit_age)`` once it is stale.
 
-    A cell is worth 0 younger than ``revisit_age``, or if it is not monitorable. A cell never
-    observed has ``last_seen`` ``-inf``.
+    A cell is worth 0 younger than ``revisit_age``, or if it is not monitorable, and 1 if it was
+    never observed (``-inf``).
     """
     age = now - last_seen
-    match growth:
-        case Growth.SATURATING:
-            values = 1.0 - np.exp2(-age / revisit_age)
-        case Growth.LINEAR:
-            never_observed = max(now, 2 * revisit_age)
-            values = np.minimum(age, never_observed) / (2 * revisit_age)
+    values = 1.0 - np.exp2(-age / revisit_age)
     values[age < revisit_age] = 0.0
     values[~monitorable] = 0.0
     return values

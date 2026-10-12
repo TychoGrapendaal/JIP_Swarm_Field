@@ -13,7 +13,7 @@ measures of ``CoverageTracker``, as the mean over the seeds:
 
 Runs are spread over processes. Not part of ``pytest``; run it with:
 
-    uv run python -m tests.benchmark_explore --size 32 --hours 3 --seeds 4 --sections values
+    uv run python -m tests.benchmark_explore --size 32 --hours 3 --seeds 4
 """
 
 from __future__ import annotations
@@ -34,7 +34,6 @@ from swarm_field.experiments import (
 )
 from swarm_field.simulation import CoverageSummary
 from swarm_field.swarm import ExploreConfig, ExploreSeeder, FieldSeeder
-from swarm_field.swarm.explore import Growth
 
 _REFERENCE = ExploreConfig()
 """The variant the others are compared with: the defaults, 8 x 8 blocks with the discount."""
@@ -103,18 +102,9 @@ def parameter_sweep() -> Iterator[Variant]:
         yield Variant(f"beta {beta:g}", replace(_REFERENCE, beta=beta))
 
 
-def value_rules() -> Iterator[Variant]:
-    """Saturating against linear growth of a stale cell's value, at three revisit ages."""
-    for minutes in (14, 28, 56):
-        aged = replace(_REFERENCE, revisit_age=minutes * TimeUnit.MINUTE)
-        yield Variant(f"A {minutes}: linear", aged)
-        yield Variant(f"A {minutes}: saturating", replace(aged, growth=Growth.SATURATING))
-
-
 SECTIONS: dict[str, tuple[str, Callable[[], Iterator[Variant]]]] = {
     "variants": ("Variants", variants),
     "parameters": ("Parameters around the defaults", parameter_sweep),
-    "values": ("Value rules", value_rules),
 }
 """The tables the benchmark can print, by their name on the command line."""
 
