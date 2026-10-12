@@ -235,11 +235,13 @@ def test_a_winning_follow_field_becomes_a_step_along_the_field() -> None:
 def test_agent_broadcasts_its_memory_and_peer_learns_it() -> None:
     sender = _agent([])
     receiver_memory = AgentMemory(2, _FIELD)
+    receiver_fields = FieldProvider(receiver_memory, flies=False)
     receiver = ComposedAgent(
         robot_id=2,
         behaviors=[],
         memory=receiver_memory,
-        navigator=Navigator(receiver_memory, flies=False, seeders=[]),
+        fields=receiver_fields,
+        navigator=Navigator(receiver_fields.quadtree),
     )
     fact = InfestationObservation(
         cell=(6, 6),
@@ -267,9 +269,10 @@ def test_agent_broadcasts_its_memory_and_peer_learns_it() -> None:
         )
     )
 
-    assert len(first.outbox) == 1
-    assert first.outbox[0].kind is MessageKind.KNOWLEDGE
-    assert first.outbox[0].payload == (fact,)
+    status, knowledge = first.outbox
+    assert status.kind is MessageKind.STATUS
+    assert knowledge.kind is MessageKind.KNOWLEDGE
+    assert knowledge.payload == (fact,)
 
     receiver.decide(
         Perception(
@@ -289,6 +292,8 @@ def test_agent_broadcasts_its_memory_and_peer_learns_it() -> None:
     )
 
     assert receiver_memory.infestation_at((6, 6)) == fact
+
+
 def test_the_winners_field_is_followed_without_rebuilding_either_field() -> None:
     """Two behaviours read their fields at every decision point; each field is built once."""
     winner = _CountingSeeder("winner", (5, 5))

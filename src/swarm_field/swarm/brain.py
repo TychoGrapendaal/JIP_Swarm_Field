@@ -21,6 +21,7 @@ from swarm_field.contracts import (
     MessageKind,
     Observation,
     ObservationBase,
+    PeerObservation,
     Perception,
     RobotId,
     TerrainObservation,
@@ -66,6 +67,7 @@ class ComposedAgent:
         self.fields: FieldProvider = fields
         self.navigator: Navigator = navigator
         self._current_goal: str | None = None
+        self._current_target: CellId | None = None
 
     def decide(self, perception: Perception) -> Decision:
         received = self._facts_received(perception.inbox)
@@ -93,14 +95,15 @@ class ComposedAgent:
         # TODO: an arbiter (fixed-priority overrides such as low battery, hysteresis against
         # switching objectives back and forth) instead of simply taking the highest score.
         best = max(candidates, key=lambda c: c.score, default=None)
-        outbox = self._messages_to_send(perception.time)
         if best is None:
             self._current_goal = None
-            return Decision(action=Idle(), outbox=outbox)
+            self._current_target = None
+            return Decision(action=Idle(), outbox=self._messages_to_send(perception))
 
         self._current_goal = best.source
+        self._current_target = best.target
         action = self._action_for(best.action, perception.self_state.position, perception.time)
-        return Decision(action=action, outbox=outbox)
+        return Decision(action=action, outbox=self._messages_to_send(perception))
 
     def inspect(self) -> AgentInspection:
         return AgentInspection(
@@ -123,22 +126,42 @@ class ComposedAgent:
         """The facts carried by the received messages."""
         facts: list[Observation] = []
         for message in inbox:
-            if message.kind is not MessageKind.KNOWLEDGE:
-                continue
-            if not isinstance(message.payload, (tuple, list)):
-                continue
-            for fact in message.payload:
-                if isinstance(fact, ObservationBase):
-                    facts.append(cast(Observation, fact))
+            if message.kind is MessageKind.KNOWLEDGE:
+                if not isinstance(message.payload, (tuple, list)):
+                    continue
+                for fact in message.payload:
+                    if isinstance(fact, ObservationBase):
+                        facts.append(cast(Observation, fact))
+            elif message.kind is MessageKind.STATUS:
+                if isinstance(message.payload, PeerObservation):
+                    facts.append(message.payload)
         return facts
 
-    def _messages_to_send(self, now: Time) -> list[Message]:
-        """The messages to broadcast at this decision point."""
-        return [
-            Message(
-                sender=self.robot_id,
-                sent_at=now,
-                kind=MessageKind.KNOWLEDGE,
-                payload=tuple(self.memory.records()),
-            )
-        ]
+    def _messages_to_send(self, perception: Perception) -> list[Message]:
+        """The messages to broadcast at this decision point: the robot's status and its memory.
+
+        The status tells peers where the robot is and which target it is heading for, the
+        winning candidate's ``target``, so that they can avoid the same target.
+        """
+        status = PeerObservation(
+            cell=perception.self_state.position,
+            confidence=1.0,
+            observed_at=perception.time,
+            source=self.robot_id,
+            peer=self.robot_id,
+            body=perception.self_state.body,
+            target=self._current_target,
+        )
+        status_message = Message(
+            sender=self.robot_id,
+            sent_at=perception.time,
+            kind=MessageKind.STATUS,
+            payload=status,
+        )
+        memory_message = Message(
+            sender=self.robot_id,
+            sent_at=perception.time,
+            kind=MessageKind.KNOWLEDGE,
+            payload=tuple(self.memory.records()),
+        )
+        return [status_message, memory_message]

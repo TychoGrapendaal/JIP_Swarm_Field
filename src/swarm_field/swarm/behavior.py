@@ -1,24 +1,23 @@
 """Composable robot behaviours for the high-level cell model."""
 
+import math
 from dataclasses import dataclass, field
 from typing import Protocol
 
 from swarm_field.contracts import (
+    BodyType,
     CellId,
     Charge,
     Idle,
     Message,
     Observation,
     RobotSelfState,
-    PeerObservation,
-    BodyType,
     Time,
     Treat,
 )
 from swarm_field.swarm.memory import MemoryView
 from swarm_field.swarm.provider import FieldProvider
 from swarm_field.swarm.seeder import TreatSeeder
-from swarm_field.swarm.field import Seed
 
 
 @dataclass(frozen=True)
@@ -103,6 +102,13 @@ class Behavior(Protocol):
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]: ...
 
 
+_TREAT_SCORE = 0.99
+"""The score of treating the pest the robot stands on.
+
+Just below 1, so that the battery behaviour can still outbid it to save the robot from dying.
+"""
+
+
 class TreatInfestation:
     """The pest-response behaviour: follow the field of the TREAT seeder and treat on arrival."""
 
@@ -112,15 +118,19 @@ class TreatInfestation:
         self._seeder: str = seeder
 
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
-        peers: Iterator[PeerObservation] = ctx.memory.peers()
-        num_killers: Int = len(filter(lambda peer: peer.body == BodyType.KILLER))
-        seeds: Tuple[Seed, ...] = sef._seeder.seeds()
-        # Do not put the score at 1, because the battery behavior should be able to get 
-        # a higher score to save the robot from dying
-        score = 0.99
-        for seed in seeds:
-            if seed.cell == ctx.self_state.position:
-                return (ActionCandidate(Treat(position), score, self.name, target),)
-        num_seeds: Int = len(seeds)
-        score = 1 / (1 + math.exp(-(num_seeds - num_killers)))
-        return (ActionCandidate(FollowField(self._seeder), score, self.name),)
+        position = ctx.self_state.position
+        seeded = ctx.fields.field_for(self._seeder, position, ctx.time)
+        if seeded is None:
+            return ()
+        for seed in seeded.seeds:
+            if seed.cell == position:
+                return (ActionCandidate(Treat(position), _TREAT_SCORE, self.name, position),)
+
+        num_killers = 0
+        for peer in ctx.memory.peers():
+            if peer.body is BodyType.KILLER:
+                num_killers += 1
+        # The more pests are left per killer already known, the more this robot is needed.
+        score = 1 / (1 + math.exp(-(len(seeded.seeds) - num_killers)))
+        target = seeded.field.target_for(position)
+        return (ActionCandidate(FollowField(self._seeder), score, self.name, target),)

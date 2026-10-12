@@ -11,7 +11,14 @@ from matplotlib.animation import FuncAnimation
 
 from swarm_field.contracts import BodyType, FieldGeometry, InfestationObservation, Perception
 from swarm_field.simulation import RobotState, WorldState
-from swarm_field.swarm import AgentMemory, ComposedAgent, Navigator, TreatInfestation, TreatSeeder
+from swarm_field.swarm import (
+    AgentMemory,
+    ComposedAgent,
+    FieldProvider,
+    Navigator,
+    TreatInfestation,
+    TreatSeeder,
+)
 from swarm_field.visualization import MatplotlibRenderer
 
 ROBOT_ID = 1
@@ -44,11 +51,13 @@ def make_agent(field: FieldGeometry) -> ComposedAgent:
     # The robot already knows about the pests, as if a scout had reported them.
     for cell, severity in PESTS.items():
         memory.merge([InfestationObservation(cell, 1.0, 0, 2, severity=severity, pest=None)])
+    fields = FieldProvider(memory, flies=False, seeders=[TreatSeeder()])
     return ComposedAgent(
         robot_id=ROBOT_ID,
         behaviors=[TreatInfestation()],
         memory=memory,
-        navigator=Navigator(memory, flies=False, seeders=[TreatSeeder()]),
+        fields=fields,
+        navigator=Navigator(fields.quadtree),
     )
 
 

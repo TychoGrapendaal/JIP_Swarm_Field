@@ -80,7 +80,6 @@ class AgentMemory:
         self._robot_id: RobotId = robot_id
         self._field: FieldGeometry = field
         self._decay: DecayConfig = DecayConfig()
-        self._target: CellId = None
         if decay is not None:
             self._decay = decay
         self._terrain: dict[CellId, TerrainObservation] = {}
