@@ -97,6 +97,7 @@ class TreatSeeder:
         for pest in memory.infestations():
             if pest.severity > 0:
                 infested.add(pest.cell)
+        # If this is too expensive, we can remove one of the sets
         return (now // TimeUnit.MINUTE, frozenset(infested), _cells_targeted_by_peers(memory))
 
     def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
