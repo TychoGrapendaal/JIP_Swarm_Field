@@ -1,0 +1,56 @@
+# Runs on every pull request into main and on every push to main. Each job shows up as its own
+# status check on the pull request, so a failing check is visible before merging.
+name: Checks
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  checks:
+    name: ${{ matrix.check.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      # Run every check even if one fails, so the pull request shows all problems at once.
+      fail-fast: false
+      matrix:
+        check:
+          - name: Tests (pytest)
+            run: uv run pytest
+          - name: Lint (ruff check)
+            run: uv run ruff check .
+          - name: Format (ruff format)
+            run: uv run ruff format --check .
+          - name: Types (pyrefly)
+            run: uv run pyrefly check
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --locked
+      - name: ${{ matrix.check.name }}
+        run: ${{ matrix.check.run }}
+
+  up-to-date:
+    name: Up to date with main
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      # Check out the branch itself, not the merge commit GitHub builds for a pull request.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: Check that the branch contains the latest main
+        run: |
+          git fetch origin main
+          if git merge-base --is-ancestor origin/main HEAD; then
+            echo "The branch contains the latest commit of main."
+          else
+            echo "::error::The branch is behind main. Merge or rebase main into it."
+            exit 1
+          fi
