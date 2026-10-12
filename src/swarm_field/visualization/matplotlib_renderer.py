@@ -8,6 +8,7 @@ the ``visualization`` package) does not require matplotlib to be installed.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -216,3 +217,44 @@ class FrameWriter:
         path = self.directory / f"{self.stem}_{self.frames_written:04d}.png"
         self.renderer.figure.savefig(path, dpi=self._dpi)
         self.frames_written += 1
+
+
+VIDEO_SUFFIXES: tuple[str, ...] = (".gif", ".mp4")
+"""Suffixes ``save_frames`` writes as one video file rather than a directory of PNGs."""
+
+
+def save_frames(
+    figure: Figure,
+    draw_frame: Callable[[int], None],
+    frames: int,
+    path: Path,
+    fps: int = 16,
+    dpi: int = 120,
+) -> None:
+    """Draw ``frames`` frames into ``figure`` without a window and write them to ``path``.
+
+    A ``.gif`` path is written with Pillow and an ``.mp4`` path with ffmpeg, which must be on the
+    ``PATH``; any other path is a directory that receives one PNG per frame.
+
+    Args:
+        figure: The figure ``draw_frame`` draws into.
+        draw_frame: Draws frame ``index`` into the figure, advancing whatever it shows.
+        frames: How many frames to draw.
+        path: The video file, or the directory for the PNGs; parents are created.
+        fps: Frames per second of a video.
+        dpi: Resolution of the PNG frames.
+    """
+    from matplotlib.animation import FFMpegWriter, FuncAnimation, PillowWriter
+
+    if path.suffix in VIDEO_SUFFIXES:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        animation = FuncAnimation(figure, draw_frame, frames=frames, repeat=False)
+        writer = PillowWriter(fps=fps)
+        if path.suffix == ".mp4":
+            writer = FFMpegWriter(fps=fps)
+        animation.save(str(path), writer=writer)
+        return
+    path.mkdir(parents=True, exist_ok=True)
+    for index in range(frames):
+        draw_frame(index)
+        figure.savefig(path / f"frame_{index:04d}.png", dpi=dpi)

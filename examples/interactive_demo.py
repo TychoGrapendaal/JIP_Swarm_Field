@@ -38,7 +38,7 @@ from pathlib import Path
 from random import Random
 
 import matplotlib.pyplot as plt
-from matplotlib.animation import FFMpegWriter, FuncAnimation, PillowWriter
+from matplotlib.animation import FuncAnimation
 
 from swarm_field.contracts import (
     BodyType,
@@ -75,7 +75,7 @@ from swarm_field.swarm import (
     Navigator,
 )
 from swarm_field.swarm.field import Seed
-from swarm_field.visualization import MatplotlibRenderer
+from swarm_field.visualization import MatplotlibRenderer, save_frames
 
 FIELD_WIDTH = 24
 FIELD_HEIGHT = 16
@@ -85,7 +85,6 @@ WORLD_TICK_PERIOD = 3_000
 INJECT_SEVERITY = 0.8
 DEFAULT_FRAMES = 240
 FRAME_INTERVAL_MS = 60
-VIDEO_SUFFIXES = (".gif", ".mp4")
 SPEED_BY_BODY = {
     BodyType.SCOUT: 2.0,
     BodyType.KILLER: 1.2,
@@ -384,26 +383,14 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def save_frames(console: InteractiveConsole, frames: int, path: Path) -> None:
+def save_session(console: InteractiveConsole, frames: int, path: Path) -> None:
     """Run ``frames`` frames without a window, writing a video or a directory of PNGs."""
     figure = console.renderer.figure
-    if path.suffix in VIDEO_SUFFIXES:
-        path.parent.mkdir(parents=True, exist_ok=True)
 
-        def update(_frame: int) -> None:
-            console.advance(render=True)
+    def draw_frame(_index: int) -> None:
+        console.advance(render=True)
 
-        animation = FuncAnimation(figure, update, frames=frames, repeat=False)
-        fps = 1000 // FRAME_INTERVAL_MS
-        writer = PillowWriter(fps=fps)
-        if path.suffix == ".mp4":
-            writer = FFMpegWriter(fps=fps)
-        animation.save(str(path), writer=writer)
-    else:
-        path.mkdir(parents=True, exist_ok=True)
-        for frame in range(frames):
-            console.advance(render=True)
-            figure.savefig(path / f"frame_{frame:04d}.png", dpi=120)
+    save_frames(figure, draw_frame, frames, path, fps=1000 // FRAME_INTERVAL_MS)
     plt.close(figure)
     print(f"Wrote {frames} frames to {path}")
 
@@ -435,7 +422,7 @@ def main() -> None:
             frames = math.ceil(log.until / BASE_STEP_MS) + 1
 
     if args.save is not None:
-        save_frames(console, frames, args.save)
+        save_session(console, frames, args.save)
         write_recording(console, args.record)
         return
 

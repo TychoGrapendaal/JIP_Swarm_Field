@@ -30,6 +30,11 @@ Run:
 
 Headless (write frames as PNGs instead of opening a window):
     uv run python examples/scenario_viewer.py --frames 240 --save frames/viewer
+
+Record a whole experiment in the background as a video (``.gif``, or ``.mp4`` if ffmpeg is
+installed): no window opens, the run goes to its ``--hours`` horizon and stops. ``--speed`` sets
+how much simulated time one frame covers, and so how long the video is:
+    uv run python examples/scenario_viewer.py --scenario S2 --hours 6 --speed 16 --save runs/s2.mp4
 """
 
 from __future__ import annotations
@@ -61,7 +66,7 @@ from swarm_field.simulation import (
     SimulationContext,
     SimulationLoop,
 )
-from swarm_field.visualization import MatplotlibRenderer
+from swarm_field.visualization import MatplotlibRenderer, save_frames
 
 HOUR_MS = TimeUnit.HOUR
 DEFAULT_SCENARIO = ScenarioId.S2
@@ -318,10 +323,16 @@ def parse_args() -> argparse.Namespace:
         help="maximum number of frames to draw before the window stops",
     )
     parser.add_argument(
+        "--speed",
+        type=float,
+        default=INITIAL_SPEED,
+        help=f"starting speed: one frame covers {BASE_STEP_MS / 1000:g} s of simulation times this",
+    )
+    parser.add_argument(
         "--save",
         type=Path,
         default=None,
-        help="directory to save PNG frames instead of opening a window",
+        help="run to the horizon without a window, into a .gif or .mp4 video or a PNG directory",
     )
     return parser.parse_args()
 
@@ -338,19 +349,24 @@ def main() -> None:
         metrics=MetricsConfig(period=METRICS_PERIOD_MS),
     )
     viewer = ScenarioViewer(config, MatplotlibRenderer())
+    viewer.speed = args.speed
     renderer = viewer.renderer
 
     if args.save is not None:
-        args.save.mkdir(parents=True, exist_ok=True)
-        written = 0
-        while written < args.frames and not viewer.finished:
-            viewer.advance()
-            viewer.draw()
-            renderer.figure.savefig(args.save / f"frame_{written:04d}.png", dpi=120)
-            written += 1
+        # Every frame advances the same slice of simulated time, so the frames that reach the
+        # horizon are known up front, which a video writer needs.
+        to_horizon = math.ceil(config.until / (BASE_STEP_MS * viewer.speed))
+        frames = min(args.frames, to_horizon)
+        save_frames(
+            renderer.figure,
+            lambda _index: viewer.advance(render=True),
+            frames,
+            args.save,
+            fps=1000 // FRAME_INTERVAL_MS,
+        )
         plt.close(renderer.figure)
         state = "the run finished" if viewer.finished else f"only {args.frames} frames were drawn"
-        print(f"Wrote {written} frames to {args.save}: {state}")
+        print(f"Wrote {frames} frames to {args.save}: {state}")
         return
 
     renderer.figure.canvas.mpl_connect("key_press_event", viewer.on_key)

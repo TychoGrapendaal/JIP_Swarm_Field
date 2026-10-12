@@ -7,7 +7,11 @@ this package stays importable without the optional visualization technology inst
 """
 
 from swarm_field.contracts import Renderer
-from swarm_field.visualization.matplotlib_renderer import FrameWriter, MatplotlibRenderer
+from swarm_field.visualization.matplotlib_renderer import (
+    FrameWriter,
+    MatplotlibRenderer,
+    save_frames,
+)
 from swarm_field.visualization.renderer import TextRenderer
 
 __all__ = [
@@ -15,4 +19,5 @@ __all__ = [
     "MatplotlibRenderer",
     "Renderer",
     "TextRenderer",
+    "save_frames",
 ]

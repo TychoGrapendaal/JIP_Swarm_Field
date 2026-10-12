@@ -199,6 +199,24 @@ A scenario preset carries no duration of its own, so `--hours` sets the horizon.
 uv run python examples/scenario_viewer.py --frames 240 --save frames/viewer
 ```
 
+#### Recording an experiment in the background
+
+Give `--save` a video file to record a whole experiment without opening a window. The run goes to its `--hours` horizon, writes the video and stops:
+
+```bash
+uv run python examples/scenario_viewer.py --scenario S2 --hours 6 --speed 16 --save runs/s2.mp4
+```
+
+Like in the interactive console, `.gif` needs no extra software and `.mp4` needs [ffmpeg](https://ffmpeg.org/) on the `PATH`. `--speed` sets how much simulated time one frame covers: 0.5 s times the speed, so the default speed of 4 shows 2 s per frame. The video plays at 16 frames per second, which gives these lengths for a run of `H` hours:
+
+| `--speed` | Simulated time per frame | Frames per simulated hour | Video length per simulated hour |
+|---|---|---|---|
+| 4 (default) | 2 s | 1800 | about 1 min 53 s |
+| 16 | 8 s | 450 | about 28 s |
+| 64 | 32 s | 113 | about 7 s |
+
+Drawing a frame takes roughly a tenth of a second, so a long run at a low speed takes a few minutes to record. `--frames N` caps the video at `N` frames; the run then stops before its horizon. Without `--save`, `--speed` is the speed the window starts at.
+
 ### Seeded scenario sweep with metrics (B.5)
 
 ```bash
