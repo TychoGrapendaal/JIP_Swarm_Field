@@ -13,14 +13,14 @@ measures of ``CoverageTracker``, as the mean over the seeds:
 
 Runs are spread over processes. Not part of ``pytest``; run it with:
 
-    uv run python -m tests.benchmark_explore --size 32 --hours 3 --seeds 4
+    uv run python -m tests.benchmark_explore --size 32 --hours 3 --seeds 4 --sections values
 """
 
 from __future__ import annotations
 
 import argparse
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, replace
 from statistics import mean
@@ -34,6 +34,7 @@ from swarm_field.experiments import (
 )
 from swarm_field.simulation import CoverageSummary
 from swarm_field.swarm import ExploreConfig, ExploreSeeder, FieldSeeder
+from swarm_field.swarm.explore import Growth
 
 _REFERENCE = ExploreConfig()
 """The variant the others are compared with: the defaults, 8 x 8 blocks with the discount."""
@@ -100,6 +101,32 @@ def parameter_sweep() -> Iterator[Variant]:
         yield Variant(f"revisit age {minutes} min", replace(_REFERENCE, revisit_age=age))
     for beta in (16.0, 32.0, 128.0):
         yield Variant(f"beta {beta:g}", replace(_REFERENCE, beta=beta))
+
+
+def value_rules() -> Iterator[Variant]:
+    """How stale cells grow and how blocks are valued, at two revisit ages.
+
+    The saturating growth with the plain block mean is the rule of the earlier benchmarks; the
+    others are the two fixes for holes, alone and together.
+    """
+    for minutes in (28, 56):
+        aged = replace(_REFERENCE, revisit_age=minutes * TimeUnit.MINUTE)
+        linear = replace(aged, growth=Growth.LINEAR)
+        yield Variant(f"A {minutes}: saturating, mean", aged)
+        for peak in (0.25, 0.5, 1.0):
+            yield Variant(
+                f"A {minutes}: saturating, lambda {peak:g}", replace(aged, block_peak=peak)
+            )
+        yield Variant(f"A {minutes}: linear, mean", linear)
+        yield Variant(f"A {minutes}: linear, lambda 0.5", replace(linear, block_peak=0.5))
+
+
+SECTIONS: dict[str, tuple[str, Callable[[], Iterator[Variant]]]] = {
+    "variants": ("Variants", variants),
+    "parameters": ("Parameters around the defaults", parameter_sweep),
+    "values": ("Value rules", value_rules),
+}
+"""The tables the benchmark can print, by their name on the command line."""
 
 
 def run(job: Job) -> Result:
@@ -172,18 +199,19 @@ def main() -> None:
     parser.add_argument("--hours", type=float, default=3.0, help="simulated time per run")
     parser.add_argument("--seeds", type=int, default=4, help="runs per variant")
     parser.add_argument("--jobs", type=int, default=8, help="processes")
-    parser.add_argument("--no-sweep", action="store_true", help="skip the parameter sweep")
+    parser.add_argument(
+        "--sections", nargs="+", choices=SECTIONS, default=list(SECTIONS), help="tables to print"
+    )
     args = parser.parse_args()
 
     print(
         f"{args.robots} robots, {args.size} x {args.size} cells of 10 m, {args.hours} h, "
         f"mean over {args.seeds} seeds"
     )
-    sections = [("Variants", list(variants()))]
-    if not args.no_sweep:
-        sections.append(("Parameters around the defaults", list(parameter_sweep())))
     with ProcessPoolExecutor(max_workers=args.jobs) as pool:
-        for title, section in sections:
+        for name in args.sections:
+            title, make_variants = SECTIONS[name]
+            section = list(make_variants())
             jobs: list[Job] = []
             for variant in section:
                 jobs.extend(
