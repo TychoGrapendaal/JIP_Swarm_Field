@@ -1,9 +1,9 @@
 """Field seeders: which cells a grid potential field draws a robot to, and how much.
 
 A ``FieldSeeder`` reads the robot's memory and turns it into the ``Seed``s of one grid potential
-field (TREAT, EXPLORE, ...). Seeders are registered by name in the robot's ``Navigator`` when
-the brain is assembled. Behaviours ask the navigator for a seeder's field by that name, and only
-the navigator calls the seeder, whenever its cached field no longer answers.
+field (TREAT, EXPLORE, ...). Seeders are registered by name in the robot's ``FieldProvider``
+when the brain is assembled. Behaviours ask the provider for a seeder's field by that name, and
+only the provider calls the seeder, whenever its cached field no longer answers.
 """
 
 from collections.abc import Hashable
@@ -19,7 +19,7 @@ class FieldSeeder(Protocol):
     """Specifies one grid potential field: its targets, read from memory, and when they change.
 
     Attributes:
-        name: Identifies the seeder in the navigator, and so the field's cache slot.
+        name: Identifies the seeder in the field provider, and so the field's cache slot.
     """
 
     name: str
@@ -29,7 +29,7 @@ class FieldSeeder(Protocol):
 
         The field is rebuilt only when this key, the terrain or the robot's block changes, so
         the key covers what the seeds depend on and nothing else; terrain is accounted for by
-        the navigator. Seeds that drift continuously, such as values weighted by a decaying
+        the field provider. Seeds that drift continuously, such as values weighted by a decaying
         confidence, need a coarse key, e.g. a memory version plus a time bucket.
         """
         ...

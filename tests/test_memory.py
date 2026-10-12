@@ -10,6 +10,7 @@ from swarm_field.contracts import (
     InfestationObservation,
     Observation,
     PeerObservation,
+    PeerTargetObservation,
     Perception,
     RobotId,
     RobotSelfState,
@@ -137,3 +138,55 @@ def test_confidence_decays_per_kind() -> None:
 
     assert isclose(memory.confidence(pest, now=decay.infestation), exp(-1))
     assert memory.confidence(terrain, now=10 * decay.infestation) == 1.0
+
+
+def _peer_target(
+    source: RobotId,
+    target: CellId | None,
+    at: Time,
+    objective: str | None = "treat",
+    confidence: float = 1.0,
+) -> PeerTargetObservation:
+    return PeerTargetObservation(
+        source=source,
+        target=target,
+        objective=objective if target is not None else None,
+        confidence=confidence,
+        observed_at=at,
+    )
+
+
+def test_peer_target_memory_keeps_only_the_newest_announcement_per_peer() -> None:
+    memory = _memory()
+    older = _peer_target(source=2, target=(3, 3), at=10)
+    newest = _peer_target(source=2, target=(6, 6), at=20)
+    own = _peer_target(source=_SELF, target=(9, 9), at=30)
+
+    memory.merge([older, newest, _peer_target(source=2, target=(1, 1), at=5), own])
+
+    assert list(memory.peer_targets()) == [newest]
+    assert newest in tuple(memory.records())
+
+
+def test_a_peer_can_clear_its_current_target_with_a_newer_announcement() -> None:
+    memory = _memory()
+    old_target = _peer_target(source=2, target=(3, 3), at=10)
+    cleared_target = _peer_target(source=2, target=None, at=20, objective=None)
+
+    memory.merge([old_target, cleared_target])
+
+    assert list(memory.peer_targets()) == [cleared_target]
+    assert memory.peer_target_confidence((3, 3), "treat", now=20) == 0.0
+
+
+def test_peer_target_confidence_decays_like_other_peer_facts() -> None:
+    memory = _memory()
+    target = _peer_target(source=2, target=(3, 3), at=0, confidence=0.8)
+    memory.merge([target])
+
+    assert isclose(memory.peer_target_confidence((3, 3), "treat", now=0), 0.8)
+    assert isclose(
+        memory.peer_target_confidence((3, 3), "treat", now=DecayConfig().peer),
+        0.8 * exp(-1),
+    )
+    assert memory.peer_target_confidence((3, 3), "explore", now=0) == 0.0

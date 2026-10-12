@@ -28,6 +28,7 @@ from swarm_field.contracts.observations import (
     Observation,
     ObservationBase,
     PeerObservation,
+    PeerTargetObservation,
     TerrainObservation,
 )
 from swarm_field.contracts.scenario import PestDynamicsSpec, RobotSpec, ScenarioConfig, ScenarioId
@@ -54,6 +55,7 @@ __all__ = [
     "Observation",
     "ObservationBase",
     "PeerObservation",
+    "PeerTargetObservation",
     "Perception",
     "PestDynamicsSpec",
     "PestType",

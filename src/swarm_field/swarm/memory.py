@@ -17,8 +17,8 @@ from swarm_field.contracts import (
     FieldGeometry,
     InfestationObservation,
     Observation,
-    ObservationBase,
     PeerObservation,
+    PeerTargetObservation,
     Perception,
     RobotId,
     Terrain,
@@ -47,10 +47,17 @@ class DecayConfig:
         match fact:
             case InfestationObservation():
                 return self.infestation
-            case PeerObservation():
+            case PeerObservation() | PeerTargetObservation():
                 return self.peer
             case _:
                 return None
+
+
+class _Timestamped(Protocol):
+    """Read-only timestamp contract shared by stored observation facts."""
+
+    @property
+    def observed_at(self) -> Time: ...
 
 
 class MemoryView(Protocol):
@@ -64,14 +71,19 @@ class MemoryView(Protocol):
 
     def peers(self) -> Iterator[PeerObservation]: ...
 
+    def peer_targets(self) -> Iterator[PeerTargetObservation]: ...
+
+    def peer_target_confidence(self, target: CellId, objective: str, now: Time) -> float: ...
+
     def confidence(self, fact: Observation, now: Time) -> float: ...
 
 
 class AgentMemory:
     """One robot's facts about the field and its peers, merged from its own sensing and peers.
 
-    Terrain, infestation and peer facts are stored; crop facts, anonymous peer sightings and
-    sightings of the robot itself are ignored.
+    Terrain, infestation, named peer sightings and peer-target announcements are stored; crop
+    facts, anonymous peer sightings, and sightings/target reports from the robot itself are
+    ignored.
     """
 
     def __init__(
@@ -85,6 +97,7 @@ class AgentMemory:
         self._terrain: dict[CellId, TerrainObservation] = {}
         self._infestation: dict[CellId, InfestationObservation] = {}
         self._peers: dict[RobotId, PeerObservation] = {}
+        self._peer_targets: dict[RobotId, PeerTargetObservation] = {}
 
     @property
     def width(self) -> int:
@@ -112,12 +125,19 @@ class AgentMemory:
                     _keep_newest(self._infestation, fact.cell, fact)
                 case PeerObservation(peer=int() as peer) if peer != self._robot_id:
                     _keep_newest(self._peers, peer, fact)
+                case PeerTargetObservation(source=int() as peer) if peer != self._robot_id:
+                    _keep_newest(self._peer_targets, peer, fact)
                 case _:
                     pass
 
     def records(self) -> Iterator[Observation]:
         """Every stored fact, e.g. to share with a peer."""
-        return chain(self._terrain.values(), self._infestation.values(), self._peers.values())
+        return chain(
+            self._terrain.values(),
+            self._infestation.values(),
+            self._peers.values(),
+            self._peer_targets.values(),
+        )
 
     def snapshot(self) -> tuple[Observation, ...]:
         """All stored facts, for ``AgentInspection.belief``."""
@@ -146,6 +166,25 @@ class AgentMemory:
     def peers(self) -> Iterator[PeerObservation]:
         return iter(self._peers.values())
 
+    def peer_targets(self) -> Iterator[PeerTargetObservation]:
+        """The newest target announcement from each other robot, including explicit clears."""
+        return iter(self._peer_targets.values())
+
+    def peer_target_confidence(self, target: CellId, objective: str, now: Time) -> float:
+        """Return the strongest fresh claim on ``target`` for ``objective``.
+
+        Zero means no peer currently advertises that exact target/objective pair. Announcements
+        lose influence using the same decay time as other peer facts.
+        """
+        return max(
+            (
+                self.confidence(fact, now)
+                for fact in self._peer_targets.values()
+                if fact.target == target and fact.objective == objective
+            ),
+            default=0.0,
+        )
+
     def confidence(self, fact: Observation, now: Time) -> float:
         """How far a fact can be trusted at ``now``: its initial confidence, decayed by age."""
         decay_time = self._decay.decay_time_of(fact)
@@ -154,7 +193,7 @@ class AgentMemory:
         return fact.confidence * exp(-(now - fact.observed_at) / decay_time)
 
 
-def _keep_newest[K, F: ObservationBase](store: dict[K, F], key: K, fact: F) -> None:
+def _keep_newest[K, F: _Timestamped](store: dict[K, F], key: K, fact: F) -> None:
     """Store ``fact`` under ``key`` unless the stored fact is at least as new."""
     stored = store.get(key)
     if stored is None or fact.observed_at > stored.observed_at:

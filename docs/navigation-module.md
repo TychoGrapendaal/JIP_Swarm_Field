@@ -4,7 +4,7 @@
 >
 > **Scope.** The module **receives** goals from the Decision Engine (A.1); which cells are worth walking to is a decision, not a navigation concern. As in the decomposition doc, the type sketches are real contract shapes but field lists may grow — they fix the seam between A.1 (what is wanted) and A.3 (how to move), never the internals of other modules.
 >
-> **A note on the architecture's `Navigator` port.** [`architecture.md`](./architecture.md) sketches a `Navigator.step_towards(target: CellId) -> Action`. The port in the code is two calls on the `Navigator`: `field_for(seeder, robot, now)` builds (or reuses) the potential field of the targets a `FieldSeeder` scored, not a single trusted cell address, and `step_towards(seeded, robot)` turns that field into one `Move` (or `Idle`). A behaviour never calls the second: it proposes `FollowField(seeder)`, and the brain steps along that field only for the winning candidate. The goal therefore *is* a set of cells — the module plans over the terrain the robot believes in, and the only absolute cell it trusts is the one it is standing on. This document designs the *reactive* half of that seam — the policy that turns a goal into a step with no map — as the `Steerer` of `swarm/steering.py`, which is handed a goal as a relative vector and probes clearance one cell at a time. Where the robot *does* have a map of believed terrain — the quadtree of its own memory — the `Navigator` in front of it prefers a Dijkstra potential field and only calls the `Steerer` when that field cannot guide, so everything below still holds as the fallback path (see §10.1).
+> **A note on the architecture's `Navigator` port.** [`architecture.md`](./architecture.md) sketches a `Navigator.step_towards(target: CellId) -> Action`. The port in the code is two calls: `FieldProvider.field_for(seeder, robot, now)` builds (or reuses) the potential field of the targets a `FieldSeeder` scored, not a single trusted cell address, and `Navigator.step_towards(seeded, robot)` turns that field into one `Move` (or `Idle`). A behaviour never calls the second: it proposes `FollowField(seeder)`, and the brain steps along that field only for the winning candidate. The goal therefore *is* a set of cells — the module plans over the terrain the robot believes in, and the only absolute cell it trusts is the one it is standing on. This document designs the *reactive* half of that seam — the policy that turns a goal into a step with no map — as the `Steerer` of `swarm/steering.py`, which is handed a goal as a relative vector and probes clearance one cell at a time. Where the robot *does* have a map of believed terrain — the quadtree of its own memory — the `Navigator` in front of it prefers a Dijkstra potential field and only calls the `Steerer` when that field cannot guide, so everything below still holds as the fallback path (see §10.1).
 
 ---
 
@@ -72,7 +72,7 @@ All spatial knowledge comes from two sources only:
 
 ## 4. The goal on the seam
 
-A.1 tells navigation what it wants by naming the field of the objective it is pursuing, and nothing else. The field's targets come from a `FieldSeeder` registered in the navigator under that name:
+A.1 tells navigation what it wants by naming the field of the objective it is pursuing, and nothing else. The field's targets come from a `FieldSeeder` registered in the field provider under that name:
 
 ```python
 # swarm_field.swarm.field
@@ -92,8 +92,10 @@ class FieldSeeder(Protocol):
 class FollowField:
     seeder: str           # the winning candidate's goal: step along this seeder's field
 
-# swarm_field.swarm.navigator
+# swarm_field.swarm.provider.FieldProvider
 def field_for(self, seeder: str, robot: CellId, now: Time) -> SeededField | None: ...
+
+# swarm_field.swarm.navigator.Navigator
 def step_towards(self, seeded: SeededField, robot: CellId) -> Move | Idle: ...
 ```
 
@@ -217,9 +219,9 @@ The policy, one physical action per decision point (Section 8): the goal is name
 
 ### 10.1 Where the field takes over
 
-The reactive policy described above assumes the robot has no map, only the clearance ring. A robot that also builds a local map does better with one: a Dijkstra potential field over the quadtree of its believed terrain (`swarm/field/`) gives a near-optimal route around every obstacle it knows, at any distance, and one step of that route is still just a `Move(to=<adjacent cell>)`. So `swarm/navigator.py` puts the field in front of that policy, and the `Steerer` became the fallback rather than the way:
+The reactive policy described above assumes the robot has no map, only the clearance ring. A robot that also builds a local map does better with one: a Dijkstra potential field over the quadtree of its believed terrain (`swarm/field/`) gives a near-optimal route around every obstacle it knows, at any distance, and one step of that route is still just a `Move(to=<adjacent cell>)`. So `swarm/navigator.py` puts the field, from `swarm/provider.py`, in front of that policy, and the `Steerer` became the fallback rather than the way:
 
-- **The field guides.** `field_for(seeder, robot, now)` builds (or reuses) the field for the seeder's targets, and `step_towards(seeded, robot)` returns the neighbouring cell the field points at. Distance to the target is irrelevant: a field is better than a wall-follow at every range, because it sees the whole window instead of one cell.
+- **The field guides.** `FieldProvider.field_for(seeder, robot, now)` builds (or reuses) the field for the seeder's targets, and `step_towards(seeded, robot)` returns the neighbouring cell the field points at. Distance to the target is irrelevant: a field is better than a wall-follow at every range, because it sees the whole window instead of one cell.
 - **The steerer guides when the field cannot.** Either no wave reaches the robot at all — nothing is reachable, so the steerer walks towards the objective's most attractive target and stalls if it is walled off — or the field stopped guiding: the potential at the robot's cell stopped beating its running minimum for a few ticks, which is how a robot near the edge of its window would turn back and forth over approximate leaf distances. Three ticks without progress is enough to hand over.
 - **The handover is not latched.** Every decision point the field is asked first, so the robot returns to the field route as soon as the field points forward again.
 
