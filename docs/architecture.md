@@ -101,7 +101,8 @@ The pluggable ports inside the brain:
 | `Behavior` | bid for what the robot does next: scored candidates carrying an intent, from a read‑only context | scout‑coverage, treat‑nearest‑pest, return‑to‑charge |
 | `FieldSeeder` | turn memory into the targets (`Seed`s) of one potential field, and say when they change | TREAT pests, EXPLORE stale cells, RECHARGE docks |
 | `Arbiter` | fuse candidates into one chosen action | max‑utility, weighted sum, priority with hysteresis |
-| `Navigator` | hand out the seeders' fields, and turn the winner's field into a concrete `Move` | potential‑field, coverage‑control, greedy‑grid |
+| `FieldProvider` | build the seeders' fields and cache one per seeder, for behaviors and the navigator | quadtree potential field, uniform grid |
+| `Navigator` | turn the winner's field into a concrete `Move` | potential‑field, coverage‑control, greedy‑grid |
 | `CommsStrategy` | decode inbox → memory, encode memory → outbox | map‑merge, vicinity‑vector, stigmergy marks |
 | `CapabilitySet` | declare which action types the body can perform | scout (senses), killer (Treat), battery (Charge) |
 
@@ -120,8 +121,10 @@ class FieldSeeder(Protocol):      # the targets of one potential field, register
     def field_key(self, memory: "MemoryView", now: Time) -> Hashable: ...  # changes when the seeds do
     def seeds(self, memory: "MemoryView", robot: CellId, now: Time) -> tuple[Seed, ...]: ...
 
-class Navigator:                  # holds the seeders, caches their fields, moves the winner
+class FieldProvider:              # holds the seeders and the quadtree, caches one field per seeder
     def field_for(self, seeder: str, robot: CellId, now: Time) -> SeededField | None: ...
+
+class Navigator:                  # moves the winner along its field
     def step_towards(self, seeded: SeededField, robot: CellId) -> Move | Idle: ...
 
 @dataclass(frozen=True)
@@ -143,7 +146,7 @@ class DecisionContext:            # read-only bundle handed to every behavior
     self_state: RobotSelfState
     memory: "MemoryView"
     capabilities: "CapabilitySet"
-    fields: Navigator             # the seeders' fields, read by behaviors to score
+    fields: FieldProvider         # the seeders' fields, read by behaviors to score
 
 class Behavior(Protocol):
     name: str
@@ -181,7 +184,7 @@ class ComposedAgent:                     # implements SwarmAgent
         self.memory.decay(perception.time)
 
         ctx = DecisionContext(perception.time, perception.self_state,
-                              self.memory.view(), self.capabilities, self.navigator)
+                              self.memory.view(), self.capabilities, self.fields)
 
         candidates: list[ActionCandidate] = []
         for behavior in self.behaviors:
@@ -190,7 +193,7 @@ class ComposedAgent:                     # implements SwarmAgent
                     candidates.append(candidate)
 
         winner = self.arbiter.choose(candidates, ctx)
-        action = self.action_for(winner)   # FollowField: navigator steps along that field;
+        action = self.action_for(winner)   # FollowField: navigator steps along the provider's field;
                                            # any other intent passes through; no winner: Idle
         outbox = self.comms.broadcast(self.memory, ctx)
         return Decision(action, outbox)
