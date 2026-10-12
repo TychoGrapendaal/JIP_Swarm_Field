@@ -1,8 +1,8 @@
 """The composed robot brain (A).
 
 ``ComposedAgent`` is the thin orchestrator that implements the ``SwarmAgent`` boundary. At each
-decision point it merges what the robot sensed and received into its memory, keeps the
-navigator's quadtree in sync with new terrain facts, gathers the scored candidates of its
+decision point it merges what the robot sensed and received into its memory, keeps the field
+provider's quadtree in sync with new terrain facts, gathers the scored candidates of its
 behaviors, picks the best and turns its intent into one action: the navigator steps along the
 field a ``FollowField`` names, and any other intent passes through. Communication and capability
 gating are added as those parts are built.
@@ -35,18 +35,21 @@ from swarm_field.swarm.behavior import (
 )
 from swarm_field.swarm.memory import AgentMemory
 from swarm_field.swarm.navigator import Navigator
+from swarm_field.swarm.provider import FieldProvider
 
 logger = logging.getLogger(__name__)
 
 
 class ComposedAgent:
-    """A robot brain assembled from a memory, a navigator and a list of behaviors.
+    """A robot brain assembled from a memory, a field provider, a navigator and behaviors.
 
     Attributes:
         robot_id: The robot this brain drives.
         behaviors: The composable pieces of decision logic, combined at each decision point.
         memory: The robot's facts about the field and its peers.
-        navigator: The robot's quadtree, and the grid potential fields built on it.
+        fields: The robot's quadtree, and the grid potential fields of its seeders, shared by
+            the behaviors (to score) and the navigator (to move).
+        navigator: Moves the robot along the winning candidate's field.
     """
 
     def __init__(
@@ -54,11 +57,13 @@ class ComposedAgent:
         robot_id: RobotId,
         behaviors: list[Behavior],
         memory: AgentMemory,
+        fields: FieldProvider,
         navigator: Navigator,
     ) -> None:
         self.robot_id: RobotId = robot_id
         self.behaviors: list[Behavior] = behaviors
         self.memory: AgentMemory = memory
+        self.fields: FieldProvider = fields
         self.navigator: Navigator = navigator
         self._current_goal: str | None = None
 
@@ -71,14 +76,14 @@ class ComposedAgent:
             for fact in [*perception.sensed, *received]
             if isinstance(fact, TerrainObservation)
         ]
-        self.navigator.update_terrain(terrain_cells)
+        self.fields.update_terrain(terrain_cells)
 
         ctx = DecisionContext(
             time=perception.time,
             self_state=perception.self_state,
             sensed=perception.sensed,
             memory=self.memory,
-            fields=self.navigator,
+            fields=self.fields,
             inbox=perception.inbox,
         )
         candidates: list[ActionCandidate] = []
@@ -108,7 +113,7 @@ class ComposedAgent:
         """The action that carries out the winning candidate's intent."""
         if not isinstance(intent, FollowField):
             return intent
-        field = self.navigator.field_for(intent.seeder, robot, now)
+        field = self.fields.field_for(intent.seeder, robot, now)
         if field is None:
             logger.warning("FollowField couldn't find the corresponding field %s", intent.seeder)
             return Idle()
