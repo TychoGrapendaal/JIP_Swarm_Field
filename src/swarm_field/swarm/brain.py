@@ -5,8 +5,9 @@ decision point it merges what the robot sensed and received into its memory, kee
 provider's quadtree in sync with new terrain facts, gathers the scored candidates of its
 behaviors, lets its arbiter pick one (or takes the highest score without one) and turns its
 intent into one action: the navigator steps along the field a ``FollowField`` names, and any
-other intent passes through. Communication and capability gating are added as those parts are
-built.
+other intent passes through. The robot broadcasts its memory in a ``KNOWLEDGE`` message and
+merges the facts of the ``KNOWLEDGE`` messages it receives. Capability gating is added as that
+part is built.
 """
 
 import logging
@@ -18,6 +19,7 @@ from swarm_field.contracts import (
     Decision,
     Idle,
     Message,
+    MessageKind,
     Observation,
     Perception,
     RobotId,
@@ -133,13 +135,22 @@ class ComposedAgent:
         return self.navigator.step_towards(field, robot)
 
     def _facts_received(self, inbox: list[Message]) -> list[Observation]:
-        """The facts carried by the received messages."""
-        # TODO: decode the facts of belief-sharing messages. No message kind carries facts
-        # yet (MessageKind only has HELLO), so nothing is received for now.
-        return []
+        """The facts carried by the received ``KNOWLEDGE`` messages of other robots."""
+        facts: list[Observation] = []
+        for message in inbox:
+            if message.kind is not MessageKind.KNOWLEDGE or message.sender == self.robot_id:
+                continue
+            if not isinstance(message.payload, tuple):
+                logger.warning("Ignoring KNOWLEDGE message with payload %r", message.payload)
+                continue
+            facts.extend(fact for fact in message.payload if isinstance(fact, Observation))
+        return facts
 
     def _messages_to_send(self, now: Time) -> list[Message]:
-        """The messages to broadcast at this decision point."""
-        # TODO: share memory.records() with robots in range, in a belief-sharing message,
-        # once that message kind exists. Nothing is sent for now.
-        return []
+        """The messages to broadcast at this decision point: the robot's memory, if any."""
+        facts = self.memory.snapshot()
+        if not facts:
+            return []
+        return [
+            Message(sender=self.robot_id, sent_at=now, kind=MessageKind.KNOWLEDGE, payload=facts)
+        ]
