@@ -6,34 +6,46 @@ Exploring a new field and monitoring a known one are one objective. A cell is wo
 
 ## Value of a cell
 
-$$v(c) = 1 - e^{-(t_\text{now} - t_\text{obs}(c)) / \tau}$$
+A cell is worth nothing for a while after it was observed, and from then on it is *stale* and worth more the older its information is:
+
+$$v(c) = \begin{cases} 0 & \text{if } a(c) < A \\ g\big(a(c)\big) & \text{otherwise} \end{cases} \qquad a(c) = t_\text{now} - t_\text{obs}(c)$$
 
 | Symbol | Meaning |
 | --- | --- |
-| $v(c)$ | What observing cell $c$ again is worth, from 0 (just observed) to 1 (long ago, or never). |
+| $v(c)$ | What observing cell $c$ again is worth. |
+| $a(c)$ | The age of the cell's information. |
 | $t_\text{now}$ | The current time. |
-| $t_\text{obs}(c)$ | When the cell was last observed, by the robot or a peer; $-\infty$ if never, which gives $v = 1$. |
-| $\tau$ | How fast information goes stale (`ExploreConfig.tau`). |
-| $\theta$ | The stale threshold (`ExploreConfig.stale_threshold`): a cell is stale when $v(c) > \theta$. |
+| $t_\text{obs}(c)$ | When the cell was last observed, by the robot or a peer; $-\infty$ if never. |
+| $A$ | The revisit age (`ExploreConfig.revisit_age`): how long a cell is worth nothing after an observation. The one parameter of the value rule. |
+| $g$ | How a stale cell's value grows (`ExploreConfig.growth`), 0.5 at $A$ in both forms below. |
 
-Cells memory knows as obstacles are worth 0. Memory keeps $t_\text{obs}$ for every cell in one array (`AgentMemory.last_observed_times`), so the values of all cells are one vectorised expression.
+The growth has two forms (`Growth`):
+
+| Form | $g(a)$ | Never observed |
+| --- | --- | --- |
+| `SATURATING` | $1 - 2^{-a / A}$: 0.5 at $A$, 0.75 at $2A$, approaching 1 | 1 |
+| `LINEAR` | $a / 2A$: 0.5 at $A$, 1 at $2A$, without bound | as if observed at the start of the run (time 0), but at least 1 |
+
+The saturating form is $1 - e^{-a/\tau}$ with $\tau = A / \ln 2$, the rule of the first benchmarks below, which had a separate $\tau$ and a stale threshold $\theta$ = 0.5; $A = \tau \ln \frac{1}{1 - \theta}$ maps one onto the other. Cells memory knows as obstacles are worth 0. Memory keeps $t_\text{obs}$ for every cell in one array (`AgentMemory.last_observed_times`), so the values of all cells are one vectorised expression.
 
 ## Seeds: the robot's block cell by cell, other blocks one seed each
 
-The field is split into aligned square blocks. The robot's own block gets one seed per stale cell. Every other block gets one seed, on its stalest cell, worth the block's mean value over its cells that are not obstacles. A seed starts at $-\beta$ times its worth.
+The field is split into aligned square blocks. The robot's own block gets one seed per stale cell. Every other block gets one seed, on its stalest cell, worth that cell's value, so a single forgotten cell is never hidden among fresh ones. A seed starts at $-\beta$ times its worth.
 
-$$\phi(x) = \min\Big( \min_{c \in \text{own block},\ v(c) > \theta} \big( -\beta \, v'(c) + d(x, c) \big),\ \min_{b \neq \text{own}} \big( -\beta \, \bar v'_b + d(x, r_b) \big) \Big)$$
+$$w_b = \max_{c \in b} v(c)$$
+
+$$\phi(x) = \min\Big( \min_{c \in \text{own block},\ v(c) > 0} \big( -\beta \, v'(c) + d(x, c) \big),\ \min_{b \neq \text{own}} \big( -\beta \, w'_b + d(x, r_b) \big) \Big)$$
 
 | Symbol | Meaning |
 | --- | --- |
 | $\phi(x)$ | The potential at cell $x$; the robot steps downhill. |
-| $\bar v_b$ | The mean value of block $b$. |
-| $v'$, $\bar v'_b$ | The values after the peer discount below; the plain values when it is off. |
+| $w_b$ | The worth of block $b$: the value of its stalest cell. |
+| $v'$, $w'_b$ | The values after the peer discount below; the plain values when it is off. |
 | $r_b$ | The stalest cell of block $b$, which only serves to route the robot to the block. |
 | $d(x, c)$ | The route length from $x$ to $c$ over the quadtree, in cells. |
 | $\beta$ | How many cells of travel a fully stale cell or block is worth (`ExploreConfig.beta`). |
 
-One field thereby does two jobs. Inside its block the robot heads for the nearest stale cell, and a stale cell is worth at least as much as an averagely stale block and is much closer, so the robot finishes its block before leaving it. On an open block this produces a back-and-forth sweep without being told to. A single robot on a 16 × 16 field sweeps each block column by column and covers the field in 42.5 minutes with 16 × 16 blocks and 45.5 minutes with 8 × 8 blocks, where a straight move takes 10 seconds, so one new cell per move would take 42.7 minutes. Even counting its first revisits, only 3 to 5 % of its moves land on a cell it has already visited. Once the block has no stale cell, only the other blocks are left, and the field leads to the best of them; on entering that block, its cells become the per-cell seeds.
+One field thereby does two jobs. Inside its block the robot heads for the nearest stale cell. Its own stale cells are close, so it usually finishes its block before leaving it; only a much staler cell elsewhere pulls it away first. On an open block this produces a back-and-forth sweep without being told to. A single robot on a 16 × 16 field sweeps each block column by column and covers the field in 42.5 minutes with 16 × 16 blocks and 45.5 minutes with 8 × 8 blocks, where a straight move takes 10 seconds, so one new cell per move would take 42.7 minutes. Even counting its first revisits, only 3 to 5 % of its moves land on a cell it has already visited. Once the block has no stale cell, only the other blocks are left, and the field leads to the best of them; on entering that block, its cells become the per-cell seeds.
 
 **Blocks that grow with the distance.** `ExploreConfig.block_sides` lists the block sides, finest first. The robot's own block has the first side. The blocks of each side within `near_blocks` blocks of the robot's are seeded one per block, and the next side covers what lies beyond; the last side covers everything left. A block is valued over the cells no finer block has claimed. `(16,)` uses 16 × 16 blocks everywhere, `(8,)` 8 × 8 blocks, and `(8, 16)` 8 × 8 blocks around the robot and 16 × 16 ones farther away.
 
@@ -45,7 +57,7 @@ Rebuilding once per swept cell makes the window of the field matter. `FieldSeede
 
 ## Spreading the robots: the peer discount
 
-$$v'(c) = \frac{v(c)}{1 + n_{b(c)}}, \qquad \bar v'_b = \frac{\bar v_b}{1 + n_b}$$
+$$v'(c) = \frac{v(c)}{1 + n_{b(c)}}, \qquad w'_b = \frac{w_b}{1 + n_b}$$
 
 | Symbol | Meaning |
 | --- | --- |
@@ -60,10 +72,10 @@ The defaults are the ones that did best in the benchmark below.
 
 | Parameter | Default | Meaning |
 | --- | --- | --- |
-| `tau` | 40 min | How fast information goes stale. About 0.6 times the time the swarm needs to sweep its field once does best (see the results); 40 min suits five robots on 32 × 32 cells. |
-| `stale_threshold` | 0.5 | A cell worth more than this is stale. |
+| `revisit_age` | 28 min | How long a cell is worth nothing after an observation. |
+| `growth` | `LINEAR` | How a stale cell's value grows: linear without a cap, or saturating towards 1. |
 | `beta` | 64 | Cells of travel a fully stale cell or block is worth. |
-| `bucket` | 5 min | Longest drift of the other blocks' means between rebuilds. |
+| `bucket` | 5 min | Longest drift of the other blocks' values between rebuilds. |
 | `block_sides` | `(8,)` | Block sides, finest first. |
 | `near_blocks` | 1 | How far each block side but the last reaches. |
 | `spread_peers` | on | The peer discount. |
@@ -91,44 +103,49 @@ The mean idleness is also the expected detection latency. A pest appearing at a 
 
 ## Results
 
-Five robots start side by side in a corner of a 32 × 32 field of 10 m cells and run for three simulated hours; each row is the mean over four seeds. A straight move takes 10 s, so visiting one new cell per move, the swarm would need about 34 minutes to cover the field. `t90` and `full` are the minutes until 90 % and all of the field had been visited (`-` when a seed never got there). `idle` and `worst` are the mean and worst idleness in minutes over the second half of the run, and `redund` the share of redundant visits. Every row but the parameter sweep uses $\tau$ = 40 min and $\beta$ = 64, and "obstacles" is the river with one bridge and two rocks of `river_and_rocks`.
+Five robots start side by side in a corner of a 32 × 32 field of 10 m cells and run for three simulated hours; each row is the mean over four seeds. A straight move takes 10 s, so visiting one new cell per move, the swarm would need about 34 minutes to cover the field. `t90` and `full` are the minutes until 90 % and all of the field had been visited (`-` when a seed never got there). `idle` and `worst` are the mean and worst idleness in minutes over the second half of the run, and `redund` the share of redundant visits. Unless a row says otherwise, the parameters are the defaults: 8 × 8 blocks, the discount on, a revisit age of 28 min, linear growth and $\beta$ = 64. "Obstacles" is the river with one bridge and two rocks of `river_and_rocks`.
 
 | variant | t90 | full | idle | worst | redund | wall (s) |
 | --- | --- | --- | --- | --- | --- | --- |
-| random waypoint | - | - | 50.4 | 180.0 | 0.550 | 13 |
-| explore 16 | 97.1 | - | 63.7 | 163.8 | 0.672 | 125 |
-| explore 16 + discount | 39.6 | 46.8 | 21.9 | 51.5 | 0.223 | 182 |
-| explore 8 | 122.9 | - | 79.1 | 180.0 | 0.756 | 93 |
-| explore 8 + discount | 34.2 | 47.5 | 20.8 | 67.6 | 0.166 | 117 |
-| explore 8/16 + discount | 35.2 | 46.8 | 20.3 | 67.0 | 0.155 | 110 |
-| explore 8 + discount, window 0 | 35.6 | 48.9 | 21.5 | 72.4 | 0.185 | 40 |
-| explore 8, no sharing | 140.4 | 159.0 | 76.2 | 179.3 | 0.773 | 80 |
-| explore 8 + discount, no sharing | 83.1 | - | 35.1 | 180.0 | 0.577 | 78 |
-| random waypoint, obstacles | - | - | 58.0 | 180.0 | 0.647 | 10 |
-| explore 8, obstacles | - | - | 81.2 | 180.0 | 0.772 | 81 |
-| explore 8 + discount, obstacles | 35.0 | 46.8 | 20.1 | 77.5 | 0.242 | 82 |
+| random waypoint | - | - | 50.4 | 180.0 | 0.550 | 7 |
+| explore 16 | 101.3 | - | 67.9 | 148.8 | 0.723 | 82 |
+| explore 16 + discount | 39.6 | 46.7 | 22.9 | 55.0 | 0.241 | 99 |
+| explore 8 | 125.7 | - | 79.5 | 167.0 | 0.770 | 57 |
+| explore 8 + discount | 34.8 | 45.1 | 21.7 | 53.1 | 0.175 | 70 |
+| explore 8/16 + discount | 36.9 | 48.9 | 21.3 | 56.1 | 0.187 | 68 |
+| explore 8 + discount, window 0 | 35.3 | 43.3 | 22.1 | 56.0 | 0.190 | 27 |
+| explore 8, no sharing | 140.4 | 159.0 | 74.6 | 178.0 | 0.757 | 54 |
+| explore 8 + discount, no sharing | 85.7 | 131.7 | 35.0 | 155.8 | 0.595 | 55 |
+| random waypoint, obstacles | - | - | 58.0 | 180.0 | 0.647 | 6 |
+| explore 8, obstacles | - | - | 80.4 | 180.0 | 0.793 | 43 |
+| explore 8 + discount, obstacles | 35.5 | 45.3 | 22.9 | 57.7 | 0.294 | 48 |
 
-**The peer discount is what makes EXPLORE work.** Without it, the robots move as a herd: they all head for the same next block and sweep it together, so two thirds of their visits are redundant and they keep the field less fresh than random waypoints (mean idleness 63.7 or 79.1 minutes against 50.4). With it, mean idleness drops to about 21 minutes and the worst to 52 to 78 minutes, less than half of the baseline's, and the field is covered in about 47 minutes. The same holds with obstacles.
+**The peer discount is what makes EXPLORE work.** Without it, the robots move as a herd: they all head for the same next block and sweep it together, so three quarters of their visits are redundant and they keep the field less fresh than random waypoints (mean idleness 68 or 80 minutes against 50). With it, mean idleness drops to about 22 minutes and the worst to about 55 minutes, against 180 for the baseline, and the field is covered in about 45 minutes. The same holds with obstacles.
 
-**Block size matters little once the discount is on.** 8 × 8 blocks give the lowest redundancy and mean idleness, 16 × 16 blocks the lowest worst idleness, and blocks that grow from 8 to 16 cells with the distance do as well as 8 × 8 blocks. The defaults use 8 × 8 blocks.
+**Block size matters little once the discount is on.** 8 × 8 blocks give the lowest redundancy, and blocks that grow from 8 to 16 cells with the distance do as well. **Sharing observations matters:** without it, every robot only knows the cells it visited itself, and even with the discount mean idleness rises to 35 minutes. **A window of 0 is as good and about 2.5 times faster** with 8 × 8 blocks, since it still searches the robot's whole 16 × 16 quadtree block cell by cell, which holds some of the neighbouring 8 × 8 blocks.
 
-**Sharing observations matters.** Without it, every robot only knows the cells it visited itself, and even with the discount mean idleness rises to 35 minutes and some seeds never cover the field.
-
-**A window of 0 is nearly as good and 3 times faster** with 8 × 8 blocks. A window of 0 still searches the robot's whole 16 × 16 quadtree block cell by cell, which holds some of the 8 × 8 blocks next to the robot's, so their distances stay exact. With 16 × 16 blocks every neighbouring block lies outside it.
+### Parameters
 
 | variant | t90 | full | idle | worst | redund | wall (s) |
 | --- | --- | --- | --- | --- | --- | --- |
-| defaults (tau 40 min, beta 64, threshold 0.5) | 34.2 | 47.5 | 20.8 | 67.6 | 0.166 | 121 |
-| tau 20 min | 34.6 | 56.1 | 20.4 | 72.2 | 0.188 | 100 |
-| tau 60 min | 34.5 | 44.2 | 22.2 | 76.6 | 0.198 | 116 |
-| tau 120 min | 34.2 | 44.5 | 43.4 | 140.0 | 0.525 | 125 |
-| beta 16 | 41.1 | 84.7 | 26.7 | 133.0 | 0.332 | 119 |
-| beta 32 | 34.4 | 68.9 | 20.8 | 91.0 | 0.238 | 82 |
-| beta 128 | 34.4 | 46.0 | 21.7 | 74.1 | 0.158 | 84 |
-| stale threshold 0.3 | 34.2 | 52.3 | 20.6 | 67.7 | 0.177 | 86 |
-| stale threshold 0.7 | 34.2 | 43.7 | 24.7 | 78.6 | 0.256 | 91 |
+| defaults (revisit age 28 min, beta 64) | 34.8 | 45.1 | 21.7 | 53.1 | 0.175 | 71 |
+| revisit age 14 min | 36.5 | 46.2 | 22.0 | 52.6 | 0.194 | 67 |
+| revisit age 42 min | 34.8 | 43.0 | 25.1 | 73.4 | 0.217 | 75 |
+| revisit age 84 min | 34.8 | 43.0 | 43.2 | 120.9 | 0.213 | 50 |
+| beta 16 | 36.8 | 48.5 | 21.6 | 85.1 | 0.219 | 72 |
+| beta 32 | 36.4 | 45.8 | 22.2 | 71.8 | 0.174 | 57 |
+| beta 128 | 34.8 | 45.1 | 21.9 | 52.3 | 0.192 | 40 |
 
-$\tau$ should be of the order of the time the swarm needs to sweep its field, about 34 minutes here. Much longer (120 min), and a cell swept half an hour ago looks almost as fresh as one swept a minute ago, so the robots stop telling recently swept blocks from old ones. $\beta$ needs to be large enough (64 cells or more here) for a stale block across the field to beat a half-stale one next door.
+| variant | t90 | full | idle | worst | redund | wall (s) |
+| --- | --- | --- | --- | --- | --- | --- |
+| A 14: linear | 36.5 | 46.2 | 22.0 | 52.6 | 0.194 | 69 |
+| A 14: saturating | 35.0 | 45.0 | 20.2 | 73.0 | 0.168 | 69 |
+| A 28: linear | 34.8 | 45.1 | 21.7 | 53.1 | 0.175 | 65 |
+| A 28: saturating | 34.8 | 44.9 | 20.4 | 57.5 | 0.146 | 67 |
+| A 56: linear | 34.8 | 43.0 | 28.0 | 79.6 | 0.222 | 62 |
+| A 56: saturating | 34.8 | 43.0 | 27.7 | 73.6 | 0.213 | 46 |
+
+A revisit age of 14 to 28 minutes does best; 84 minutes is too long, since cells then wait more than twice the sweep time to become targets again. $\beta$ needs to be 64 cells or more, for a stale cell across the field to beat a barely stale one next door. On this field linear and saturating growth are close: saturating has a slightly lower mean idleness, linear a lower worst idleness.
 
 ### A larger field
 
@@ -136,34 +153,49 @@ The same variants on a 64 × 64 field for six hours, mean over two seeds. Visiti
 
 | variant | t90 | full | idle | worst | redund | wall (s) |
 | --- | --- | --- | --- | --- | --- | --- |
-| random waypoint | - | - | 147.2 | 360.0 | 0.216 | 45 |
-| explore 16 | - | - | 201.9 | 360.0 | 0.699 | 338 |
-| explore 16 + discount | 172.8 | - | 104.8 | 360.0 | 0.026 | 438 |
-| explore 8 | - | - | 215.9 | 360.0 | 0.781 | 319 |
-| explore 8 + discount | 142.6 | - | 96.9 | 344.9 | 0.088 | 356 |
-| explore 8/16 + discount | 197.0 | - | 96.8 | 360.0 | 0.063 | 370 |
-| explore 8 + discount, window 0 | 140.1 | - | 90.6 | 330.4 | 0.078 | 104 |
-| explore 8, no sharing | - | - | 213.6 | 360.0 | 0.773 | 296 |
-| explore 8 + discount, no sharing | - | - | 168.9 | 360.0 | 0.454 | 320 |
-| random waypoint, obstacles | - | - | 162.2 | 360.0 | 0.356 | 45 |
-| explore 8, obstacles | - | - | 223.3 | 360.0 | 0.795 | 263 |
-| explore 8 + discount, obstacles | 149.4 | - | 110.1 | 360.0 | 0.095 | 295 |
-
-The discount again halves the mean idleness against no discount and brings it well below random waypoints, with very little redundancy. 90 % of the field is covered at about 140 minutes, close to the best possible, but no run covers all of it: a few cells are left behind as holes, and they keep the worst idleness at the length of the run. The cause is $\tau$. With 40 minutes against a sweep of more than two hours, every cell swept once is almost fully stale again by the time the swarm could come back, so a never-visited hole is worth hardly more than any other cell. Scaling $\tau$ with the field fixes most of it (defaults otherwise, two seeds):
+| random waypoint | - | - | 147.2 | 360.0 | 0.216 | 24 |
+| explore 16 | - | - | 201.5 | 360.0 | 0.740 | 235 |
+| explore 16 + discount | 135.0 | 182.4 | 77.8 | 184.3 | 0.065 | 237 |
+| explore 8 | - | - | 216.2 | 360.0 | 0.783 | 172 |
+| explore 8 + discount | 143.7 | 168.0 | 83.6 | 178.4 | 0.131 | 204 |
+| explore 8/16 + discount | 144.7 | 170.1 | 86.4 | 210.4 | 0.140 | 188 |
+| explore 8 + discount, window 0 | 139.2 | 163.6 | 85.8 | 192.1 | 0.152 | 60 |
+| explore 8, no sharing | - | - | 213.6 | 360.0 | 0.773 | 172 |
+| explore 8 + discount, no sharing | - | - | 150.6 | 360.0 | 0.437 | 197 |
+| random waypoint, obstacles | - | - | 162.2 | 360.0 | 0.356 | 20 |
+| explore 8, obstacles | - | - | 216.6 | 360.0 | 0.798 | 183 |
+| explore 8 + discount, obstacles | 150.0 | 177.3 | 81.7 | 189.5 | 0.129 | 209 |
 
 | variant | t90 | full | idle | worst | redund | wall (s) |
 | --- | --- | --- | --- | --- | --- | --- |
-| tau 40 min | 142.6 | - | 96.9 | 344.9 | 0.088 | 245 |
-| tau 80 min | 141.3 | 244.6 | 82.9 | 346.9 | 0.089 | 228 |
-| tau 160 min | 140.9 | 262.1 | 90.0 | 317.9 | 0.126 | 243 |
-| tau 160 min, beta 128 | 144.7 | 192.8 | 84.6 | 294.7 | 0.110 | 246 |
+| A 14: linear | 144.6 | 167.5 | 87.5 | 187.2 | 0.158 | 164 |
+| A 14: saturating | 203.6 | - | 138.6 | 360.0 | 0.076 | 144 |
+| A 28: linear | 143.7 | 168.0 | 83.6 | 178.4 | 0.131 | 159 |
+| A 28: saturating | 146.8 | 183.4 | 88.4 | 332.7 | 0.088 | 163 |
+| A 56: linear | 143.2 | 171.4 | 98.1 | 265.0 | 0.171 | 135 |
+| A 56: saturating | 143.2 | 167.8 | 85.4 | 324.7 | 0.098 | 123 |
 
-A rule of thumb from both fields: $\tau$ of about 0.6 times the time the swarm needs to sweep its field once, i.e. $\tau \approx 0.6 \, N \, t_\text{move} / k$ for $N$ cells, $k$ robots and $t_\text{move}$ per move (20 to 40 minutes on 32 × 32 cells, about 80 minutes on 64 × 64).
+The discount again cuts the mean idleness by more than half against no discount and to under 60 % of random waypoints, with little redundancy. The whole field is covered at about 170 minutes, and the worst idleness stays near 180 minutes. Here linear growth matters: with saturating growth, the worst idleness is about 330 minutes, and with a short revisit age (14 min) the field is never fully covered. The same revisit age of 28 minutes does best on both fields, so with linear growth it does not have to scale with the field.
+
+### Fixing holes: before and after
+
+The first version valued a block by the mean value of its cells and let a stale cell's value saturate at 1 ($1 - e^{-a/\tau}$ with $\tau$ = 40 min, which is $A$ = 28 min). On large fields it left holes: a single forgotten cell adds only $1/64$ to the mean of an 8 × 8 block, so its block looks almost done, and with saturating values a never-visited cell is worth hardly more than any cell visited a while ago. Two fixes were compared, alone and together (defaults otherwise, same seeds as above):
+
+| Value rule | 32 × 32: full | idle | worst | 64 × 64: full | idle | worst |
+| --- | --- | --- | --- | --- | --- | --- |
+| saturating, block mean (first version) | 46.3 | 21.4 | 71.2 | - | 91.1 | 360.0 |
+| saturating, $\max(\text{mean}, 0.5 \max)$ | 48.1 | 22.1 | 78.1 | - | 91.1 | 360.0 |
+| saturating, $\max(\text{mean}, 0.75 \max)$ | 45.1 | 24.4 | 87.2 | - | 106.5 | 341.2 |
+| saturating, block max | 44.9 | 20.4 | 57.5 | 183.4 | 88.4 | 332.7 |
+| linear, block mean | 45.4 | 22.1 | 71.8 | 202.1 | 86.2 | 325.1 |
+| **linear, block max (current)** | 45.1 | 21.7 | 53.1 | 168.0 | 83.6 | 178.4 |
+
+A block worth $\max(\text{mean}, \lambda \max)$ only helps at $\lambda$ = 1: with 0.25 or 0.5 nothing changes on the large field, since a block whose only stale cell is worth at most 0.5 still loses to the old blocks around it, worth close to 1, and 0.75 is worse than the plain mean. At $\lambda$ = 1 the mean never wins, so $\lambda$ is bound to 1 and a block is simply worth its stalest cell. Linear growth then removes most of what is left: a forgotten cell keeps gaining value until it beats every other, and the worst idleness on the large field drops from 333 to 178 minutes.
 
 ## What is not done
 
 - **The behaviour.** `ExploreBehaviour` (Jin, branch `41-explore-objective`) scores EXPLORE against other objectives. The experiments use the stand-in `FollowSeederField`.
 - **Sharing observations.** Belief sharing (#34) is replaced by a perfect, test-side pool in the experiments.
-- **Holes.** A single stale cell left in a swept block only adds $1/64$ to its block's mean, so the swarm picks it up late, when a robot sweeps that block again. On large fields this keeps the worst idleness high; a never-observed cell is worth no more than one observed long ago. Scaling $\tau$ with the field helps; a bonus for never-observed cells, or the block's maximum next to its mean, are untested options.
-- **Choosing $\tau$ automatically.** $\tau$ should follow the sweep time of the swarm, which depends on the field and the number of robots; it is a fixed parameter for now.
+- **Unbounded scores.** With linear growth, a seed's value has no upper bound, and so neither has the potential a behaviour reads to score its bid. The arbiter (#39) will need a cap or a normalisation of the score, while the seeds can stay uncapped.
+- **The swarm-size experiment.** Whether the revisit age can stay fixed as the number of robots changes is untested; it did not need to change between the two field sizes.
 - **Decisions while moving.** Robots decide every 2.5 s while a move takes 10 to 14 s. The navigator then sees no progress for three ticks and hands over to the steerer, whose moves the simulation ignores while the robot is moving. This is harmless but wasted work.
