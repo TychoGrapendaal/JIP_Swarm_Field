@@ -10,12 +10,15 @@ from swarm_field.contracts import (
     Message,
     Observation,
     RobotSelfState,
+    PeerObservation,
+    BodyType,
     Time,
     Treat,
 )
 from swarm_field.swarm.memory import MemoryView
 from swarm_field.swarm.provider import FieldProvider
 from swarm_field.swarm.seeder import TreatSeeder
+from swarm_field.swarm.field import Seed
 
 
 @dataclass(frozen=True)
@@ -109,12 +112,15 @@ class TreatInfestation:
         self._seeder: str = seeder
 
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
-        position = ctx.self_state.position
-        seeded = ctx.fields.field_for(self._seeder, position, ctx.time)
-        if seeded is None:  # no known pests: no bid
-            return ()
-        target = seeded.field.target_for(position)
-        score = -seeded.field.value_at(position)  # lower potential is better
-        if target == position:  # on the pest: treat it
-            return (ActionCandidate(Treat(position), score, self.name, target),)
-        return (ActionCandidate(FollowField(self._seeder), score, self.name, target),)
+        peers: Iterator[PeerObservation] = ctx.memory.peers()
+        num_killers: Int = len(filter(lambda peer: peer.body == BodyType.KILLER))
+        seeds: Tuple[Seed, ...] = sef._seeder.seeds()
+        # Do not put the score at 1, because the battery behavior should be able to get 
+        # a higher score to save the robot from dying
+        score = 0.99
+        for seed in seeds:
+            if seed.cell == ctx.self_state.position:
+                return (ActionCandidate(Treat(position), score, self.name, target),)
+        num_seeds: Int = len(seeds)
+        score = 1 / (1 + math.exp(-(num_seeds - num_killers)))
+        return (ActionCandidate(FollowField(self._seeder), score, self.name),)

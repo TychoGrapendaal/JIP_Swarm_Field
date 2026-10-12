@@ -74,6 +74,7 @@ class PeerObservation(ObservationBase):
 
     peer: RobotId | None
     body: BodyType
+    target: CellId
 
 
 Observation = CropObservation | InfestationObservation | TerrainObservation | PeerObservation

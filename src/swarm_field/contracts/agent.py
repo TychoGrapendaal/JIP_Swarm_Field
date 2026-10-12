@@ -30,6 +30,7 @@ class RobotSelfState:
     speed_mps: float
     consumable: float
     health: float
+    target: CellId
 
 
 @dataclass(frozen=True)
