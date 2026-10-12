@@ -43,7 +43,7 @@ One field thereby does two jobs. Inside its block the robot heads for the neares
 
 ## When the field is rebuilt
 
-A field leads to one target, and a robot that observes only its own cell uses a target up by reaching it. So the field has to be rebuilt once per swept cell, and the key (`ExploreSeeder.field_key`) is made to change exactly then: it holds which cells of the robot's block are stale, the robot's block, a time bucket (`ExploreConfig.bucket`, which bounds how long the other blocks' means may drift), and the peers' blocks when the discount is on. Travelling over fresh ground and peers sweeping other blocks cause no rebuild.
+A field leads to one target, and a robot that observes only its own cell uses a target up by reaching it. So the field has to be rebuilt once per swept cell, and the key (`ExploreSeeder.field_key`) is made to change exactly then: it holds which cells of the robot's block are stale, the robot's block, a rebuild period (`ExploreConfig.rebuild_period`, which bounds how long the other blocks' worths may drift), and the peers' blocks when the discount is on. Travelling over fresh ground and peers sweeping other blocks cause no rebuild.
 
 Rebuilding once per swept cell makes the window of the field matter. `FieldSeeder.window_blocks` says how many 16 × 16 blocks around the robot's block are searched cell by cell; beyond them the quadtree's leaves are used. EXPLORE uses 1. A window of 0 builds about three times faster. With 16 × 16 blocks, though, every neighbouring block is then one leaf, measured from its centre, so it looks up to about 17 cells farther than it is, and robots that should move on to it stay; in a first, single-seed comparison redundancy went from 0.24 to 0.39. With 8 × 8 blocks, a window of 0 is nearly as good as 1 (see the results).
 
@@ -56,7 +56,7 @@ $$v'(c) = \frac{v(c)}{1 + n_{b(c)}}, \qquad w'_b = \frac{w_b}{1 + n_b}$$
 | $n_b$ | The number of peers whose reported cell or reported target lies in block $b$. |
 | $b(c)$ | The block containing cell $c$. |
 
-Every robot broadcasts its cell and its target at every decision point (`MessageKind.STATUS`), and memory keeps the newest report per peer. With `ExploreConfig.spread_peers`, a block's values are divided by one plus the number of peers in it or heading to it, counting only reports younger than `peer_max_age`. The discount applies to the robot's own block too, so a robot sharing its block with a peer is drawn to a block nobody covers. There is no kernel and no further parameter. Robots are thus made to spread explicitly, not only through shared observations making each other's ground look fresh.
+Every robot broadcasts its cell and its target at every decision point (`MessageKind.STATUS`), and memory keeps the newest report per peer. With `ExploreConfig.spread_peers`, a block's worths are divided by one plus the number of peers in it or heading to it (`PeerDiscount`), counting only reports younger than `peer_max_age`. The discount applies to the robot's own block too, so a robot sharing its block with a peer is drawn to a block nobody covers. There is no kernel and no further parameter. Robots are thus made to spread explicitly, not only through shared observations making each other's ground look fresh.
 
 ## Parameters
 
@@ -66,7 +66,7 @@ The defaults are the ones that did best in the benchmark below.
 | --- | --- | --- |
 | `revisit_age` | 28 min | How long a cell is worth nothing after an observation. |
 | `beta` | 64 | Cells of travel a fully stale cell or block is worth. |
-| `bucket` | 5 min | Longest drift of the other blocks' values between rebuilds. |
+| `rebuild_period` | 5 min | Longest drift of the other blocks' worths between rebuilds. |
 | `block_side` | 8 | The side of a block in cells. |
 | `spread_peers` | on | The peer discount. |
 | `peer_max_age` | 1 min | Older peer reports are left out of the discount. |

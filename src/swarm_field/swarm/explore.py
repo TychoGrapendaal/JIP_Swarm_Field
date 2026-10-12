@@ -18,7 +18,7 @@ plus the number of peers in it or heading to it.
 """
 
 from collections import Counter
-from collections.abc import Hashable
+from collections.abc import Hashable, Mapping
 from dataclasses import dataclass
 
 import numpy as np
@@ -41,10 +41,10 @@ class ExploreConfig:
             stale, worth ``1 - 2^(-age / revisit_age)``, and only the stale cells of the robot's
             own block are seeded; the block is done when none is left.
         beta: How many cells of travel a fully stale cell, or a fully stale block, is worth.
-        bucket: How long the values of the other blocks may drift before the field is rebuilt
-            anyway.
+        rebuild_period: How long the worths of the other blocks may drift before the field is
+            rebuilt anyway.
         block_side: The side of a block in cells.
-        spread_peers: Whether to divide a block's values by one plus the number of peers in it
+        spread_peers: Whether to divide a block's worths by one plus the number of peers in it
             or heading to it.
         peer_max_age: Peer reports older than this are left out of the discount.
         window_blocks: How many blocks of ``Quadtree.max_leaf_side`` cells around the robot's
@@ -55,7 +55,7 @@ class ExploreConfig:
 
     revisit_age: Time = 28 * TimeUnit.MINUTE
     beta: float = 64.0
-    bucket: Time = 5 * TimeUnit.MINUTE
+    rebuild_period: Time = 5 * TimeUnit.MINUTE
     block_side: int = 8
     spread_peers: bool = True
     peer_max_age: Time = TimeUnit.MINUTE
@@ -63,22 +63,69 @@ class ExploreConfig:
 
     def block_of(self, cell: CellId) -> CellId:
         """The block containing ``cell``, in block coordinates."""
-        return block_containing(cell, self.block_side)
+        return (cell[0] // self.block_side, cell[1] // self.block_side)
+
+    def cell_in_block(self, block: CellId, dx: int, dy: int) -> CellId:
+        """The cell ``dx`` and ``dy`` cells from the corner of ``block``."""
+        return (block[0] * self.block_side + dx, block[1] * self.block_side + dy)
+
+    def cells_of_block(self, block: CellId) -> tuple[slice, slice]:
+        """The cells of ``block``, as slices of an array indexed ``[x, y]``."""
+        side = self.block_side
+        return (
+            slice(block[0] * side, (block[0] + 1) * side),
+            slice(block[1] * side, (block[1] + 1) * side),
+        )
 
 
 @dataclass(frozen=True)
-class BlockValue:
-    """What one block is worth to explore.
+class BlockTarget:
+    """Where one block's seed goes, and what visiting it is worth.
 
     Attributes:
         block: The block, in block coordinates.
-        stalest: The block's most valuable cell, where its seed goes.
-        worth: The value of that cell.
+        cell: The block's stalest cell.
+        worth: What revisiting that cell is worth.
     """
 
     block: CellId
-    stalest: CellId
+    cell: CellId
     worth: float
+
+
+@dataclass(frozen=True)
+class PeerDiscount:
+    """Divides a target's worth by one plus the number of peers in, or heading to, its block.
+
+    Attributes:
+        peers: How many peers are in, or heading to, each block, in block coordinates. Empty
+            without ``spread_peers``, so the discount changes nothing.
+    """
+
+    peers: Mapping[CellId, int]
+
+    @classmethod
+    def from_memory(cls, memory: MemoryView, now: Time, config: ExploreConfig) -> "PeerDiscount":
+        """The discount from the peers' recent reports, or none without ``spread_peers``.
+
+        Only reports younger than ``peer_max_age`` count. A peer counts once per block, also when
+        it is heading to a cell of the block it is in.
+        """
+        counts: Counter[CellId] = Counter()
+        if not config.spread_peers:
+            return cls(counts)
+        for peer in memory.peers():
+            if now - peer.observed_at > config.peer_max_age:
+                continue
+            blocks = {config.block_of(peer.cell)}
+            if peer.target is not None:
+                blocks.add(config.block_of(peer.target))
+            counts.update(blocks)
+        return cls(counts)
+
+    def apply(self, worth: float, block: CellId) -> float:
+        """The ``worth`` of a target in ``block``, after the discount."""
+        return worth / (1 + self.peers.get(block, 0))
 
 
 class ExploreSeeder:
@@ -99,119 +146,90 @@ class ExploreSeeder:
 
     def field_key(self, memory: MemoryView, robot: CellId, now: Time) -> Hashable:
         """Changes when the robot changes block, when a cell of its block is swept or goes stale,
-        and every ``bucket``.
+        and every ``rebuild_period``.
 
-        With ``spread_peers`` it also changes when the peers' blocks do. The values of the other
-        blocks drift in between; the bucket bounds for how long.
+        With ``spread_peers`` it also changes when the peers' blocks do. The worths of the other
+        blocks drift in between; the rebuild period bounds for how long.
         """
         config = self.config
-        cells = _cells_of_block(config.block_of(robot), config.block_side)
-        own_values = cell_values(
+        own_block = config.block_of(robot)
+        cells = config.cells_of_block(own_block)
+        own_worths = revisit_worths(
             memory.last_observed_times()[cells],
             memory.monitorable_cells()[cells],
             now,
             config.revisit_age,
         )
-        stale = own_values > 0.0
-        peers = frozenset(self._peers_per_block(memory, now).items())
-        return (now // config.bucket, config.block_of(robot), stale.tobytes(), peers)
+        stale = own_worths > 0.0
+        peers = frozenset(PeerDiscount.from_memory(memory, now, config).peers.items())
+        return (now // config.rebuild_period, own_block, stale.tobytes(), peers)
 
     def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
         """A seed on every stale cell of the robot's block, and one on every other block.
 
-        A stale cell starts at ``-beta * v``, and another block at ``-beta * v`` of its stalest
-        cell. With ``spread_peers``, both are divided by one plus the peers of their block.
+        A stale cell starts at ``-beta * worth``, and another block at ``-beta * worth`` of its
+        stalest cell. With ``spread_peers``, both are divided by one plus the peers of their
+        block.
         """
         config = self.config
-        monitorable = memory.monitorable_cells()
-        values = cell_values(memory.last_observed_times(), monitorable, now, config.revisit_age)
-        peers = self._peers_per_block(memory, now)
+        worths = revisit_worths(
+            memory.last_observed_times(), memory.monitorable_cells(), now, config.revisit_age
+        )
+        # The peer discount: each worth divided by one plus the peers of its block. Without
+        # spread_peers it changes nothing.
+        discount = PeerDiscount.from_memory(memory, now, config)
 
-        own = config.block_of(robot)
-        own_values = values[_cells_of_block(own, config.block_side)]
+        # The robot's own block: one seed on every stale cell.
+        own_block = config.block_of(robot)
+        own_worths = worths[config.cells_of_block(own_block)]
         seeds: list[Seed] = []
-        for dx, dy in np.argwhere(own_values > 0.0).tolist():
-            worth = float(own_values[dx, dy]) / (1 + peers[own])
-            cell = (own[0] * config.block_side + dx, own[1] * config.block_side + dy)
-            seeds.append(Seed(cell, -config.beta * worth))
+        for dx, dy in np.argwhere(own_worths > 0.0).tolist():
+            worth = discount.apply(float(own_worths[dx, dy]), own_block)
+            seeds.append(Seed(config.cell_in_block(own_block, dx, dy), -config.beta * worth))
 
-        for block in block_values(values, config.block_side):
-            if block.block != own:
-                worth = block.worth / (1 + peers[block.block])
-                seeds.append(Seed(block.stalest, -config.beta * worth))
+        # Every other block: one seed on its stalest cell.
+        for target in block_targets(worths, config):
+            if target.block != own_block:
+                worth = discount.apply(target.worth, target.block)
+                seeds.append(Seed(target.cell, -config.beta * worth))
         return tuple(seeds)
 
-    def _peers_per_block(self, memory: MemoryView, now: Time) -> Counter[CellId]:
-        """The peers per block with ``spread_peers``, else none."""
-        if not self.config.spread_peers:
-            return Counter()
-        return peers_per_block(memory, now, self.config.peer_max_age, self.config.block_side)
 
-
-def cell_values(
+def revisit_worths(
     last_seen: NDArray[np.float64], monitorable: NDArray[np.bool_], now: Time, revisit_age: Time
 ) -> NDArray[np.float64]:
-    """What observing each cell again is worth: ``1 - 2^(-age / revisit_age)`` once it is stale.
+    """What revisiting each cell is worth: ``1 - 2^(-age / revisit_age)`` once it is stale.
 
     A cell is worth 0 younger than ``revisit_age``, or if it is not monitorable, and 1 if it was
     never observed (``-inf``).
     """
     age = now - last_seen
-    values = 1.0 - np.exp2(-age / revisit_age)
-    values[age < revisit_age] = 0.0
-    values[~monitorable] = 0.0
-    return values
+    worths = 1.0 - np.exp2(-age / revisit_age)
+    worths[age < revisit_age] = 0.0
+    worths[~monitorable] = 0.0
+    return worths
 
 
-def block_values(values: NDArray[np.float64], side: int) -> list[BlockValue]:
-    """Every block with something to explore: its stalest cell and that cell's value.
+def block_targets(worths: NDArray[np.float64], config: ExploreConfig) -> list[BlockTarget]:
+    """Every block with something to explore: its stalest cell and what revisiting it is worth.
 
-    Blocks are the aligned squares of ``side`` cells; those along the far edges may be cut off by
-    the border. All blocks are reduced at once, by padding the values to whole blocks and
-    reshaping them to one row of ``side * side`` cells per block.
+    Blocks are the aligned squares of ``block_side`` cells; those along the far edges may be cut
+    off by the border. All blocks are reduced at once, by padding the worths to whole blocks and
+    reshaping them to one row of ``block_side * block_side`` cells per block.
     """
-    width, height = values.shape
+    side = config.block_side
+    width, height = worths.shape
     padding = ((0, -width % side), (0, -height % side))
-    cells = _cells_per_block(np.pad(values, padding), side)
+    cells = _cells_per_block(np.pad(worths, padding), side)
     stalest = cells.argmax(axis=2)
-    worths = cells.max(axis=2)
+    best = cells.max(axis=2)
 
-    found: list[BlockValue] = []
-    for block_x, block_y in np.argwhere(worths > 0.0).tolist():
-        offset = int(stalest[block_x, block_y])
-        cell = (block_x * side + offset // side, block_y * side + offset % side)
-        found.append(BlockValue((block_x, block_y), cell, float(worths[block_x, block_y])))
+    found: list[BlockTarget] = []
+    for block_x, block_y in np.argwhere(best > 0.0).tolist():
+        block = (block_x, block_y)
+        dx, dy = divmod(int(stalest[block]), side)
+        found.append(BlockTarget(block, config.cell_in_block(block, dx, dy), float(best[block])))
     return found
-
-
-def peers_per_block(memory: MemoryView, now: Time, max_age: Time, side: int) -> Counter[CellId]:
-    """How many peers are in, or heading to, each block of ``side`` cells.
-
-    Only reports younger than ``max_age`` count. A peer counts once per block, also when it is
-    heading to a cell of the block it is in.
-    """
-    counts: Counter[CellId] = Counter()
-    for peer in memory.peers():
-        if now - peer.observed_at > max_age:
-            continue
-        blocks = {block_containing(peer.cell, side)}
-        if peer.target is not None:
-            blocks.add(block_containing(peer.target, side))
-        counts.update(blocks)
-    return counts
-
-
-def block_containing(cell: CellId, side: int) -> CellId:
-    """The block of ``side`` cells containing ``cell``, in block coordinates."""
-    return (cell[0] // side, cell[1] // side)
-
-
-def _cells_of_block(block: CellId, side: int) -> tuple[slice, slice]:
-    """The cells of ``block``, as slices of an array indexed ``[x, y]``."""
-    return (
-        slice(block[0] * side, (block[0] + 1) * side),
-        slice(block[1] * side, (block[1] + 1) * side),
-    )
 
 
 def _cells_per_block[T: np.generic](cells: NDArray[T], side: int) -> NDArray[T]:

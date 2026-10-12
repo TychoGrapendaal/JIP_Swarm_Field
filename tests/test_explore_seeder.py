@@ -14,7 +14,7 @@ from swarm_field.contracts import (
     Time,
 )
 from swarm_field.swarm import AgentMemory, ExploreConfig, ExploreSeeder
-from swarm_field.swarm.explore import block_values, cell_values
+from swarm_field.swarm.explore import block_targets, revisit_worths
 
 _FIELD = FieldGeometry(width=32, height=16, cell_size=10.0, row_sp=0.0, in_row_sp=0.0, headland=0.0)
 """Two blocks of 16 x 16 cells: (0, 0) on the left and (1, 0) on the right."""
@@ -72,21 +72,22 @@ def test_cells_are_worth_nothing_until_the_revisit_age_then_grow_towards_one() -
     last_seen = np.array([[-np.inf, *[now - age for age in ages]]])
     monitorable = np.array([[True, False, True, True, True]])
 
-    values = cell_values(last_seen, monitorable, now=now, revisit_age=_REVISIT)
+    worths = revisit_worths(last_seen, monitorable, now=now, revisit_age=_REVISIT)
 
-    assert values[0].tolist() == pytest.approx([1.0, 0.0, 0.0, 0.5, 0.75])
+    assert worths[0].tolist() == pytest.approx([1.0, 0.0, 0.0, 0.5, 0.75])
 
 
 def test_a_block_is_worth_its_stalest_cell_even_among_fresh_ones() -> None:
-    values = np.zeros((6, 4))
-    values[2, 1] = 0.8
-    values[5, 3] = 0.3
+    worths = np.zeros((6, 4))
+    worths[2, 1] = 0.8
+    worths[5, 3] = 0.3
 
-    blocks = {block.block: block for block in block_values(values, side=4)}
+    targets = block_targets(worths, ExploreConfig(block_side=4))
+    blocks = {target.block: target for target in targets}
 
-    assert (blocks[(0, 0)].stalest, blocks[(0, 0)].worth) == ((2, 1), pytest.approx(0.8))
+    assert (blocks[(0, 0)].cell, blocks[(0, 0)].worth) == ((2, 1), pytest.approx(0.8))
     # The right block is cut off by the border at x = 6.
-    assert (blocks[(1, 0)].stalest, blocks[(1, 0)].worth) == ((5, 3), pytest.approx(0.3))
+    assert (blocks[(1, 0)].cell, blocks[(1, 0)].worth) == ((5, 3), pytest.approx(0.3))
 
 
 def test_seeds_are_the_stale_cells_of_the_robots_block_and_one_per_other_block() -> None:

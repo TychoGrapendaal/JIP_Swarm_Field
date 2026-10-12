@@ -36,7 +36,7 @@ from swarm_field.experiments import (
     river_and_rocks,
 )
 from swarm_field.swarm import ExploreConfig, ExploreSeeder, FieldSeeder
-from swarm_field.swarm.explore import cell_values
+from swarm_field.swarm.explore import revisit_worths
 from swarm_field.visualization import SimulationViewer
 
 
@@ -76,7 +76,7 @@ def main() -> None:
 
     def staleness(snapshot: WorldSnapshot) -> NDArray[np.float64]:
         visits = np.maximum(run.tracker.last_visits(), 0.0)
-        values = cell_values(visits, monitorable, snapshot.time, config.revisit_age)
+        values = revisit_worths(visits, monitorable, snapshot.time, config.revisit_age)
         for cell, state in snapshot.cells.items():
             if state.obstacle:
                 values[cell] = np.nan
