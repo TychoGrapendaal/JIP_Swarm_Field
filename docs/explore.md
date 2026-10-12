@@ -39,7 +39,7 @@ $$\phi(x) = \min\Big( \min_{c \in \text{own block},\ v(c) > 0} \big( -\beta \, v
 
 One field thereby does two jobs. Inside its block the robot heads for the nearest stale cell. Its own stale cells are close, so it usually finishes its block before leaving it; only a much staler cell elsewhere pulls it away first. On an open block this produces a back-and-forth sweep without being told to. A single robot on a 16 × 16 field sweeps each block column by column and covers the field in 42.5 minutes with 16 × 16 blocks and 45.5 minutes with 8 × 8 blocks, where a straight move takes 10 seconds, so one new cell per move would take 42.7 minutes. Even counting its first revisits, only 3 to 5 % of its moves land on a cell it has already visited. Once the block has no stale cell, only the other blocks are left, and the field leads to the best of them; on entering that block, its cells become the per-cell seeds.
 
-**Blocks that grow with the distance.** `ExploreConfig.block_sides` lists the block sides, finest first. The robot's own block has the first side. The blocks of each side within `near_blocks` blocks of the robot's are seeded one per block, and the next side covers what lies beyond; the last side covers everything left. A block is valued over the cells no finer block has claimed. `(16,)` uses 16 × 16 blocks everywhere, `(8,)` 8 × 8 blocks, and `(8, 16)` 8 × 8 blocks around the robot and 16 × 16 ones farther away.
+**Block size.** `ExploreConfig.block_side` is the side of a block, 8 cells by default. Blocks that grew with the distance from the robot (8 × 8 near it, 16 × 16 farther away) were also tried; they did no better than 8 × 8 blocks everywhere (rows "8/16" in the results) and were removed.
 
 ## When the field is rebuilt
 
@@ -67,8 +67,7 @@ The defaults are the ones that did best in the benchmark below.
 | `revisit_age` | 28 min | How long a cell is worth nothing after an observation. |
 | `beta` | 64 | Cells of travel a fully stale cell or block is worth. |
 | `bucket` | 5 min | Longest drift of the other blocks' values between rebuilds. |
-| `block_sides` | `(8,)` | Block sides, finest first. |
-| `near_blocks` | 1 | How far each block side but the last reaches. |
+| `block_side` | 8 | The side of a block in cells. |
 | `spread_peers` | on | The peer discount. |
 | `peer_max_age` | 1 min | Older peer reports are left out of the discount. |
 | `window_blocks` | 1 | Blocks around the robot's searched cell by cell. |
@@ -103,7 +102,7 @@ Five robots start side by side in a corner of a 32 × 32 field of 10 m cells and
 | explore 16 + discount | 39.6 | 46.6 | 22.6 | 62.9 | 0.235 | 190 |
 | explore 8 | 125.7 | - | 79.9 | 180.0 | 0.768 | 101 |
 | explore 8 + discount | 34.8 | 44.9 | 20.4 | 57.5 | 0.146 | 118 |
-| explore 8/16 + discount | 36.5 | 47.8 | 20.4 | 57.5 | 0.140 | 124 |
+| explore 8/16 + discount (removed) | 36.5 | 47.8 | 20.4 | 57.5 | 0.140 | 124 |
 | explore 8 + discount, window 0 | 35.3 | 43.3 | 20.8 | 63.1 | 0.160 | 42 |
 | explore 8, no sharing | 140.4 | 159.0 | 76.2 | 179.3 | 0.773 | 93 |
 | explore 8 + discount, no sharing | 84.6 | - | 38.9 | 180.0 | 0.594 | 101 |
@@ -113,7 +112,7 @@ Five robots start side by side in a corner of a 32 × 32 field of 10 m cells and
 
 **The peer discount is what makes EXPLORE work.** Without it, the robots move as a herd: they all head for the same next block and sweep it together, so three quarters of their visits are redundant and they keep the field less fresh than random waypoints (mean idleness 77 or 80 minutes against 50). With it, mean idleness drops to about 20 minutes and the worst to about 60 minutes, against 180 for the baseline, and the field is covered in about 45 minutes.
 
-**Block size matters little once the discount is on.** 8 × 8 blocks do a little better than 16 × 16, and blocks that grow from 8 to 16 cells with the distance do as well as 8 × 8. **Sharing observations matters:** without it, every robot only knows the cells it visited itself, and even with the discount mean idleness doubles. **A window of 0 is nearly as good and about 3 times faster** with 8 × 8 blocks, since it still searches the robot's whole 16 × 16 quadtree block cell by cell, which holds some of the neighbouring 8 × 8 blocks.
+**Block size matters little once the discount is on.** 8 × 8 blocks do a little better than 16 × 16, and blocks that grow from 8 to 16 cells with the distance did as well as 8 × 8, so they were removed. **Sharing observations matters:** without it, every robot only knows the cells it visited itself, and even with the discount mean idleness doubles. **A window of 0 is nearly as good and about 3 times faster** with 8 × 8 blocks, since it still searches the robot's whole 16 × 16 quadtree block cell by cell, which holds some of the neighbouring 8 × 8 blocks.
 
 ### Parameters
 
@@ -140,7 +139,7 @@ The same variants on a 64 × 64 field for six hours, mean over two seeds. Visiti
 | explore 16 + discount | - | - | 128.0 | 360.0 | 0.029 | 444 |
 | explore 8 | - | - | 216.2 | 360.0 | 0.782 | 246 |
 | explore 8 + discount | 146.8 | 183.4 | 88.4 | 332.7 | 0.088 | 331 |
-| explore 8/16 + discount | 160.1 | - | 93.8 | 360.0 | 0.070 | 354 |
+| explore 8/16 + discount (removed) | 160.1 | - | 93.8 | 360.0 | 0.070 | 354 |
 | explore 8 + discount, window 0 | 145.9 | 182.4 | 90.2 | 307.2 | 0.099 | 106 |
 | explore 8, no sharing | - | - | 213.6 | 360.0 | 0.773 | 247 |
 | explore 8 + discount, no sharing | - | - | 173.0 | 360.0 | 0.506 | 330 |

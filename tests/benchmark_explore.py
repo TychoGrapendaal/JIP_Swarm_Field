@@ -79,11 +79,10 @@ def variants() -> Iterator[Variant]:
     """The baseline, the discount, the block sizes, the window, sharing and terrain."""
     plain = replace(_REFERENCE, spread_peers=False)
     yield Variant("random waypoint", None)
-    yield Variant("explore 16", replace(plain, block_sides=(16,)))
-    yield Variant("explore 16 + discount", replace(_REFERENCE, block_sides=(16,)))
+    yield Variant("explore 16", replace(plain, block_side=16))
+    yield Variant("explore 16 + discount", replace(_REFERENCE, block_side=16))
     yield Variant("explore 8", plain)
     yield Variant("explore 8 + discount", _REFERENCE)
-    yield Variant("explore 8/16 + discount", replace(_REFERENCE, block_sides=(8, 16)))
     yield Variant("explore 8 + discount, window 0", replace(_REFERENCE, window_blocks=0))
     yield Variant("explore 8, no sharing", plain, share_observations=False)
     yield Variant("explore 8 + discount, no sharing", _REFERENCE, share_observations=False)

@@ -101,10 +101,10 @@ uv run --with matplotlib python examples/mass_swarm_visualization.py --robots 10
 uv run python examples/explore_demo.py
 ```
 
-Five scouts explore and keep monitoring a field with the EXPLORE seeder, drawn by the general-purpose `SimulationViewer`. The overlay shades how stale each cell is in ground truth, trails show where the robots went, dashed lines the target each robot is heading for, and a panel the coverage measures (coverage, idleness, redundancy). `--no-discount` turns off the peer discount, `--blocks 8 16` makes the blocks grow with the distance, and `--obstacles` adds a river with one bridge. Record a video instead of opening a window:
+Five scouts explore and keep monitoring a field with the EXPLORE seeder, drawn by the general-purpose `SimulationViewer`. The overlay shades how stale each cell is in ground truth, trails show where the robots went, dashed lines the target each robot is heading for, and a panel the coverage measures (coverage, idleness, redundancy). `--no-discount` turns off the peer discount, `--block-side 16` uses 16 × 16 blocks, and `--obstacles` adds a river with one bridge. Record a video instead of opening a window:
 
 ```bash
-uv run python examples/explore_demo.py --blocks 8 --save explore.mp4
+uv run python examples/explore_demo.py --obstacles --save explore.mp4
 ```
 
 `SimulationViewer` (in `swarm_field.visualization`) works for any run: give it a function from a time to a `WorldSnapshot` (e.g. `ExploreRun.snapshot_at`), and optionally a per-cell overlay, the robots' goals and the lines of the panel.

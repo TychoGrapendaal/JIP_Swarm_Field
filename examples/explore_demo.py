@@ -16,9 +16,8 @@ Run from the repository root with:
 Record a video instead (mp4 through ffmpeg, or a gif):
     uv run python examples/explore_demo.py --save explore.mp4
 
-Options: ``--no-discount`` turns off the peer discount, ``--blocks 16`` uses 16 x 16 blocks and
-``--blocks 8 16`` makes them grow with the distance, ``--obstacles`` adds a river with one bridge
-and two rocks.
+Options: ``--no-discount`` turns off the peer discount, ``--block-side 16`` uses 16 x 16 blocks,
+``--obstacles`` adds a river with one bridge and two rocks.
 """
 
 from __future__ import annotations
@@ -49,7 +48,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--frame-seconds", type=float, default=20.0, help="simulated per frame")
     parser.add_argument("--fps", type=int, default=20)
     parser.add_argument("--no-discount", action="store_true", help="turn the peer discount off")
-    parser.add_argument("--blocks", type=int, nargs="+", default=[8], help="block sides")
+    parser.add_argument("--block-side", type=int, default=8, help="block side in cells")
     parser.add_argument("--obstacles", action="store_true", help="a river and two rocks")
     parser.add_argument("--save", type=Path, help="write a .mp4 or .gif instead of a window")
     return parser.parse_args()
@@ -57,7 +56,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    config = ExploreConfig(spread_peers=not args.no_discount, block_sides=tuple(args.blocks))
+    config = ExploreConfig(spread_peers=not args.no_discount, block_side=args.block_side)
     obstacles: tuple[CellId, ...] = ()
     if args.obstacles:
         obstacles = river_and_rocks(args.size)
@@ -107,7 +106,7 @@ def panel_lines(run: ExploreRun, now: Time, config: ExploreConfig) -> list[str]:
     return [
         f"time         {now / TimeUnit.HOUR:5.2f} h",
         f"robots       {len(run.agents)}",
-        f"blocks       {config.block_sides}",
+        f"blocks       {config.block_side} x {config.block_side}",
         f"discount     {discount}",
         f"revisit age  {config.revisit_age / TimeUnit.MINUTE:.0f} min",
         "",

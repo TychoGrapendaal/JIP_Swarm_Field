@@ -61,7 +61,7 @@ def _memory_with_left_block_seen(at: Time, except_cells: tuple[CellId, ...] = ()
 
 def _seeder(spread_peers: bool = False) -> ExploreSeeder:
     config = ExploreConfig(
-        revisit_age=_REVISIT, beta=10.0, block_sides=(16,), spread_peers=spread_peers
+        revisit_age=_REVISIT, beta=10.0, block_side=16, spread_peers=spread_peers
     )
     return ExploreSeeder(config)
 
@@ -141,19 +141,9 @@ def test_peers_discount_the_blocks_they_are_in_or_heading_to() -> None:
 def test_old_peer_reports_are_left_out_of_the_discount() -> None:
     memory = _memory_with_left_block_seen(at=100, except_cells=((3, 4),))
     memory.merge([_peer(2, cell=(20, 5), target=None, at=0)])
-    config = ExploreConfig(revisit_age=_REVISIT, beta=10.0, block_sides=(16,), peer_max_age=50)
+    config = ExploreConfig(revisit_age=_REVISIT, beta=10.0, block_side=16, peer_max_age=50)
     seeder = ExploreSeeder(config)
 
     seeds = {seed.cell: seed.value for seed in seeder.seeds(memory, (0, 0), now=100)}
 
     assert seeds[(16, 0)] == pytest.approx(-10.0)
-
-
-def test_blocks_grow_beyond_the_near_blocks_of_each_size() -> None:
-    memory = _memory_with_seen_square(8, at=100, except_cells=((3, 4),))
-    config = ExploreConfig(revisit_age=_REVISIT, beta=10.0, block_sides=(8, 16), near_blocks=1)
-
-    seeds = ExploreSeeder(config).seeds(memory, robot=(0, 0), now=100)
-
-    # The robot's 8 x 8 block cell by cell, the three 8 x 8 blocks next to it, then 16 x 16.
-    assert {seed.cell for seed in seeds} == {(3, 4), (8, 0), (0, 8), (8, 8), (16, 0)}
