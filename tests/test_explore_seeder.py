@@ -1,7 +1,5 @@
 """Tests for the EXPLORE seeder: cell and block values, seeds, key and peer discount."""
 
-from math import exp
-
 import numpy as np
 import pytest
 
@@ -20,7 +18,7 @@ from swarm_field.swarm.explore import block_values, cell_values
 
 _FIELD = FieldGeometry(width=32, height=16, cell_size=10.0, row_sp=0.0, in_row_sp=0.0, headland=0.0)
 """Two blocks of 16 x 16 cells: (0, 0) on the left and (1, 0) on the right."""
-_TAU: Time = 1000
+_REVISIT: Time = 1000
 
 
 def _seen(cell: CellId, at: Time) -> InfestationObservation:
@@ -62,19 +60,21 @@ def _memory_with_left_block_seen(at: Time, except_cells: tuple[CellId, ...] = ()
 
 
 def _seeder(spread_peers: bool = False) -> ExploreSeeder:
-    config = ExploreConfig(tau=_TAU, beta=10.0, block_sides=(16,), spread_peers=spread_peers)
+    config = ExploreConfig(
+        revisit_age=_REVISIT, beta=10.0, block_sides=(16,), spread_peers=spread_peers
+    )
     return ExploreSeeder(config)
 
 
-def test_cell_values_grow_with_age_and_ignore_cells_not_worth_monitoring() -> None:
-    last_seen = np.array([[-np.inf, 100.0, 100.0 - _TAU]])
-    monitorable = np.array([[True, True, False]])
+def test_cells_are_worth_nothing_until_the_revisit_age_then_grow_towards_one() -> None:
+    now = 10 * _REVISIT
+    ages = [now - 1.0, _REVISIT - 1, _REVISIT, 2 * _REVISIT]
+    last_seen = np.array([[-np.inf, *[now - age for age in ages]]])
+    monitorable = np.array([[True, False, True, True, True]])
 
-    values = cell_values(last_seen, monitorable, now=100, tau=_TAU)
+    values = cell_values(last_seen, monitorable, now=now, revisit_age=_REVISIT)
 
-    assert values[0].tolist() == pytest.approx([1.0, 0.0, 0.0])
-    aged = cell_values(np.array([[0.0]]), np.array([[True]]), now=_TAU, tau=_TAU)
-    assert aged[0, 0] == pytest.approx(1 - exp(-1))
+    assert values[0].tolist() == pytest.approx([1.0, 0.0, 0.0, 0.5, 0.75])
 
 
 def test_block_values_average_monitorable_cells_and_find_the_stalest_one() -> None:
@@ -146,7 +146,7 @@ def test_peers_discount_the_blocks_they_are_in_or_heading_to() -> None:
 def test_old_peer_reports_are_left_out_of_the_discount() -> None:
     memory = _memory_with_left_block_seen(at=100, except_cells=((3, 4),))
     memory.merge([_peer(2, cell=(20, 5), target=None, at=0)])
-    config = ExploreConfig(tau=_TAU, beta=10.0, block_sides=(16,), peer_max_age=50)
+    config = ExploreConfig(revisit_age=_REVISIT, beta=10.0, block_sides=(16,), peer_max_age=50)
     seeder = ExploreSeeder(config)
 
     seeds = {seed.cell: seed.value for seed in seeder.seeds(memory, (0, 0), now=100)}
@@ -156,7 +156,7 @@ def test_old_peer_reports_are_left_out_of_the_discount() -> None:
 
 def test_blocks_grow_beyond_the_near_blocks_of_each_size() -> None:
     memory = _memory_with_seen_square(8, at=100, except_cells=((3, 4),))
-    config = ExploreConfig(tau=_TAU, beta=10.0, block_sides=(8, 16), near_blocks=1)
+    config = ExploreConfig(revisit_age=_REVISIT, beta=10.0, block_sides=(8, 16), near_blocks=1)
 
     seeds = ExploreSeeder(config).seeds(memory, robot=(0, 0), now=100)
 

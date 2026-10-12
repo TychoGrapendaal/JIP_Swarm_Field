@@ -93,16 +93,13 @@ def variants() -> Iterator[Variant]:
 
 
 def parameter_sweep() -> Iterator[Variant]:
-    """``tau``, ``beta`` and the stale threshold, one at a time, around the reference."""
-    yield Variant("defaults (tau 40 min, beta 64, threshold 0.5)", _REFERENCE)
-    for minutes in (20, 60, 120):
-        yield Variant(f"tau {minutes} min", replace(_REFERENCE, tau=minutes * TimeUnit.MINUTE))
+    """The revisit age and ``beta``, one at a time, around the reference."""
+    yield Variant("defaults (revisit age 28 min, beta 64)", _REFERENCE)
+    for minutes in (14, 42, 84):
+        age = minutes * TimeUnit.MINUTE
+        yield Variant(f"revisit age {minutes} min", replace(_REFERENCE, revisit_age=age))
     for beta in (16.0, 32.0, 128.0):
         yield Variant(f"beta {beta:g}", replace(_REFERENCE, beta=beta))
-    for threshold in (0.3, 0.7):
-        yield Variant(
-            f"stale threshold {threshold:g}", replace(_REFERENCE, stale_threshold=threshold)
-        )
 
 
 def run(job: Job) -> Result:

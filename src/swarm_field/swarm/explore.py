@@ -1,8 +1,9 @@
 """The EXPLORE seeder: draws robots to the cells whose information is the stalest.
 
-A cell is worth observing again by how long ago it was last observed, ``1 - exp(-age / tau)``:
-0 right after an observation, close to 1 long after it, and 1 if it was never observed. So
-exploring a new field and monitoring a known one are the same objective.
+A cell is worth observing again by how long ago it was last observed. It is worth nothing until
+``revisit_age`` has passed; then it is stale, worth ``1 - 2^(-age / revisit_age)``, 0.5 at the
+revisit age and close to 1 long after it, and 1 if it was never observed. So exploring a new
+field and monitoring a known one are the same objective.
 
 The robot's own block is seeded cell by cell, with its stale cells; every other block gets one
 seed, at its stalest cell, worth the block's mean value. Blocks may grow with the distance from
@@ -33,13 +34,13 @@ class ExploreConfig:
     """The parameters of the EXPLORE field.
 
     The defaults did best in ``tests/benchmark_explore.py`` (see ``docs/explore.md``) for five
-    robots on a 32 x 32 field. ``tau`` should be about 0.6 times the time the swarm needs to
-    sweep its field once.
+    robots on a 32 x 32 field. ``revisit_age`` should be about 0.4 times the time the swarm needs
+    to sweep its field once.
 
     Attributes:
-        tau: How fast information goes stale: a cell is worth ``1 - exp(-age / tau)``.
-        stale_threshold: A cell worth more than this is stale, and only stale cells of the
-            robot's own block are seeded. The block is done when none is left.
+        revisit_age: How long a cell is worth nothing after it was observed. From then on it is
+            stale, worth ``1 - 2^(-age / revisit_age)``, and only the stale cells of the robot's
+            own block are seeded; the block is done when none is left.
         beta: How many cells of travel a fully stale cell, or a fully stale block, is worth.
         bucket: How long the mean values of the other blocks may drift before the field is
             rebuilt anyway.
@@ -58,8 +59,7 @@ class ExploreConfig:
             makes the neighbouring blocks look farther than they are; 1 keeps them exact.
     """
 
-    tau: Time = 40 * TimeUnit.MINUTE
-    stale_threshold: float = 0.5
+    revisit_age: Time = 28 * TimeUnit.MINUTE
     beta: float = 64.0
     bucket: Time = 5 * TimeUnit.MINUTE
     block_sides: tuple[int, ...] = (8,)
@@ -122,9 +122,9 @@ class ExploreSeeder:
             memory.last_observed_times()[cells],
             memory.monitorable_cells()[cells],
             now,
-            config.tau,
+            config.revisit_age,
         )
-        stale = own_values > config.stale_threshold
+        stale = own_values > 0.0
         peers = frozenset(self._peers_per_block(memory, now, config.block_side).items())
         return (now // config.bucket, config.block_of(robot), stale.tobytes(), peers)
 
@@ -137,14 +137,14 @@ class ExploreSeeder:
         """
         config = self.config
         monitorable = memory.monitorable_cells()
-        values = cell_values(memory.last_observed_times(), monitorable, now, config.tau)
+        values = cell_values(memory.last_observed_times(), monitorable, now, config.revisit_age)
 
         own = config.block_of(robot)
         own_cells = _cells_of_block(own, config.block_side)
         own_values = values[own_cells]
         own_peers = self._peers_per_block(memory, now, config.block_side)[own]
         seeds: list[Seed] = []
-        for dx, dy in np.argwhere(own_values > config.stale_threshold).tolist():
+        for dx, dy in np.argwhere(own_values > 0.0).tolist():
             worth = float(own_values[dx, dy]) / (1 + own_peers)
             cell = (own[0] * config.block_side + dx, own[1] * config.block_side + dy)
             seeds.append(Seed(cell, -config.beta * worth))
@@ -170,13 +170,16 @@ class ExploreSeeder:
 
 
 def cell_values(
-    last_seen: NDArray[np.float64], monitorable: NDArray[np.bool_], now: Time, tau: Time
+    last_seen: NDArray[np.float64], monitorable: NDArray[np.bool_], now: Time, revisit_age: Time
 ) -> NDArray[np.float64]:
-    """What observing each cell again is worth, ``1 - exp(-age / tau)``, 0 if not monitorable.
+    """What observing each cell again is worth: ``1 - 2^(-age / revisit_age)`` once it is stale.
 
-    A cell never observed (``-inf``) is worth 1.
+    A cell is worth 0 younger than ``revisit_age``, or if it is not monitorable, and 1 if it was
+    never observed (``-inf``).
     """
-    values = 1.0 - np.exp(-(now - last_seen) / tau)
+    age = now - last_seen
+    values = 1.0 - np.exp2(-age / revisit_age)
+    values[age < revisit_age] = 0.0
     values[~monitorable] = 0.0
     return values
 

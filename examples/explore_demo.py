@@ -4,8 +4,9 @@ Five scouts start side by side in a corner of a field of 10 m cells. Each is a r
 ``ComposedAgent`` following the EXPLORE field (``ExploreSeeder``) on the real simulation loop;
 see ``swarm_field.experiments`` for how the run is assembled.
 
-The overlay shades how stale each cell is in ground truth, ``1 - exp(-age / tau)`` with the age
-since any robot last stood on it: dark is fresh, bright is stale. Trails show where the robots
+The overlay shades what each cell is worth to the EXPLORE rule in ground truth, from the age
+since any robot last stood on it: dark is fresh (worth nothing until the revisit age), bright is
+stale. Trails show where the robots
 went, dashed lines the target each robot is heading for, and the panel the coverage measures of
 ``CoverageTracker``.
 
@@ -36,6 +37,7 @@ from swarm_field.experiments import (
     river_and_rocks,
 )
 from swarm_field.swarm import ExploreConfig, ExploreSeeder, FieldSeeder
+from swarm_field.swarm.explore import cell_values
 from swarm_field.visualization import SimulationViewer
 
 
@@ -71,10 +73,12 @@ def main() -> None:
         return ExploreSeeder(config)
 
     run = build_explore_run(scenario, seeder_for)
+    monitorable = np.ones((args.size, args.size), dtype=np.bool_)
 
     def staleness(snapshot: WorldSnapshot) -> NDArray[np.float64]:
-        age = snapshot.time - np.maximum(run.tracker.last_visits(), 0.0)
-        values = 1.0 - np.exp(-age / config.tau)
+        visits = np.maximum(run.tracker.last_visits(), 0.0)
+        values = cell_values(visits, monitorable, snapshot.time, config.revisit_age)
+        values = np.minimum(values, 1.0)
         for cell, state in snapshot.cells.items():
             if state.obstacle:
                 values[cell] = np.nan
@@ -86,7 +90,7 @@ def main() -> None:
     viewer = SimulationViewer(
         run.snapshot_at,
         overlay=staleness,
-        overlay_label="staleness, 1 - exp(-age / tau)",
+        overlay_label="worth of a visit, 0 until the revisit age",
         goals=run.targets,
         panel=panel,
     )
@@ -106,7 +110,7 @@ def panel_lines(run: ExploreRun, now: Time, config: ExploreConfig) -> list[str]:
         f"robots       {len(run.agents)}",
         f"blocks       {config.block_sides}",
         f"discount     {discount}",
-        f"tau          {config.tau / TimeUnit.MINUTE:.0f} min",
+        f"revisit age  {config.revisit_age / TimeUnit.MINUTE:.0f} min",
         "",
         f"covered      {summary.covered:6.1%}",
         f"90 % at      {_minutes(summary.time_to_90)}",
