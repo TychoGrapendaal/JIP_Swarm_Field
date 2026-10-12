@@ -8,6 +8,8 @@ from swarm_field.contracts import (
     FieldGeometry,
     Idle,
     InfestationObservation,
+    Message,
+    MessageKind,
     Move,
     Observation,
     PeerObservation,
@@ -38,7 +40,9 @@ from swarm_field.swarm.field import Seed
 _FIELD = FieldGeometry(width=10, height=10, cell_size=10.0, row_sp=0.0, in_row_sp=0.0, headland=0.0)
 
 
-def _perception(sensed: list[Observation] | None = None) -> Perception:
+def _perception(
+    sensed: list[Observation] | None = None, inbox: list[Message] | None = None
+) -> Perception:
     time = 0
     if sensed is None:
         sensed = _sensed(time)
@@ -54,7 +58,7 @@ def _perception(sensed: list[Observation] | None = None) -> Perception:
             health=1.0,
         ),
         sensed=sensed,
-        inbox=[],
+        inbox=[] if inbox is None else inbox,
     )
 
 
@@ -194,13 +198,67 @@ def test_agent_picks_highest_scoring_candidate() -> None:
     assert agent.inspect().current_goal == "multi"
 
 
-def test_agent_idles_without_candidates() -> None:
+def test_agent_idles_without_candidates_and_announces_target_clear() -> None:
     agent = _agent([])
 
     decision = agent.decide(_perception())
 
     assert decision.action == Idle()
     assert agent.inspect().current_goal is None
+    assert len(decision.outbox) == 1
+    payload = decision.outbox[0].payload
+    assert isinstance(payload, tuple)
+    announcement = payload[-1]
+    assert isinstance(announcement, PeerTargetObservation)
+    assert announcement.source == 1
+    assert announcement.target is None
+    assert announcement.objective is None
+
+
+def test_agent_announces_the_winning_candidate_target() -> None:
+    target = (5, 5)
+    candidate = ActionCandidate(action=Treat(target), score=1.0, source="treat", target=target)
+    agent = _agent([_MultiBehavior("treat", (candidate,))])
+
+    decision = agent.decide(_perception())
+
+    assert len(decision.outbox) == 1
+    message = decision.outbox[0]
+    assert message.kind is MessageKind.KNOWLEDGE
+    payload = message.payload
+    assert isinstance(payload, tuple)
+    announcement = payload[-1]
+    assert isinstance(announcement, PeerTargetObservation)
+    assert announcement.source == 1
+    assert announcement.target == target
+    assert announcement.objective == "treat"
+    assert announcement.observed_at == 0
+
+
+def test_peer_target_announcement_discourages_duplicate_target() -> None:
+    claimed_target = (5, 5)
+    alternative_target = (6, 6)
+    claim = PeerTargetObservation(
+        source=2,
+        target=claimed_target,
+        objective="treat",
+        confidence=1.0,
+        observed_at=0,
+    )
+    inbox = [Message(sender=2, sent_at=0, kind=MessageKind.KNOWLEDGE, payload=(claim,))]
+    candidates = (
+        ActionCandidate(
+            action=Treat(claimed_target), score=1.0, source="treat", target=claimed_target
+        ),
+        ActionCandidate(
+            action=Treat(alternative_target), score=0.5, source="treat", target=alternative_target
+        ),
+    )
+    agent = _agent([_MultiBehavior("treat", candidates)])
+
+    decision = agent.decide(_perception(inbox=inbox))
+
+    assert decision.action == Treat(alternative_target)
 
 
 def test_sensed_terrain_reaches_memory_and_the_quadtree() -> None:
