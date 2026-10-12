@@ -14,7 +14,7 @@ from swarm_field.contracts import (
     Treat,
 )
 from swarm_field.swarm.memory import MemoryView
-from swarm_field.swarm.navigator import Navigator
+from swarm_field.swarm.provider import FieldProvider
 from swarm_field.swarm.seeder import TreatSeeder
 
 
@@ -77,7 +77,7 @@ class DecisionContext:
     self_state: RobotSelfState
     sensed: list[Observation]
     memory: MemoryView
-    fields: Navigator
+    fields: FieldProvider
     inbox: list[Message] = field(default_factory=list)
 
 
