@@ -16,9 +16,13 @@ from swarm_field.contracts import (
     Time,
     Treat,
 )
+from swarm_field.swarm.explore import ExploreSeeder
 from swarm_field.swarm.memory import MemoryView
 from swarm_field.swarm.provider import FieldProvider
-from swarm_field.swarm.seeder import SeededField, TreatSeeder
+from swarm_field.swarm.seeder import TreatSeeder
+
+import numpy as np
+import random
 
 
 @dataclass(frozen=True)
@@ -138,8 +142,7 @@ class ExploreBehaviour:
 
     name: str = "explore"
 
-    def __init__(self, seeder: str) -> None:
-        # TODO: include the seeder name once the EXPLORE seeder is implemented (#41).
+    def __init__(self, seeder: str = ExploreSeeder.name) -> None:
         self._seeder: str = seeder
         self._weights: list[float] = [1 / 3, 1 / 3, 1 / 3]
         self._previous_time: Time | None = None
@@ -153,6 +156,7 @@ class ExploreBehaviour:
         """
         position = ctx.self_state.position
         inbox = ctx.inbox
+        memory = ctx.memory
         seeded_field = ctx.fields.field_for(self._seeder, position, ctx.time)
         target = None
         if seeded_field is not None:
@@ -160,7 +164,7 @@ class ExploreBehaviour:
         criteria_scores = [
             self._body_type_criteria(inbox),
             self._explore_score_criteria(seeded_field),
-            self._unexplore_criteria(seeded_field),
+            self._unexplore_criteria(memory),
         ]
         previous_time = self._previous_time
         if previous_time is None:
@@ -187,26 +191,26 @@ class ExploreBehaviour:
         )
         return 1 - (matching_robots / len(peer_observations))
 
-    def _explore_score_criteria(self, seeded_field: SeededField | None) -> float:
+    def _explore_score_criteria(self, seeded_field: SeededField | None, target: CellId | None) -> float:
         """Return the average finite score in the provided exploration field."""
-        if seeded_field is None:
+        if target is None or seeded_field is None:
             return 1.0
-        scores = [
-            result.value for result in seeded_field.field.settled.values() if isfinite(result.value)
-        ]
-        if not scores:
+        if seeded_field.field.value_at(target) is None:
+            return 0.0
+        random_value = random.uniform(0, 1)
+        if random_value:
             return 1.0
         return sum(scores) / len(scores)
 
-    def _unexplore_criteria(self, seeded_field: SeededField | None) -> float:
+    def _unexplore_criteria(self, memory: MemoryView) -> float:
         """Return the 1 - (fraction of unexplored cells in the provided exploration field)."""
-        if seeded_field is None:
+        if memory.last_observed_time() is None:
             return 1.0
-        total_cells = len(seeded_field.field.settled)
+        total_cells = len(memory.last_observed_time())
         if total_cells == 0:
             return 1.0
         unexplored_cells = sum(
-            1 for result in seeded_field.field.settled.values() if result.value == 1.0
+            1 for result in memory.last_observed_time() if result.value == -np.inf
         )
         return 1 - (unexplored_cells / total_cells)
 
