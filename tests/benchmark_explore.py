@@ -104,21 +104,11 @@ def parameter_sweep() -> Iterator[Variant]:
 
 
 def value_rules() -> Iterator[Variant]:
-    """How stale cells grow and how blocks are valued, at two revisit ages.
-
-    The saturating growth with the plain block mean is the rule of the earlier benchmarks; the
-    others are the two fixes for holes, alone and together.
-    """
-    for minutes in (28, 56):
+    """Saturating against linear growth of a stale cell's value, at three revisit ages."""
+    for minutes in (14, 28, 56):
         aged = replace(_REFERENCE, revisit_age=minutes * TimeUnit.MINUTE)
-        linear = replace(aged, growth=Growth.LINEAR)
-        yield Variant(f"A {minutes}: saturating, mean", aged)
-        for peak in (0.25, 0.5, 1.0):
-            yield Variant(
-                f"A {minutes}: saturating, lambda {peak:g}", replace(aged, block_peak=peak)
-            )
-        yield Variant(f"A {minutes}: linear, mean", linear)
-        yield Variant(f"A {minutes}: linear, lambda 0.5", replace(linear, block_peak=0.5))
+        yield Variant(f"A {minutes}: linear", aged)
+        yield Variant(f"A {minutes}: saturating", replace(aged, growth=Growth.SATURATING))
 
 
 SECTIONS: dict[str, tuple[str, Callable[[], Iterator[Variant]]]] = {

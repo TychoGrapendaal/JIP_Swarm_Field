@@ -5,13 +5,13 @@ A cell is worth observing again by how long ago it was last observed. It is wort
 (``Growth``). So exploring a new field and monitoring a known one are the same objective.
 
 The robot's own block is seeded cell by cell, with its stale cells; every other block gets one
-seed, at its stalest cell, worth the block's mean value, or a share of its stalest cell's value
-if that is more (``block_peak``), so that one forgotten cell cannot hide in a fresh block.
-Blocks may grow with the distance from the robot (``block_sides``). One field then does both
-jobs: inside the robot's block it leads to the nearest stale cell, and once the block has no
-stale cell left it leads to the best other block. A robot observes only the cell it stands on,
-so every swept cell is a target used up; the key follows the stale cells of the robot's block,
-and the field is rebuilt once per swept cell, but not while the robot travels over fresh ground.
+seed, on its stalest cell and worth that cell's value, so a forgotten cell is never hidden in a
+block of fresh ones. Blocks may grow with the distance from the robot (``block_sides``). One
+field then does both jobs: inside the robot's block it leads to the nearest stale cell, and once
+the block has no stale cell left it leads to the best other block. A robot observes only the
+cell it stands on, so every swept cell is a target used up; the key follows the stale cells of
+the robot's block, and the field is rebuilt once per swept cell, but not while the robot travels
+over fresh ground.
 
 With ``spread_peers`` the robots are made to spread out: a block's values are divided by one
 plus the number of peers in it or heading to it.
@@ -51,16 +51,13 @@ class ExploreConfig:
     """The parameters of the EXPLORE field.
 
     The defaults did best in ``tests/benchmark_explore.py`` (see ``docs/explore.md``) for five
-    robots on a 32 x 32 field. ``revisit_age`` should be about 0.4 times the time the swarm needs
-    to sweep its field once.
+    robots on 32 x 32 and 64 x 64 fields.
 
     Attributes:
         revisit_age: How long a cell is worth nothing after it was observed. From then on it is
             stale, worth ``1 - 2^(-age / revisit_age)``, and only the stale cells of the robot's
             own block are seeded; the block is done when none is left.
         growth: How a stale cell's value grows with its age.
-        block_peak: ``lambda`` in a block's worth, ``max(mean, lambda * max)`` over its cells'
-            values; 0 for the plain mean.
         beta: How many cells of travel a fully stale cell, or a fully stale block, is worth.
         bucket: How long the mean values of the other blocks may drift before the field is
             rebuilt anyway.
@@ -80,8 +77,7 @@ class ExploreConfig:
     """
 
     revisit_age: Time = 28 * TimeUnit.MINUTE
-    growth: Growth = Growth.SATURATING
-    block_peak: float = 0.0
+    growth: Growth = Growth.LINEAR
     beta: float = 64.0
     bucket: Time = 5 * TimeUnit.MINUTE
     block_sides: tuple[int, ...] = (8,)
@@ -107,8 +103,7 @@ class BlockValue:
     Attributes:
         block: The block, in block coordinates.
         stalest: The block's most valuable cell, where its seed goes.
-        worth: The mean value of the block's monitorable cells, or ``peak`` times the value of
-            its stalest cell if that is more.
+        worth: The value of that cell.
     """
 
     block: CellId
@@ -155,8 +150,8 @@ class ExploreSeeder:
     def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
         """A seed on every stale cell of the robot's block, and one on every other block.
 
-        A stale cell starts at ``-beta * v``; another block starts at ``-beta * worth`` on its
-        stalest cell, the worth taken over the cells no finer block has claimed. With
+        A stale cell starts at ``-beta * v``; another block starts at ``-beta * v`` on its
+        stalest cell among those no finer block has claimed. With
         ``spread_peers``, both are divided by one plus the peers of their block.
         """
         config = self.config
@@ -182,8 +177,7 @@ class ExploreSeeder:
             if level < len(config.block_sides) - 1:
                 region &= _near_cells(robot, side, config.near_blocks, values.shape)
             peers = self._peers_per_block(memory, now, side)
-            region_values = np.where(region, values, 0.0)
-            for block in block_values(region_values, monitorable & region, side, config.block_peak):
+            for block in block_values(np.where(region, values, 0.0), side):
                 worth = block.worth / (1 + peers[block.block])
                 seeds.append(Seed(block.stalest, -config.beta * worth))
             claimed |= region
@@ -220,25 +214,18 @@ def cell_values(
     return values
 
 
-def block_values(
-    values: NDArray[np.float64], monitorable: NDArray[np.bool_], side: int, peak: float = 0.0
-) -> list[BlockValue]:
-    """Every block with something to explore, with its worth and its stalest cell.
-
-    A block is worth the mean value of its monitorable cells, or ``peak`` times the value of its
-    stalest cell if that is more.
+def block_values(values: NDArray[np.float64], side: int) -> list[BlockValue]:
+    """Every block with something to explore: its stalest cell and that cell's value.
 
     Blocks are the aligned squares of ``side`` cells; those along the far edges may be cut off by
-    the border. All blocks are reduced at once, by padding the arrays to whole blocks and
+    the border. All blocks are reduced at once, by padding the values to whole blocks and
     reshaping them to one row of ``side * side`` cells per block.
     """
     width, height = values.shape
     padding = ((0, -width % side), (0, -height % side))
     cells = _cells_per_block(np.pad(values, padding), side)
-    counts = _cells_per_block(np.pad(monitorable, padding), side).sum(axis=2)
-    means = cells.sum(axis=2) / np.maximum(counts, 1)
     stalest = cells.argmax(axis=2)
-    worths = np.maximum(means, peak * cells.max(axis=2))
+    worths = cells.max(axis=2)
 
     found: list[BlockValue] = []
     for block_x, block_y in np.argwhere(worths > 0.0).tolist():

@@ -89,34 +89,16 @@ def test_linear_growth_has_no_cap_and_counts_never_observed_cells_from_the_start
     assert at_start[0, 0] == 1.0
 
 
-def test_a_block_peak_keeps_one_stale_cell_from_hiding_in_a_fresh_block() -> None:
-    values = np.zeros((4, 4))
-    values[2, 1] = 0.8
-    monitorable = np.ones((4, 4), dtype=np.bool_)
-
-    (plain,) = block_values(values, monitorable, side=4)
-    (peaked,) = block_values(values, monitorable, side=4, peak=0.5)
-
-    assert plain.worth == pytest.approx(0.8 / 16)
-    assert peaked.worth == pytest.approx(0.4)
-    assert peaked.stalest == (2, 1)
-
-
-def test_block_values_average_monitorable_cells_and_find_the_stalest_one() -> None:
+def test_a_block_is_worth_its_stalest_cell_even_among_fresh_ones() -> None:
     values = np.zeros((6, 4))
-    values[1, 2] = 0.8
-    values[0, 0] = 0.4
-    values[5, 3] = 1.0
-    monitorable = np.ones((6, 4), dtype=np.bool_)
-    monitorable[4, 0] = False
+    values[2, 1] = 0.8
+    values[5, 3] = 0.3
 
-    blocks = {block.block: block for block in block_values(values, monitorable, side=4)}
+    blocks = {block.block: block for block in block_values(values, side=4)}
 
-    assert blocks[(0, 0)].stalest == (1, 2)
-    assert blocks[(0, 0)].worth == pytest.approx(1.2 / 16)
-    # The right block is cut off by the border at x = 6 and has one cell that is not monitorable.
-    assert blocks[(1, 0)].stalest == (5, 3)
-    assert blocks[(1, 0)].worth == pytest.approx(1.0 / 7)
+    assert (blocks[(0, 0)].stalest, blocks[(0, 0)].worth) == ((2, 1), pytest.approx(0.8))
+    # The right block is cut off by the border at x = 6.
+    assert (blocks[(1, 0)].stalest, blocks[(1, 0)].worth) == ((5, 3), pytest.approx(0.3))
 
 
 def test_seeds_are_the_stale_cells_of_the_robots_block_and_one_per_other_block() -> None:
