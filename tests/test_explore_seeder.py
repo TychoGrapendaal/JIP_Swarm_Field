@@ -14,7 +14,7 @@ from swarm_field.contracts import (
     Time,
 )
 from swarm_field.swarm import AgentMemory, ExploreConfig, ExploreSeeder
-from swarm_field.swarm.explore import block_values, cell_values
+from swarm_field.swarm.explore import Growth, block_values, cell_values
 
 _FIELD = FieldGeometry(width=32, height=16, cell_size=10.0, row_sp=0.0, in_row_sp=0.0, headland=0.0)
 """Two blocks of 16 x 16 cells: (0, 0) on the left and (1, 0) on the right."""
@@ -77,6 +77,31 @@ def test_cells_are_worth_nothing_until_the_revisit_age_then_grow_towards_one() -
     assert values[0].tolist() == pytest.approx([1.0, 0.0, 0.0, 0.5, 0.75])
 
 
+def test_linear_growth_has_no_cap_and_counts_never_observed_cells_from_the_start() -> None:
+    now = 10 * _REVISIT
+    last_seen = np.array([[-np.inf, now - _REVISIT, now - 6 * _REVISIT]])
+    monitorable = np.ones((1, 3), dtype=np.bool_)
+
+    values = cell_values(last_seen, monitorable, now, _REVISIT, Growth.LINEAR)
+
+    assert values[0].tolist() == pytest.approx([5.0, 0.5, 3.0])
+    at_start = cell_values(last_seen[:, :1], monitorable[:, :1], 0, _REVISIT, Growth.LINEAR)
+    assert at_start[0, 0] == 1.0
+
+
+def test_a_block_peak_keeps_one_stale_cell_from_hiding_in_a_fresh_block() -> None:
+    values = np.zeros((4, 4))
+    values[2, 1] = 0.8
+    monitorable = np.ones((4, 4), dtype=np.bool_)
+
+    (plain,) = block_values(values, monitorable, side=4)
+    (peaked,) = block_values(values, monitorable, side=4, peak=0.5)
+
+    assert plain.worth == pytest.approx(0.8 / 16)
+    assert peaked.worth == pytest.approx(0.4)
+    assert peaked.stalest == (2, 1)
+
+
 def test_block_values_average_monitorable_cells_and_find_the_stalest_one() -> None:
     values = np.zeros((6, 4))
     values[1, 2] = 0.8
@@ -88,10 +113,10 @@ def test_block_values_average_monitorable_cells_and_find_the_stalest_one() -> No
     blocks = {block.block: block for block in block_values(values, monitorable, side=4)}
 
     assert blocks[(0, 0)].stalest == (1, 2)
-    assert blocks[(0, 0)].mean == pytest.approx(1.2 / 16)
+    assert blocks[(0, 0)].worth == pytest.approx(1.2 / 16)
     # The right block is cut off by the border at x = 6 and has one cell that is not monitorable.
     assert blocks[(1, 0)].stalest == (5, 3)
-    assert blocks[(1, 0)].mean == pytest.approx(1.0 / 7)
+    assert blocks[(1, 0)].worth == pytest.approx(1.0 / 7)
 
 
 def test_seeds_are_the_stale_cells_of_the_robots_block_and_one_per_other_block() -> None:

@@ -1,17 +1,17 @@
 """The EXPLORE seeder: draws robots to the cells whose information is the stalest.
 
 A cell is worth observing again by how long ago it was last observed. It is worth nothing until
-``revisit_age`` has passed; then it is stale, worth ``1 - 2^(-age / revisit_age)``, 0.5 at the
-revisit age and close to 1 long after it, and 1 if it was never observed. So exploring a new
-field and monitoring a known one are the same objective.
+``revisit_age`` has passed; then it is stale, worth 0.5 at the revisit age and more as it ages
+(``Growth``). So exploring a new field and monitoring a known one are the same objective.
 
 The robot's own block is seeded cell by cell, with its stale cells; every other block gets one
-seed, at its stalest cell, worth the block's mean value. Blocks may grow with the distance from
-the robot (``block_sides``). One field then does both jobs: inside the robot's block it leads to
-the nearest stale cell, and once the block has no stale cell left it leads to the best other
-block. A robot observes only the cell it stands on, so
-every swept cell is a target used up; the key follows the stale cells of the robot's block, and
-the field is rebuilt once per swept cell, but not while the robot travels over fresh ground.
+seed, at its stalest cell, worth the block's mean value, or a share of its stalest cell's value
+if that is more (``block_peak``), so that one forgotten cell cannot hide in a fresh block.
+Blocks may grow with the distance from the robot (``block_sides``). One field then does both
+jobs: inside the robot's block it leads to the nearest stale cell, and once the block has no
+stale cell left it leads to the best other block. A robot observes only the cell it stands on,
+so every swept cell is a target used up; the key follows the stale cells of the robot's block,
+and the field is rebuilt once per swept cell, but not while the robot travels over fresh ground.
 
 With ``spread_peers`` the robots are made to spread out: a block's values are divided by one
 plus the number of peers in it or heading to it.
@@ -20,6 +20,7 @@ plus the number of peers in it or heading to it.
 from collections import Counter
 from collections.abc import Hashable
 from dataclasses import dataclass
+from enum import Enum, auto
 
 import numpy as np
 from numpy.typing import NDArray
@@ -27,6 +28,22 @@ from numpy.typing import NDArray
 from swarm_field.contracts import CellId, Time, TimeUnit
 from swarm_field.swarm.field import Seed
 from swarm_field.swarm.memory import MemoryView
+
+
+class Growth(Enum):
+    """How a stale cell's value grows with its age past the revisit age ``A``.
+
+    Both are worth 0.5 at ``A``.
+
+    Attributes:
+        SATURATING: ``1 - 2^(-age / A)``, approaching 1; a never-observed cell is worth 1.
+        LINEAR: ``age / 2A``, without bound, so a forgotten cell ends up beating every other
+            one. A never-observed cell counts as observed when the run started (time 0), but is
+            worth at least 1.
+    """
+
+    SATURATING = auto()
+    LINEAR = auto()
 
 
 @dataclass(frozen=True)
@@ -41,6 +58,9 @@ class ExploreConfig:
         revisit_age: How long a cell is worth nothing after it was observed. From then on it is
             stale, worth ``1 - 2^(-age / revisit_age)``, and only the stale cells of the robot's
             own block are seeded; the block is done when none is left.
+        growth: How a stale cell's value grows with its age.
+        block_peak: ``lambda`` in a block's worth, ``max(mean, lambda * max)`` over its cells'
+            values; 0 for the plain mean.
         beta: How many cells of travel a fully stale cell, or a fully stale block, is worth.
         bucket: How long the mean values of the other blocks may drift before the field is
             rebuilt anyway.
@@ -60,6 +80,8 @@ class ExploreConfig:
     """
 
     revisit_age: Time = 28 * TimeUnit.MINUTE
+    growth: Growth = Growth.SATURATING
+    block_peak: float = 0.0
     beta: float = 64.0
     bucket: Time = 5 * TimeUnit.MINUTE
     block_sides: tuple[int, ...] = (8,)
@@ -85,12 +107,13 @@ class BlockValue:
     Attributes:
         block: The block, in block coordinates.
         stalest: The block's most valuable cell, where its seed goes.
-        mean: The mean value of the block's monitorable cells.
+        worth: The mean value of the block's monitorable cells, or ``peak`` times the value of
+            its stalest cell if that is more.
     """
 
     block: CellId
     stalest: CellId
-    mean: float
+    worth: float
 
 
 class ExploreSeeder:
@@ -123,6 +146,7 @@ class ExploreSeeder:
             memory.monitorable_cells()[cells],
             now,
             config.revisit_age,
+            config.growth,
         )
         stale = own_values > 0.0
         peers = frozenset(self._peers_per_block(memory, now, config.block_side).items())
@@ -131,13 +155,15 @@ class ExploreSeeder:
     def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
         """A seed on every stale cell of the robot's block, and one on every other block.
 
-        A stale cell starts at ``-beta * v``; another block starts at ``-beta * mean`` on its
-        stalest cell, the mean taken over the cells no finer block has claimed. With
+        A stale cell starts at ``-beta * v``; another block starts at ``-beta * worth`` on its
+        stalest cell, the worth taken over the cells no finer block has claimed. With
         ``spread_peers``, both are divided by one plus the peers of their block.
         """
         config = self.config
         monitorable = memory.monitorable_cells()
-        values = cell_values(memory.last_observed_times(), monitorable, now, config.revisit_age)
+        values = cell_values(
+            memory.last_observed_times(), monitorable, now, config.revisit_age, config.growth
+        )
 
         own = config.block_of(robot)
         own_cells = _cells_of_block(own, config.block_side)
@@ -156,8 +182,9 @@ class ExploreSeeder:
             if level < len(config.block_sides) - 1:
                 region &= _near_cells(robot, side, config.near_blocks, values.shape)
             peers = self._peers_per_block(memory, now, side)
-            for block in block_values(np.where(region, values, 0.0), monitorable & region, side):
-                worth = block.mean / (1 + peers[block.block])
+            region_values = np.where(region, values, 0.0)
+            for block in block_values(region_values, monitorable & region, side, config.block_peak):
+                worth = block.worth / (1 + peers[block.block])
                 seeds.append(Seed(block.stalest, -config.beta * worth))
             claimed |= region
         return tuple(seeds)
@@ -170,24 +197,36 @@ class ExploreSeeder:
 
 
 def cell_values(
-    last_seen: NDArray[np.float64], monitorable: NDArray[np.bool_], now: Time, revisit_age: Time
+    last_seen: NDArray[np.float64],
+    monitorable: NDArray[np.bool_],
+    now: Time,
+    revisit_age: Time,
+    growth: Growth = Growth.SATURATING,
 ) -> NDArray[np.float64]:
-    """What observing each cell again is worth: ``1 - 2^(-age / revisit_age)`` once it is stale.
+    """What observing each cell again is worth, growing with its age as ``growth`` says.
 
-    A cell is worth 0 younger than ``revisit_age``, or if it is not monitorable, and 1 if it was
-    never observed (``-inf``).
+    A cell is worth 0 younger than ``revisit_age``, or if it is not monitorable. A cell never
+    observed has ``last_seen`` ``-inf``.
     """
     age = now - last_seen
-    values = 1.0 - np.exp2(-age / revisit_age)
+    match growth:
+        case Growth.SATURATING:
+            values = 1.0 - np.exp2(-age / revisit_age)
+        case Growth.LINEAR:
+            never_observed = max(now, 2 * revisit_age)
+            values = np.minimum(age, never_observed) / (2 * revisit_age)
     values[age < revisit_age] = 0.0
     values[~monitorable] = 0.0
     return values
 
 
 def block_values(
-    values: NDArray[np.float64], monitorable: NDArray[np.bool_], side: int
+    values: NDArray[np.float64], monitorable: NDArray[np.bool_], side: int, peak: float = 0.0
 ) -> list[BlockValue]:
-    """Every block with something to explore, with its mean value and its stalest cell.
+    """Every block with something to explore, with its worth and its stalest cell.
+
+    A block is worth the mean value of its monitorable cells, or ``peak`` times the value of its
+    stalest cell if that is more.
 
     Blocks are the aligned squares of ``side`` cells; those along the far edges may be cut off by
     the border. All blocks are reduced at once, by padding the arrays to whole blocks and
@@ -199,12 +238,13 @@ def block_values(
     counts = _cells_per_block(np.pad(monitorable, padding), side).sum(axis=2)
     means = cells.sum(axis=2) / np.maximum(counts, 1)
     stalest = cells.argmax(axis=2)
+    worths = np.maximum(means, peak * cells.max(axis=2))
 
     found: list[BlockValue] = []
-    for block_x, block_y in np.argwhere(means > 0.0).tolist():
+    for block_x, block_y in np.argwhere(worths > 0.0).tolist():
         offset = int(stalest[block_x, block_y])
         cell = (block_x * side + offset // side, block_y * side + offset % side)
-        found.append(BlockValue((block_x, block_y), cell, float(means[block_x, block_y])))
+        found.append(BlockValue((block_x, block_y), cell, float(worths[block_x, block_y])))
     return found
 
 
