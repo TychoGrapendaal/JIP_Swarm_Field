@@ -184,11 +184,18 @@ class ComposedAgent:
             confidence=1.0,
             observed_at=now,
         )
+                if isinstance(fact, ObservationBase):
+                    facts.append(cast(Observation, fact))
+        return facts
+
+    def _messages_to_send(self, now: Time) -> list[Message]:
+        """The messages to broadcast at this decision point."""
         return [
             Message(
                 sender=self.robot_id,
                 sent_at=now,
                 kind=MessageKind.KNOWLEDGE,
                 payload=(*tuple(self.memory.records()), current_target),
+                payload=tuple(self.memory.records()),
             )
         ]
