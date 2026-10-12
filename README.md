@@ -135,22 +135,51 @@ uv run --with matplotlib python examples/renderer_demo.py --frames 60 --save fra
 uv run python examples/interactive_demo.py
 ```
 
-An interactive running scenario: robots act through the discrete-event loop (`RobotDecision`
-events drive `SwarmAgent.decide`) while pests spread via `WorldTick`. The window is steerable:
+An interactive running scenario: robots act through the discrete-event loop (`RobotDecision` events drive `SwarmAgent.decide`) while pests spread via `WorldTick`. The window is steerable:
 
 - Click an empty cell to inject an infestation (`InjectInfestation` command).
-- Click a robot to inspect its brain state via `SwarmAgent.inspect()` — a read-only
-  `AgentInspection` panel shows the robot's current goal and belief.
-- `space` / `p` pause and resume, `s` advances exactly one simulation event, `+` / `-` and `0`
-  change the simulation speed.
+- Click a robot to inspect its brain state via `SwarmAgent.inspect()` — a read-only `AgentInspection` panel shows the robot's current goal and belief.
+- `space` / `p` pause and resume, `s` advances exactly one simulation event, `+` / `-` and `0` change the simulation speed.
 
-The interactions flow through the typed `Command` port (`InjectInfestation` is applied by the
-simulation; `Pause` / `StepOnce` / `SetTimeScale` pace the render clock). Headless frame
-generation works like the renderer demo:
+The interactions flow through the typed `Command` port (`InjectInfestation` is applied by the simulation; `Pause` / `StepOnce` / `SetTimeScale` pace the render clock). Headless frame generation works like the renderer demo:
 
 ```bash
 uv run python examples/interactive_demo.py --frames 240 --save frames/interactive
 ```
+
+#### Recording and replaying a session
+
+Add `--record` to save a session. The window works exactly as without it; the recording is written when the window is closed:
+
+```bash
+uv run python examples/interactive_demo.py --record recordings/demo.json
+```
+
+A recording is a small JSON `CommandLog`: the seed, the simulation time the session ended at, and every injected pest with the simulation time it was applied at. Because a run is a function of its seed, this is enough to reproduce the session exactly. Pause, step and speed changes are not recorded, since they change how fast the run is shown, not what happens in it.
+
+Replay a recording in a window:
+
+```bash
+uv run python examples/interactive_demo.py --replay recordings/demo.json
+```
+
+The replay plays at 1x from the start and stops where the recording ended. Pausing, stepping, changing the speed and inspecting robots still work, but injecting is disabled so the run stays the recorded one.
+
+Or render the replay to a video instead of opening a window:
+
+```bash
+uv run python examples/interactive_demo.py --replay recordings/demo.json --save demo.mp4
+```
+
+`--save` decides the output by its suffix: `.gif` writes a GIF (no extra software needed), `.mp4` writes a video and needs [ffmpeg](https://ffmpeg.org/) on the `PATH`, and any other path is a directory of PNG frames. By default a replay renders its full length; `--frames N` renders only the first `N` frames, at 0.5 s of simulation time per frame.
+
+| Flag | Meaning |
+|---|---|
+| `--seed N` | Seed of a new session (default 7); a replay uses the seed from its recording. |
+| `--frames N` | Number of frames to run (default 240, or the full length of a replay). |
+| `--save PATH` | Save instead of opening a window: `.gif`, `.mp4`, or a directory of PNGs. |
+| `--record PATH` | Write the session's `CommandLog` to `PATH` when it ends. |
+| `--replay PATH` | Play back a recording written by `--record`. |
 
 ### Watching a real experiment (C.1 over B.5)
 
@@ -222,7 +251,7 @@ uv run python examples/robustness_demo.py --out runs/robustness
 - Coarse-grained infestation dynamics are implemented as a scheduled `WorldTick`; the current model supports severity growth, neighbour spread, and stochastic spawning.
 - Robot batteries are drained by a coarse cost model (per metre, per decision, per treat) and robot failure and position error can be injected for robustness runs, but there is no charging station, no consumable replenishment and no recovery from a failure.
 - Sensing is currently local; distant obstacles and infestations are unknown unless information is later propagated through communication.
-- The visualization adapter renders read-only snapshots; interactive time control, infestation injection and robot inspection are demonstrated in `examples/interactive_demo.py` (C.1).
+- The visualization adapter renders read-only snapshots; interactive time control, infestation injection, robot inspection and recording and replaying a session are demonstrated in `examples/interactive_demo.py` (C.1).
 
 ## Project layout
 

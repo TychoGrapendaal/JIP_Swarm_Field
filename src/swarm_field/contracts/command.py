@@ -3,12 +3,16 @@
 ``Command`` is the C → B port: the only way the frontend influences a run. World-affecting
 commands are applied by the simulation; time-pacing commands describe how the frontend
 advances the simulation clock (pause, step once, speed multiplier) and are interpreted by its
-render loop.
+render loop. A ``CommandLog`` records the world-affecting commands of a seeded run, so the run
+can be replayed exactly.
 """
 
+from __future__ import annotations
+
+import json
 from dataclasses import dataclass
 
-from swarm_field.contracts.ids import CellId
+from swarm_field.contracts.ids import CellId, Time
 
 
 @dataclass(frozen=True)
@@ -55,3 +59,67 @@ class StepOnce:
 
 
 Command = InjectInfestation | SetTimeScale | Pause | StepOnce
+
+
+@dataclass(frozen=True)
+class TimedCommand:
+    """A world-affecting command and the simulation time it was applied at.
+
+    Only world-affecting commands are recorded: time-pacing commands change how fast the
+    frontend advances the clock, not what the run produces.
+
+    Attributes:
+        time: Simulation time of the application, after every event up to it was handled.
+        command: The command that was applied.
+    """
+
+    time: Time
+    command: InjectInfestation
+
+
+@dataclass(frozen=True)
+class CommandLog:
+    """Everything a seeded interactive run needs to be replayed exactly.
+
+    Attributes:
+        seed: The seed the run was built from.
+        until: Simulation time the recording ended at.
+        commands: The applied commands, in the order they were applied.
+    """
+
+    seed: int
+    until: Time
+    commands: tuple[TimedCommand, ...]
+
+    def to_json(self) -> str:
+        """The log as a JSON document, readable by ``from_json``."""
+        commands = [
+            {
+                "time": timed.time,
+                "inject_infestation": {
+                    "cell": list(timed.command.cell),
+                    "severity": timed.command.severity,
+                },
+            }
+            for timed in self.commands
+        ]
+        document = {"seed": self.seed, "until": self.until, "commands": commands}
+        return json.dumps(document, indent=2)
+
+    @classmethod
+    def from_json(cls, text: str) -> CommandLog:
+        """Read a log written by ``to_json``.
+
+        Raises:
+            KeyError: If a field or command kind is missing from the document.
+        """
+        document = json.loads(text)
+        commands: list[TimedCommand] = []
+        for entry in document["commands"]:
+            inject = entry["inject_infestation"]
+            x, y = inject["cell"]
+            command = InjectInfestation(cell=(int(x), int(y)), severity=float(inject["severity"]))
+            commands.append(TimedCommand(time=int(entry["time"]), command=command))
+        return cls(
+            seed=int(document["seed"]), until=int(document["until"]), commands=tuple(commands)
+        )

@@ -23,11 +23,13 @@ from swarm_field.simulation.metrics import (
     write_metrics_csv,
     write_metrics_json,
 )
+from swarm_field.simulation.replay import CommandReplay
 from swarm_field.simulation.scenario import build_scenario, build_world
 from swarm_field.simulation.world import EnergyConfig, RobotState, WorldState
 
 __all__ = [
     "Channel",
+    "CommandReplay",
     "EnergyConfig",
     "Event",
     "EventQueue",

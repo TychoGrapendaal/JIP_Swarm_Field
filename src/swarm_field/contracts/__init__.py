@@ -11,10 +11,12 @@ from swarm_field.contracts.agent import (
 )
 from swarm_field.contracts.command import (
     Command,
+    CommandLog,
     InjectInfestation,
     Pause,
     SetTimeScale,
     StepOnce,
+    TimedCommand,
 )
 from swarm_field.contracts.ids import (
     BodyType,
@@ -59,6 +61,7 @@ __all__ = [
     "CellState",
     "Charge",
     "Command",
+    "CommandLog",
     "CropObservation",
     "CropType",
     "Decision",
@@ -96,6 +99,7 @@ __all__ = [
     "TerrainObservation",
     "Time",
     "TimeUnit",
+    "TimedCommand",
     "Treat",
     "Vector2",
     "WorldSnapshot",
