@@ -235,7 +235,7 @@ def test_a_winning_follow_field_becomes_a_step_along_the_field() -> None:
 def test_agent_broadcasts_its_memory_and_peer_learns_it() -> None:
     sender = _agent([])
     receiver_memory = AgentMemory(2, _FIELD)
-    receiver_fields = FieldProvider(receiver_memory, flies=False)
+    receiver_fields = FieldProvider(receiver_memory, flies=False, seeders=[])
     receiver = ComposedAgent(
         robot_id=2,
         behaviors=[],
