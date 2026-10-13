@@ -1,12 +1,10 @@
 """Composable robot behaviours for the high-level cell model."""
 
-import math
 from dataclasses import dataclass, field
 from typing import Protocol
 
 from swarm_field.contracts import (
     AgentObjective,
-    BodyType,
     CellId,
     Charge,
     Idle,
@@ -62,10 +60,6 @@ class ActionCandidate:
     target: CellId | None
     objective: AgentObjective | None = None
 
-    def __post_init__(self) -> None:
-        if self.target is not None and self.objective is None:
-            raise ValueError("A candidate with a target must declare its AgentObjective.")
-
 
 @dataclass(frozen=True)
 class DecisionContext:
@@ -108,15 +102,8 @@ class Behavior(Protocol):
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]: ...
 
 
-_TREAT_SCORE = 0.99
-"""The score of treating the pest the robot stands on.
-
-Just below 1, so that the battery behaviour can still outbid it to save the robot from dying.
-"""
-
-
 class TreatInfestation:
-    """The pest-response behaviour: follow the field of the TREAT seeder and treat on arrival."""
+    """Skeleton of the pest-response behaviour: follow the field of the TREAT seeder."""
 
     name: str = "treat-infestation"
 
@@ -143,14 +130,3 @@ class TreatInfestation:
             objective=AgentObjective.TREAT,
         )
         return (candidate,)
-        for seed in seeded.seeds:
-            if seed.cell == position:
-                return (ActionCandidate(Treat(position), _TREAT_SCORE, self.name, position),)
-
-        num_killers = 0
-        for peer in ctx.memory.peers():
-            if peer.body is BodyType.KILLER:
-                num_killers += 1
-        # The more pests are left per killer already known, the more this robot is needed.
-        score = 1 / (1 + math.exp(-(len(seeded.seeds) - num_killers)))
-        return (ActionCandidate(FollowField(self._seeder), score, self.name, None),)

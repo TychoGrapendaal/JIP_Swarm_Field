@@ -195,7 +195,7 @@ def walk_navigator_trip(
         seeded = fields.field_for(seeder.name, route[-1], 0)
         if seeded is None:
             break
-        action, _ = navigator.step_towards(seeded, route[-1])
+        action = navigator.step_towards(seeded, route[-1])
         if isinstance(action, Idle):
             break
         route.append(action.to)

@@ -33,7 +33,7 @@ class Navigator:
         self._best_value: float | None = None
         self._no_progress_ticks: int = 0
 
-    def step_towards(self, seeded: SeededField, robot: CellId) -> tuple[Move | Idle, CellId | None]:
+    def step_towards(self, seeded: SeededField, robot: CellId) -> Move | Idle:
         """The one movement action of this decision point, on the way towards a field's targets.
 
         A field guides the robot while it can: the robot steps into the neighbouring cell the
@@ -56,19 +56,19 @@ class Navigator:
         target = field.target_for(robot)
         if target == robot:
             self._forget_plan()
-            return Idle(), target
+            return Idle()
         if target is None:
             # No wave reaches this robot, so the field has no route to offer. The seeder's
             # targets are known all the same, so the steerer walks towards the most attractive
             # one and stalls if it is walled off for good, which is how the brain hears about it.
-            return self._steer_towards(_attractive_seed(seeded.seeds).cell, robot), target
+            return self._steer_towards(_attractive_seed(seeded.seeds).cell, robot)
 
         step = field.next_cell(robot)
         if step is not None and self._plan_progresses(field.value_at(robot)):
             self._steerer.reset()
-            return Move(to=step), target
+            return Move(to=step)
         offset = (float(target[0] - robot[0]), float(target[1] - robot[1]))
-        return self._steerer.steer(offset, robot), target
+        return self._steerer.steer(offset, robot)
 
     def _steer_towards(self, target: CellId, robot: CellId) -> Move | Idle:
         """The ``Steerer``'s step towards an absolute ``target``, as a relative offset."""

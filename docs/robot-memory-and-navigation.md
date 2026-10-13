@@ -6,11 +6,11 @@ This document describes what was built for the robot's local memory and for navi
 flowchart TD
     S["Perception.sensed"] -->|ingest| M["AgentMemory"]
     P["Facts from a peer (not decoded yet)"] -->|merge| M
-    M -->|"MemoryView: pests, peers, confidence"| O["FieldSeeder (e.g. TreatSeeder)"]
+    M -->|"MemoryView: pests, peers, confidence"| O["FieldSeeder (TreatSeeder is a mock)"]
     M -->|"terrain of the changed cells"| FP["FieldProvider: the Quadtree, the seeders, one cached field per seeder"]
     O -->|"field_key, tuple of Seed"| FP
     FP -->|build_grid_potential_field| F["GridPotentialField"]
-    FP -->|"field_for(seeder): SeededField"| H["Behaviour (e.g. TreatInfestation)"]
+    FP -->|"field_for(seeder): SeededField"| H["Behaviour (TreatInfestation is a skeleton)"]
     H -->|"ActionCandidate: FollowField(seeder), Treat, Charge or Idle"| A["ComposedAgent picks the best"]
     FP -->|"the winner's SeededField"| N["Navigator: progress tracking, a Steerer"]
     A -->|"winner's FollowField"| N
@@ -29,8 +29,8 @@ Memory holds facts and nothing else. The quadtree says where a robot can be and 
 | `swarm/provider.py` | `FieldProvider` (the quadtree, the seeders, one cached field per seeder) |
 | `swarm/navigator.py` | `Navigator` (the seam: progress, fallback) |
 | `swarm/steering.py` | `Steerer`, `Sensing`, `QuadtreeSensing`, `SteeringConfig` |
-| `swarm/seeder.py` | `FieldSeeder`, `SeededField`, `TreatSeeder` |
-| `swarm/behavior.py` | `Behavior`, `ActionCandidate`, `FollowField`, `Intent`, `DecisionContext`, `TreatInfestation` |
+| `swarm/seeder.py` | `FieldSeeder`, `SeededField`, `TreatSeeder` (mock) |
+| `swarm/behavior.py` | `Behavior`, `ActionCandidate`, `FollowField`, `Intent`, `DecisionContext`, `TreatInfestation` (skeleton) |
 | `swarm/brain.py` | `ComposedAgent` |
 
 Tests: `tests/test_memory.py`, `tests/test_quadtree.py`, `tests/test_field.py`, `tests/test_provider.py`, `tests/test_navigator.py`, `tests/test_steering.py`, `tests/test_swarm.py`.
@@ -45,7 +45,7 @@ Confidence is computed on demand by `AgentMemory.confidence`. Infestation confid
 
 Memory does not compute aggregates (such as the coarse tiles in the design document). Behaviours and field seeders read facts through `MemoryView`, including peer targets. This change only makes those announcements available; it does not impose a generic target-discounting policy.
 
-Contract changes made for memory: `ObstacleObservation` became `TerrainObservation` with a `Terrain` value (`FREE`, `OBSTACLE`, `OUTSIDE`; no observation means unknown); `PeerObservation` gained the peer's `body` and an optional `target`, the cell the peer says it is heading for; `BodyType` moved to `contracts/ids.py`; and `TimeUnit` gives named durations, e.g. `24 * TimeUnit.HOUR` (`Time` is in milliseconds).
+Contract changes made for memory: `ObstacleObservation` became `TerrainObservation` with a `Terrain` value (`FREE`, `OBSTACLE`, `OUTSIDE`; no observation means unknown); `PeerObservation` gained the peer's `body`; `BodyType` moved to `contracts/ids.py`; and `TimeUnit` gives named durations, e.g. `24 * TimeUnit.HOUR` (`Time` is in milliseconds).
 
 ## Quadtree
 
@@ -92,9 +92,6 @@ The `Steerer` is the fallback, used when the field cannot guide. That is either 
 `ComposedAgent` owns one `AgentMemory`, one `FieldProvider` and one `Navigator`. At every decision it merges sensed and received knowledge facts into memory, gives the provider any newly learned terrain cells, and hands memory and fields to behaviours in the `DecisionContext`. The brain picks the highest-scoring candidate without altering scores based on peer targets. It then turns the winner's intent into one action: for a `FollowField` the navigator steps along that seeder's field, while other intents (`Treat`, `Charge`, `Idle`) pass through unchanged. A `FollowField` whose seeder has no target logs a warning and idles. The brain broadcasts remembered facts together with an announcement of the winning candidate's target and behaviour objective; if there is no winning candidate, it explicitly clears its target. `inspect()` returns the memory's facts for inspection and visualization.
 
 The TREAT seeder's target generation and the scoring/action details of `TreatInfestation` remain placeholders (#40); this change adds the target-sharing contract and memory ingestion only. Any policy for reducing the attractiveness of peer-targeted cells belongs in the relevant field seeder, where it can be tuned per objective.
-`ComposedAgent` owns one `AgentMemory`, one `FieldProvider` and one `Navigator`. At every decision it merges what the robot sensed and received into memory, gives the provider the cells that got new terrain facts (the provider re-reads them from memory and updates its `Quadtree`), and hands memory and the provider (as `fields`) to the behaviours in the `DecisionContext`. Every behaviour returns a tuple of `ActionCandidate`s, and the brain picks the one with the highest score. It then turns the winner's intent into one action: for a `FollowField` the navigator steps along that seeder's field from the provider, and any other intent (`Treat`, `Charge`, `Idle`) passes through unchanged. A winning `FollowField` whose seeder has no targets logs a warning and idles. With every decision the brain broadcasts two messages: a `STATUS` message, a `PeerObservation` of the robot itself carrying the winner's `target`, and a `KNOWLEDGE` message with all its facts. A receiver merges both into memory, so a peer's target is read through `MemoryView.peers()`. `inspect()` returns the memory's facts, for visualization.
-
-The arbiter that picks the winner is still a placeholder, marked with a `TODO` comment in the code: for now the highest score wins (#39).
 
 ## Writing a behaviour
 
@@ -129,30 +126,27 @@ A **`Behavior`** (`swarm/behavior.py`) bids for what the robot does next. Its `p
 - to move, it proposes `FollowField(seeder_name)`, and the navigator steps along that field only if the candidate wins;
 - standing on its target (`field.target_for(position) == position`), it proposes its on-the-spot action instead, such as `Treat(position)` or `Charge()`.
 
-An `Intent` is `FollowField`, `Treat`, `Charge` or `Idle`. There is deliberately no `Move`, so the type checker keeps every step inside the navigator. The score's scale, shared by all behaviours, is still to be settled with the arbiter (#39); until then `TreatInfestation` bids on a 0..1 scale, as shown below.
+An `Intent` is `FollowField`, `Treat`, `Charge` or `Idle`. There is deliberately no `Move`, so the type checker keeps every step inside the navigator. The score's scale, shared by all behaviours, is still to be settled with the arbiter (#39); until then the field-following behaviours use the negated potential at the robot's cell, in cells.
 
-`TreatSeeder`, in outline, has target value severity × confidence. A cell that a peer is already heading for keeps only `reduction_rate` of its value, which is how robots avoid going to the same target, and clustered pests reinforce each other (left out here). The key is a one-minute time bucket, so the field follows the decaying confidences, plus the infested cells and the peers' targets, so the field reacts at once when a pest is treated or a peer picks a target:
+A TREAT seeder after the design document, with target value severity × confidence and $\beta = 10$ cells, could look like this. The key here is a five-minute time bucket, so the field follows the decaying confidences, but a newly found pest is only seen at the next bucket or block; a memory counter that changes when a pest appears or disappears would make it react at once:
 
 ```python
 class TreatSeeder:
     name: str = "treat"
 
     def field_key(self, memory: MemoryView, now: Time) -> Hashable:
-        return (now // TimeUnit.MINUTE, infested_cells(memory), cells_targeted_by_peers(memory))
+        return now // (5 * TimeUnit.MINUTE)
 
     def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
         seeds: list[Seed] = []
-        targeted = cells_targeted_by_peers(memory)
         for pest in memory.infestations():
             if pest.severity > 0:
                 value = pest.severity * memory.confidence(pest, now)
-                if pest.cell in targeted:
-                    value *= self.reduction_rate
-                seeds.append(Seed(pest.cell, -self.value_amplifier * value))
+                seeds.append(Seed(pest.cell, -10 * value))
         return tuple(seeds)
 ```
 
-`VERIFY` would use `severity * (1 - confidence)` instead; `RECHARGE` would seed the dock cells with value 0 and a constant key. The behaviour that pursues it treats on the spot when the robot stands on a pest, with a score just below 1 so that a battery behaviour can still outbid it. Otherwise it bids to follow the field, and wants it more the more pests there are per killer it knows of:
+`VERIFY` would use `severity * (1 - confidence)` instead; `RECHARGE` would seed the dock cells with value 0 and a constant key. The behaviour that pursues it reads the field to score, and bids to follow it or to treat on the spot:
 
 ```python
 class TreatInfestation:
@@ -163,12 +157,10 @@ class TreatInfestation:
         seeded = ctx.fields.field_for(TreatSeeder.name, position, ctx.time)
         if seeded is None:                                    # no known pests: no bid
             return ()
-        for seed in seeded.seeds:
-            if seed.cell == position:                         # on a pest: treat it
-                return (ActionCandidate(Treat(position), 0.99, self.name, position),)
-        num_killers = count_known_killers(ctx.memory)
-        score = 1 / (1 + math.exp(-(len(seeded.seeds) - num_killers)))
         target = seeded.field.target_for(position)
+        score = -seeded.field.value_at(position)              # lower potential is better
+        if target == position:                                # on the pest: treat it
+            return (ActionCandidate(Treat(position), score, self.name, target),)
         return (ActionCandidate(FollowField(TreatSeeder.name), score, self.name, target),)
 ```
 
@@ -185,14 +177,13 @@ When a behaviour or seeder recovers from something that should not happen instea
 
 ## Not in v1
 
-- **Claims.** A robot broadcasts its target and peers are drawn to it less, but nothing is a binding claim: two robots that pick the same cell at once may both turn away, and a target never expires. A sighting of a peer that is newer than its status also replaces the target with `None`. Claims need their own merge rule (the earliest claim wins, and claims expire), and a new fact kind in memory.
+- **Claims.** Robots cannot yet claim a target so that others leave it alone. Claims need their own merge rule (the earliest claim wins, and claims expire), and a new fact kind in memory.
 - **Crop facts and docks.** Memory ignores `CropObservation`s. Dock positions are not stored; they will be given to whatever needs them.
 - **Forgetting.** Memory never deletes facts; it is bounded by the field size plus the number of robots.
 - **Sending only new facts.** Robots exchange all their facts at every meeting. Sending only what the other robot has not seen yet needs, per fact, the time this robot learned it (not when it was observed).
 - **Seeders, behaviours and arbiter.** `TreatSeeder` returns no targets and `TreatInfestation` remains a skeleton (#40). The brain picks the highest score, with no overrides for urgent needs (such as a low battery) and nothing against switching objectives back and forth. Peer-target announcements are stored in memory, but no target-discounting policy is applied yet; objective-specific handling belongs in each field seeder. Announced objectives use the shared `AgentObjective` enum (`TREAT`, `EXPLORE`, `VERIFY`, `RECHARGE`) rather than free-form strings. A candidate carries its objective independently from the behaviour name, so multiple behaviours can share one objective without relying on string matching.
 - **Sharing facts.** Knowledge messages currently send the robot's remembered facts and current target announcement; receiving robots ingest the facts into memory. Delta-only sharing and message-size optimisation are not implemented.
 - **Seeders, behaviours, arbiter, crowding.** `TreatSeeder` returns no targets and `TreatInfestation` is a skeleton (#40); the examples above are not in the code. The brain picks the highest score, with no overrides for urgent needs (such as a low battery) and nothing against switching objectives back and forth. Spreading robots over different targets is not addressed.
-- **Arbiter.** The brain picks the highest score, with no overrides for urgent needs (such as a low battery) and nothing against switching objectives back and forth.
 - **Faster fields.** Each field a robot reads costs one build per block it travels, so the cost grows with the number of field-reading behaviours. Inside the quadtree, each leaf's neighbours are still found again for every field; caching them until an update touches them would make repeated fields about four to five times faster.
 - **The steerer's clearance ring.** `QuadtreeSensing` reads the quadtree, so the fallback steers over *believed* terrain; a real robot would probe one cell ahead and would rather slide along a wall than cut it. The fallback is also blind to crops: it only knows what the quadtree was told, and memory does not store crops yet.
 - **Terrain costs.** All traversable cells cost the same; there is no extra cost for unknown cells or rough terrain.

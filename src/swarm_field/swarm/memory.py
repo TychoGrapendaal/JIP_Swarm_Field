@@ -173,9 +173,7 @@ class AgentMemory:
         """The newest target announcement from each other robot, including explicit clears."""
         return iter(self._peer_targets.values())
 
-    def peer_target_confidence(
-        self, target: CellId, objective: AgentObjective, now: Time
-    ) -> float:
+    def peer_target_confidence(self, target: CellId, objective: AgentObjective, now: Time) -> float:
         """Return the strongest fresh claim on ``target`` for ``objective``.
 
         Zero means no peer currently advertises that exact target/objective pair. Announcements
