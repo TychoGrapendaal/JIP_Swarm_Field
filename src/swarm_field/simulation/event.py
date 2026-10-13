@@ -20,6 +20,7 @@ from swarm_field.contracts import (
     PestDynamicsSpec,
     RobotId,
     Time,
+    TimeUnit,
 )
 from swarm_field.simulation.metrics import MetricsConfig
 
@@ -154,7 +155,7 @@ class FailureConfig:
         mode: What the failure is when it happens.
     """
 
-    period: Time = 60_000
+    period: Time = TimeUnit.MINUTE
     probability: float = 0.0
     mode: FailureMode = FailureMode.DEAD_BATTERY
 
@@ -219,7 +220,9 @@ class MetricSample:
         """Take one sample if the run records metrics, render if it has a renderer, reschedule."""
         sample = None
         if ctx.metrics is not None:
-            sample = ctx.metrics.sample(ctx.world, self.time, ctx.channel.sent)
+            sample = ctx.metrics.sample(
+                ctx.world, self.time, ctx.channel.sent, ctx.channel.received
+            )
         if ctx.renderer is not None:
             ctx.renderer.render(ctx.world.snapshot(self.time, metrics=sample))
         ctx.schedule(MetricSample(time=self.time + self.config.period, config=self.config))
@@ -239,7 +242,7 @@ class PestDynamicsConfig:
         spawn_severity: Initial severity assigned to newly spawned or spread infestations.
     """
 
-    period: Time = 60_000
+    period: Time = TimeUnit.MINUTE
     spawn_probability: float = 0.01
     growth_rate: float = 0.05
     spread_probability: float = 0.20

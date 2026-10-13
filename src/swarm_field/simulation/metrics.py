@@ -23,7 +23,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from swarm_field.contracts import CellId, MetricsSample, Observation, Time
+from swarm_field.contracts import CellId, MetricsSample, Observation, Time, TimeUnit
 from swarm_field.simulation.world import WorldState
 
 _METRIC_FIELDS = tuple(MetricsSample.__dataclass_fields__)
@@ -39,7 +39,7 @@ class MetricsConfig:
             as an active target.
     """
 
-    period: Time = 3_600_000
+    period: Time = TimeUnit.HOUR
     target_threshold: float = 0.0
 
     def __post_init__(self) -> None:
@@ -98,7 +98,9 @@ class MetricsCollector:
             if infested_at is not None and cell not in self._detected_at:
                 self._detected_at[cell] = now
 
-    def sample(self, world: WorldState, now: Time, messages_sent: int) -> MetricsSample:
+    def sample(
+        self, world: WorldState, now: Time, messages_sent: int, messages_received: int = 0
+    ) -> MetricsSample:
         """Read the world at ``now``, record one row of the series, and return it."""
         world.advance_to(now)
         self._track_infestation(world, now)
@@ -109,6 +111,7 @@ class MetricsCollector:
             detection_latency_ms=self._mean_detection_latency(),
             energy_per_area=self._energy_per_area(world),
             messages_sent=messages_sent,
+            messages_received=messages_received,
             coverage=self._coverage(),
             active_robots=len(world.live_robots()),
         )

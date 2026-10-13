@@ -14,6 +14,7 @@ from swarm_field.contracts import (
     RobotSpec,
     ScenarioConfig,
     ScenarioId,
+    TimeUnit,
 )
 from swarm_field.simulation.world import EnergyConfig, RobotState, WorldState
 
@@ -81,7 +82,7 @@ def _build_s1(seed: int) -> ScenarioConfig:
         initial_infestation={},
         obstacles=(),
         pest_dynamics=PestDynamicsSpec(
-            period=60_000,
+            period=TimeUnit.MINUTE,
             spawn_probability=0.0,
             growth_rate=0.0,
             spread_probability=0.0,
@@ -103,7 +104,7 @@ def _build_s2(seed: int) -> ScenarioConfig:
         initial_infestation=infestation,
         obstacles=(),
         pest_dynamics=PestDynamicsSpec(
-            period=60_000,
+            period=TimeUnit.MINUTE,
             spawn_probability=0.0,
             growth_rate=0.05,
             spread_probability=0.15,
@@ -128,7 +129,7 @@ def _build_s3(seed: int) -> ScenarioConfig:
         initial_infestation=infestation,
         obstacles=(),
         pest_dynamics=PestDynamicsSpec(
-            period=60_000,
+            period=TimeUnit.MINUTE,
             spawn_probability=0.005,
             growth_rate=0.04,
             spread_probability=0.18,

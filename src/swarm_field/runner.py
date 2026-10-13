@@ -33,6 +33,7 @@ from swarm_field.contracts import (
     ScenarioId,
     SwarmAgent,
     Time,
+    TimeUnit,
 )
 from swarm_field.simulation import (
     FailureCheck,
@@ -162,7 +163,7 @@ class ExperimentConfig:
     scenario: ScenarioConfig
     scenario_name: str = ""
     brain: BrainSpec = field(default_factory=BrainSpec)
-    until: Time = 3_600_000
+    until: Time = TimeUnit.HOUR
     metrics: MetricsConfig = field(default_factory=MetricsConfig)
     decision_interval: Time = 5_000
 
@@ -182,6 +183,7 @@ class RunSummary:
             run's samples, or ``None`` if nothing was detected.
         energy_per_area: Battery fraction spent per square metre over the run.
         messages_sent: Messages handed to the channel over the run.
+        messages_received: Times a message reached a robot in range over the run.
         active_robots: Robots still taking part when the run ended.
     """
 
@@ -194,6 +196,7 @@ class RunSummary:
     mean_detection_latency_ms: float | None
     energy_per_area: float
     messages_sent: int
+    messages_received: int
     active_robots: int
 
     @classmethod
@@ -219,6 +222,7 @@ class RunSummary:
             mean_detection_latency_ms=_mean(sample.detection_latency_ms for sample in taken),
             energy_per_area=final.energy_per_area,
             messages_sent=final.messages_sent,
+            messages_received=final.messages_received,
             active_robots=final.active_robots,
         )
 
@@ -234,6 +238,7 @@ class RunSummary:
             "mean_detection_latency_ms": self.mean_detection_latency_ms,
             "energy_per_area": self.energy_per_area,
             "messages_sent": self.messages_sent,
+            "messages_received": self.messages_received,
             "active_robots": self.active_robots,
         }
 
@@ -285,7 +290,7 @@ def sweep_scenarios(
     scenarios: Iterable[ScenarioId],
     seeds: Iterable[int],
     brain: BrainSpec | None = None,
-    until: Time = 3_600_000,
+    until: Time = TimeUnit.HOUR,
     metrics: MetricsConfig | None = None,
     renderer: Renderer | None = None,
 ) -> tuple[RunSummary, ...]:
@@ -351,7 +356,7 @@ def robustness_sweep(
     scenario: ScenarioId,
     cases: Iterable[RobustnessCase],
     seed: int,
-    until: Time = 3_600_000,
+    until: Time = TimeUnit.HOUR,
     metrics: MetricsConfig | None = None,
     renderer: Renderer | None = None,
 ) -> tuple[RunSummary, ...]:
@@ -559,7 +564,7 @@ def build_experiment(
     scenario: ScenarioId,
     seed: int,
     brain: BrainSpec | None = None,
-    until: Time = 3_600_000,
+    until: Time = TimeUnit.HOUR,
     metrics: MetricsConfig | None = None,
     decision_interval: Time = 5_000,
 ) -> ExperimentConfig:

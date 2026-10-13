@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from enum import Enum, auto
 
-from swarm_field.contracts.ids import BodyType, CellId, CropType, RobotId
+from swarm_field.contracts.ids import BodyType, CellId, CropType, RobotId, TimeUnit
 from swarm_field.contracts.world import FieldGeometry
 
 
@@ -29,7 +29,7 @@ class PestDynamicsSpec:
         spawn_severity: Initial severity assigned to new infestations.
     """
 
-    period: int = 60_000
+    period: int = TimeUnit.MINUTE
     spawn_probability: float = 0.01
     growth_rate: float = 0.05
     spread_probability: float = 0.20
@@ -111,7 +111,7 @@ class FailureSpec:
         mode: What the failure is when it happens.
     """
 
-    period: int = 60_000
+    period: int = TimeUnit.MINUTE
     probability: float = 0.0
     mode: FailureMode = FailureMode.DEAD_BATTERY
 

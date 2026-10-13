@@ -3,6 +3,7 @@
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from math import ceil, hypot
+from typing import assert_never
 
 from swarm_field.contracts import (
     Action,
@@ -231,12 +232,15 @@ class WorldState:
         if robot.failed:
             return
         robot.failed = True
-        if mode is FailureMode.DEAD_BATTERY:
-            robot.battery = 0.0
-        elif mode is FailureMode.DISABLED:
-            robot.health = 0.0
-        else:
-            robot.radio_range_m = 0.0
+        match mode:
+            case FailureMode.DEAD_BATTERY:
+                robot.battery = 0.0
+            case FailureMode.DISABLED:
+                robot.health = 0.0
+            case FailureMode.OFFLINE:
+                robot.radio_range_m = 0.0
+            case _:
+                assert_never(mode)
 
     def live_robots(self) -> tuple[RobotId, ...]:
         """Every robot still taking part in the run, in id order."""
