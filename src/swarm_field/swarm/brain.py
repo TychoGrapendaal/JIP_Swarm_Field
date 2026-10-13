@@ -101,8 +101,10 @@ class ComposedAgent:
             return Decision(action=Idle(), outbox=self._messages_to_send(perception))
 
         self._current_goal = best.source
-        self._current_target = best.target
-        action = self._action_for(best.action, perception.self_state.position, perception.time)
+        action, target = self._action_for(
+            best.action, perception.self_state.position, perception.time
+        )
+        self._current_target = target
         return Decision(action=action, outbox=self._messages_to_send(perception))
 
     def inspect(self) -> AgentInspection:
@@ -112,14 +114,14 @@ class ComposedAgent:
             belief=self.memory.snapshot(),
         )
 
-    def _action_for(self, intent: Intent, robot: CellId, now: Time) -> Action:
+    def _action_for(self, intent: Intent, robot: CellId, now: Time) -> tuple[Action, CellId | None]:
         """The action that carries out the winning candidate's intent."""
         if not isinstance(intent, FollowField):
-            return intent
+            return intent, None
         field = self.fields.field_for(intent.seeder, robot, now)
         if field is None:
             logger.warning("FollowField couldn't find the corresponding field %s", intent.seeder)
-            return Idle()
+            return Idle(), None
         return self.navigator.step_towards(field, robot)
 
     def _facts_received(self, inbox: list[Message]) -> list[Observation]:
