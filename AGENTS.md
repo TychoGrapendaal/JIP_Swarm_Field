@@ -25,6 +25,7 @@ A decentralized swarm of robots that monitor and cultivate a crop field. Each ro
 - `contracts` is the only cross-component dependency; `swarm`, `simulation` and `visualization` never import each other's internals.
 - The simulation owns all ground truth. The algorithm sees only `Perception` (perceived, partial, noisy). Visualization is read-only, via `WorldSnapshot`.
 - The `SwarmAgent` protocol is the single boundary between algorithm and simulation.
+- A `Behavior` never reads a potential field. It scores its bid from the robot's own state and memory, so `DecisionContext` deliberately has no access to the fields. A field only picks the target and guides the robot, and only the winning candidate's field is built.
 - Time is discrete-event: an integer `Time` timestamp (no fixed timestep); events are processed in time order.
 - The brain and the loop are each assembled from small, single-purpose parts (`Behavior`s / event handlers), built programmatically.
 

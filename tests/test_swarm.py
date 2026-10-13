@@ -100,20 +100,6 @@ def _agent(behaviors: list[Behavior], seeders: list[FieldSeeder] | None = None) 
     )
 
 
-def _context(
-    sensed: list[Observation] | None = None, seeders: list[FieldSeeder] | None = None
-) -> DecisionContext:
-    memory = AgentMemory(1, _FIELD)
-    perception = _perception(sensed)
-    return DecisionContext(
-        time=perception.time,
-        self_state=perception.self_state,
-        sensed=perception.sensed,
-        memory=memory,
-        fields=FieldProvider(memory, flies=False, seeders=seeders or []),
-    )
-
-
 class _FixedBehavior:
     def __init__(self, name: str, action: Intent, score: float) -> None:
         self.name: str = name
@@ -164,18 +150,14 @@ class _CountingSeeder:
 
 
 class _FieldFollower:
-    """Reads its seeder's field at every decision point and bids a fixed score to follow it."""
+    """Bids a fixed score to follow its seeder's field."""
 
     def __init__(self, seeder: str, score: float) -> None:
         self.name: str = seeder
         self._score: float = score
 
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
-        position = ctx.self_state.position
-        seeded = ctx.fields.field_for(self.name, position, ctx.time)
-        assert seeded is not None
-        target = seeded.field.target_for(position)
-        return (ActionCandidate(FollowField(self.name), self._score, self.name, target),)
+        return (ActionCandidate(FollowField(self.name), self._score, self.name, target=None),)
 
 
 def test_agent_picks_highest_scoring_candidate() -> None:
@@ -217,14 +199,6 @@ def test_sensed_terrain_reaches_memory_and_the_quadtree() -> None:
 
     assert wall in list(agent.memory.records())
     assert not agent.fields.quadtree.is_traversable((1, 1))
-
-
-def test_treat_infestation_bids_to_follow_its_seeders_field() -> None:
-    behavior = TreatInfestation(_FixedTargetSeeder.name)
-
-    candidates = behavior.propose(_context(sensed=[], seeders=[_FixedTargetSeeder()]))
-
-    assert [(c.action, c.target) for c in candidates] == [(FollowField("fixed-target"), (5, 5))]
 
 
 def test_a_winning_follow_field_becomes_a_step_along_the_field() -> None:
@@ -297,8 +271,7 @@ def test_agent_broadcasts_its_memory_and_peer_learns_it() -> None:
     assert receiver_memory.infestation_at((6, 6)) == fact
 
 
-def test_the_winners_field_is_followed_without_rebuilding_either_field() -> None:
-    """Two behaviours read their fields at every decision point; each field is built once."""
+def test_only_the_winners_field_is_built_and_it_is_not_rebuilt() -> None:
     winner = _CountingSeeder("winner", (5, 5))
     loser = _CountingSeeder("loser", (0, 9))
     agent = _agent([_FieldFollower("winner", 2.0), _FieldFollower("loser", 1.0)], [winner, loser])
@@ -311,7 +284,7 @@ def test_the_winners_field_is_followed_without_rebuilding_either_field() -> None
         assert decision.action == Move((1, 1))
 
     assert winner.seeds_asked == 1
-    assert loser.seeds_asked == 1
+    assert loser.seeds_asked == 0
 
 
 def test_the_agent_broadcasts_its_cell_and_the_winners_target() -> None:

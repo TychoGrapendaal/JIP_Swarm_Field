@@ -106,13 +106,15 @@ The pluggable ports inside the brain:
 | Port | One job | Examples of swappable implementations |
 |---|---|---|
 | `Memory` | hold + decay the local belief map and self‑state | grid‑cell map, continuous markers, bounded LRU map |
-| `Behavior` | bid for what the robot does next: scored candidates carrying an intent, from a read‑only context | scout‑coverage, treat‑nearest‑pest, return‑to‑charge |
+| `Behavior` | bid for what the robot does next: scored candidates carrying an intent, from the robot's state and memory; never from a field | scout‑coverage, treat‑nearest‑pest, return‑to‑charge |
 | `FieldSeeder` | turn memory into the targets (`Seed`s) of one potential field, and say when they change | TREAT pests, EXPLORE stale cells, RECHARGE docks |
 | `Arbiter` | fuse candidates into one chosen action | max‑utility, weighted sum, priority with hysteresis |
-| `FieldProvider` | build the seeders' fields and cache one per seeder, for behaviors and the navigator | quadtree potential field, uniform grid |
+| `FieldProvider` | build the winner's field, which picks its target, and cache one per seeder, for the navigator | quadtree potential field, uniform grid |
 | `Navigator` | turn the winner's field into a concrete `Move` | potential‑field, coverage‑control, greedy‑grid |
 | `CommsStrategy` | decode inbox → memory, encode memory → outbox | map‑merge, vicinity‑vector, stigmergy marks |
 | `CapabilitySet` | declare which action types the body can perform | scout (senses), killer (Treat), battery (Charge) |
+
+**Behaviors never read potential fields.** A behavior decides *whether and how much* the robot should pursue an objective, from a heuristic over the robot's own state and its memory. A field decides only *where*: the field of the winning candidate picks the target and guides the navigator. `DecisionContext` therefore has no access to the fields, and a decision builds at most one field, the winner's.
 
 ### A.2 The ports
 
@@ -154,7 +156,7 @@ class DecisionContext:            # read-only bundle handed to every behavior
     self_state: RobotSelfState
     memory: "MemoryView"
     capabilities: "CapabilitySet"
-    fields: FieldProvider         # the seeders' fields, read by behaviors to score
+                                  # no fields: behaviors score from state and memory alone
 
 class Behavior(Protocol):
     name: str
@@ -192,7 +194,7 @@ class ComposedAgent:                     # implements SwarmAgent
         self.memory.decay(perception.time)
 
         ctx = DecisionContext(perception.time, perception.self_state,
-                              self.memory.view(), self.capabilities, self.fields)
+                              self.memory.view(), self.capabilities)
 
         candidates: list[ActionCandidate] = []
         for behavior in self.behaviors:
@@ -201,7 +203,8 @@ class ComposedAgent:                     # implements SwarmAgent
                     candidates.append(candidate)
 
         winner = self.arbiter.choose(candidates, ctx)
-        action = self.action_for(winner)   # FollowField: navigator steps along the provider's field;
+        action = self.action_for(winner)   # FollowField: the provider builds only the winner's field,
+                                           # which picks the target, and the navigator steps along it;
                                            # any other intent passes through; no winner: Idle
         outbox = self.comms.broadcast(self.memory, ctx)
         return Decision(action, outbox)

@@ -49,8 +49,8 @@ class ComposedAgent:
         robot_id: The robot this brain drives.
         behaviors: The composable pieces of decision logic, combined at each decision point.
         memory: The robot's facts about the field and its peers.
-        fields: The robot's quadtree, and the grid potential fields of its seeders, shared by
-            the behaviors (to score) and the navigator (to move).
+        fields: The robot's quadtree, and the grid potential fields of its seeders. Only the
+            winner's field is built, to pick its target and for the navigator to follow.
         navigator: Moves the robot along the winning candidate's field.
     """
 
@@ -86,7 +86,6 @@ class ComposedAgent:
             self_state=perception.self_state,
             sensed=perception.sensed,
             memory=self.memory,
-            fields=self.fields,
             inbox=perception.inbox,
         )
         candidates: list[ActionCandidate] = []
@@ -114,13 +113,18 @@ class ComposedAgent:
         )
 
     def _action_for(self, intent: Intent, robot: CellId, now: Time) -> Action:
-        """The action that carries out the winning candidate's intent."""
+        """The action that carries out the winning candidate's intent.
+
+        For a ``FollowField`` this builds the seeder's field, whose target becomes the robot's
+        current target, and the navigator steps along it.
+        """
         if not isinstance(intent, FollowField):
             return intent
         field = self.fields.field_for(intent.seeder, robot, now)
         if field is None:
             logger.warning("FollowField couldn't find the corresponding field %s", intent.seeder)
             return Idle()
+        self._current_target = field.field.target_for(robot)
         return self.navigator.step_towards(field, robot)
 
     def _facts_received(self, inbox: list[Message]) -> list[Observation]:
@@ -148,7 +152,8 @@ class ComposedAgent:
         """The messages to broadcast at this decision point: the memory and the robot's status.
 
         The status tells peers where the robot is and which target it is heading for, the
-        winning candidate's ``target``, so that they can avoid the same region.
+        target of the winner's field, or else the winning candidate's ``target``, so that they
+        can avoid the same region.
         """
         knowledge = Message(
             sender=self.robot_id,

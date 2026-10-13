@@ -10,7 +10,7 @@ flowchart TD
     M -->|"terrain of the changed cells"| FP["FieldProvider: the Quadtree, the seeders, one cached field per seeder"]
     O -->|"field_key, tuple of Seed"| FP
     FP -->|build_grid_potential_field| F["GridPotentialField"]
-    FP -->|"field_for(seeder): SeededField"| H["Behaviour (TreatInfestation is a skeleton)"]
+    M -->|"MemoryView"| H["Behaviour (TreatInfestation is a skeleton)"]
     H -->|"ActionCandidate: FollowField(seeder), Treat, Charge or Idle"| A["ComposedAgent picks the best"]
     FP -->|"the winner's SeededField"| N["Navigator: progress tracking, a Steerer"]
     A -->|"winner's FollowField"| N
@@ -18,7 +18,7 @@ flowchart TD
     N -->|"Move or Idle"| A
 ```
 
-Memory holds facts and nothing else. The quadtree says where a robot can be and where it can move, and knows nothing about costs or targets. The builder turns targets and the quadtree into a grid potential field, and knows nothing about pests or objectives. A *field seeder* is the small piece of code that connects memory to targets: it reads memory and decides which cells are targets of one field and how attractive each one is. A *behaviour* bids for what the robot does next, possibly reading a seeder's field to score its bid, and says what to do if it wins: follow that field, or act on the spot. The *field provider* holds the quadtree and the seeders, hands targets to the builder, and keeps the field it built for each seeder, so behaviours and the navigator share it. The *navigator* is the one movement seam: for the winning bid only, it steps along that bid's field, asking the *steerer* for a step whenever the field cannot guide. Only a mock seeder and a skeleton behaviour exist; writing the real ones is the next step (see "Writing a behaviour" below).
+Memory holds facts and nothing else. The quadtree says where a robot can be and where it can move, and knows nothing about costs or targets. The builder turns targets and the quadtree into a grid potential field, and knows nothing about pests or objectives. A *field seeder* is the small piece of code that connects memory to targets: it reads memory and decides which cells are targets of one field and how attractive each one is. A *behaviour* bids for what the robot does next, scoring its bid from the robot's own state and memory, and says what to do if it wins: follow a seeder's field, or act on the spot. It never reads a field. The *field provider* holds the quadtree and the seeders, hands targets to the builder, and keeps the field it built for each seeder. Only the winning bid's field is built: it picks the robot's target. The *navigator* is the one movement seam: it steps along the winner's field, asking the *steerer* for a step whenever the field cannot guide. Only a mock seeder and a skeleton behaviour exist; writing the real ones is the next step (see "Writing a behaviour" below).
 
 | Module | Contents |
 | --- | --- |
@@ -77,27 +77,27 @@ The result is a `GridPotentialField` with three queries:
 
 ## The field provider
 
-`FieldProvider` holds the robot's quadtree, kept in sync with memory through `update_terrain`, and the seeders it was created with, by name. Its one query, `field_for(seeder, robot, now)`, hands out a seeder's `SeededField` (the field and the seeds it was built from), or `None` if the seeder has no targets. Behaviours call it to score, and the brain calls it again for the winning candidate's `FollowField`, which then costs nothing, since the field is already built.
+`FieldProvider` holds the robot's quadtree, kept in sync with memory through `update_terrain`, and the seeders it was created with, by name. Its one query, `field_for(seeder, robot, now)`, hands out a seeder's `SeededField` (the field and the seeds it was built from), or `None` if the seeder has no targets. Only the brain calls it, for the winning candidate's `FollowField`. Behaviours never call it, so a decision builds at most one field, the winner's.
 
-Field building is expensive (~0.26 s on a 500 × 500 field) and robots re-ask every decision point, so the provider keeps one field per seeder and reuses it while the seeder's `field_key`, the terrain and the robot's 16 × 16 block are all unchanged; the seeder is only asked for its seeds when one of them changed. Comparing the seeds themselves would not work: a seed's value usually changes a little at every tick (confidence decays, re-sensing a cell resets its age), so the seeder hands out a coarser key instead. The quadtree carries a version counter that every change of a cell's traversability bumps, so one comparison covers "did the terrain change"; re-sensing known terrain, which a robot does at every tick, changes nothing. A field is only reused while the robot is still in the block it was built in, because a robot's window is centred on its own block. Each seeder has its own slot, so behaviours reading different fields at every decision point do not evict each other's, and a robot pays one build per block travelled for each field it reads. `tests/benchmark_field.py` measures a trip with two fields read at every step: twice the builds, and about twice the time.
+Field building is expensive (~0.26 s on a 500 × 500 field) and robots re-ask every decision point, so the provider keeps one field per seeder and reuses it while the seeder's `field_key`, the terrain and the robot's 16 × 16 block are all unchanged; the seeder is only asked for its seeds when one of them changed. Comparing the seeds themselves would not work: a seed's value usually changes a little at every tick (confidence decays, re-sensing a cell resets its age), so the seeder hands out a coarser key instead. The quadtree carries a version counter that every change of a cell's traversability bumps, so one comparison covers "did the terrain change"; re-sensing known terrain, which a robot does at every tick, changes nothing. A field is only reused while the robot is still in the block it was built in, because a robot's window is centred on its own block. Each seeder has its own slot, so a robot that switches between objectives does not evict the other fields, and a robot pays one build per block travelled for each field it follows. `tests/benchmark_field.py` measures the worst case, a trip with two fields read at every step: twice the builds, and about twice the time.
 
 ## The navigator
 
 `Navigator` is the single seam between a field and the robot's next physical step. Its one call, `step_towards(seeded, robot)`, returns one `Move` (a `to` cell) or `Idle`, and never anything else. Only the brain calls it, for the winning candidate's `FollowField`, with the field from the provider. It prefers the field, whatever the distance to the target: the robot steps into the neighbouring cell the field points at, which is one step of a route that is near-optimal around the obstacles the quadtree knows, at any range and without a map of the whole field.
 
-The `Steerer` is the fallback, used when the field cannot guide. That is either no route at all — no wave reaches the robot, so `target_for` is `None` and the steerer walks towards the seeder's most attractive target anyway, stalling and reporting if it is walled off for good — or a field that stopped guiding: the navigator remembers the lowest potential the robot has seen on its current plan, and three ticks without a new minimum hand the step to the steerer. The handover is not latched; as soon as the field points forward again the robot follows it. This is what covers the one case the field cannot: route lengths through leaves are approximate, so a robot near the edge of its window could in principle turn back and forth. The policy itself, and its `Sensing` port, are designed in [`navigation-module.md`](./navigation-module.md). The reactive policy is also the honest answer to "which cell is this?", since the quadtree is only believed terrain. A plan is one field: when the navigator is handed a different `SeededField` than at its last step (another seeder's, or the same seeder's rebuilt), it starts tracking afresh. Behaviours that read fields and lose therefore never touch the winner's plan.
+The `Steerer` is the fallback, used when the field cannot guide. That is either no route at all — no wave reaches the robot, so `target_for` is `None` and the steerer walks towards the seeder's most attractive target anyway, stalling and reporting if it is walled off for good — or a field that stopped guiding: the navigator remembers the lowest potential the robot has seen on its current plan, and three ticks without a new minimum hand the step to the steerer. The handover is not latched; as soon as the field points forward again the robot follows it. This is what covers the one case the field cannot: route lengths through leaves are approximate, so a robot near the edge of its window could in principle turn back and forth. The policy itself, and its `Sensing` port, are designed in [`navigation-module.md`](./navigation-module.md). The reactive policy is also the honest answer to "which cell is this?", since the quadtree is only believed terrain. A plan is one field: when the navigator is handed a different `SeededField` than at its last step (another seeder's, or the same seeder's rebuilt), it starts tracking afresh.
 
 ## The brain
 
-`ComposedAgent` owns one `AgentMemory`, one `FieldProvider` and one `Navigator`. At every decision it merges what the robot sensed and received into memory, gives the provider the cells that got new terrain facts (the provider re-reads them from memory and updates its `Quadtree`), and hands memory and the provider (as `fields`) to the behaviours in the `DecisionContext`. Every behaviour returns a tuple of `ActionCandidate`s, and the brain picks the one with the highest score. It then turns the winner's intent into one action: for a `FollowField` the navigator steps along that seeder's field from the provider, and any other intent (`Treat`, `Charge`, `Idle`) passes through unchanged. A winning `FollowField` whose seeder has no targets logs a warning and idles. `inspect()` returns the memory's facts, for visualization.
+`ComposedAgent` owns one `AgentMemory`, one `FieldProvider` and one `Navigator`. At every decision it merges what the robot sensed and received into memory, gives the provider the cells that got new terrain facts (the provider re-reads them from memory and updates its `Quadtree`), and hands the robot's state and memory to the behaviours in the `DecisionContext`. Every behaviour returns a tuple of `ActionCandidate`s, and the brain picks the one with the highest score. It then turns the winner's intent into one action: for a `FollowField` it asks the provider for that seeder's field, whose target becomes the robot's current target (broadcast to peers in its status), and the navigator steps along it. Any other intent (`Treat`, `Charge`, `Idle`) passes through unchanged. A winning `FollowField` whose seeder has no targets logs a warning and idles. `inspect()` returns the memory's facts, for visualization.
 
-Several parts are placeholders, each marked with a `TODO` comment in the code: decoding facts from received messages and sending facts to peers (both in `ComposedAgent`), the arbiter that picks the winner (for now the highest score wins, #39), the targets and key of `TreatSeeder`, and the treat action and the score in `TreatInfestation` (#40).
+Several parts are placeholders, each marked with a `TODO` comment in the code: decoding facts from received messages and sending facts to peers (both in `ComposedAgent`), the arbiter that picks the winner (for now the highest score wins, #39), the targets and key of `TreatSeeder`, and in `TreatInfestation` (#40) the treat action, a bid only while memory knows a pest, and a score from memory.
 
 ## Writing a behaviour
 
-A behaviour is two pieces with two different jobs, and keeping them apart is what lets several behaviours share the robot's fields and its single movement seam.
+A behaviour is two pieces with two different jobs, and keeping them apart is what lets several behaviours share the robot's fields and its single movement seam. The behaviour decides *whether and how much* the robot should pursue an objective, from the robot's state and memory. The seeder decides *where*: its field picks the target. Since a field is only built for the winner, a behaviour never reads one.
 
-The green boxes are what a new behaviour adds, here EXPLORE (#41). The behaviour bids to the arbiter and may read its field to score; the seeder tells the field provider how to build and cache that field; the arbiter hands the navigator only the winner's `FollowField`, and the navigator follows that field from the provider.
+The green boxes are what a new behaviour adds, here EXPLORE (#41). The behaviour reads memory and bids to the arbiter; the seeder tells the field provider how to build and cache that field; the arbiter hands the navigator only the winner's `FollowField`, and the provider builds that field, which picks the target and which the navigator follows.
 
 ```mermaid
 flowchart TB
@@ -109,10 +109,10 @@ flowchart TB
     STEP["Move or Idle"]
 
     BEH -- "candidates: intent, score, target" --> ARB
-    BEH -. "reads the field to score" .-> FP
+    MEM["AgentMemory"] -. "facts to score from" .-> BEH
     SEED -- "seeds and cache key" --> FP
     ARB -- "winner's FollowField(explore)" --> NAV
-    FP -- "the same field, already built" --> NAV
+    FP -- "the winner's field, built once" --> NAV
     NAV -- "one step along the field" --> STEP
 
     classDef perBehaviour fill:#dff0d8,stroke:#3c763d,color:#000
@@ -121,12 +121,13 @@ flowchart TB
 
 A **`FieldSeeder`** (`swarm/seeder.py`) specifies one grid potential field. It has a `name`, under which it is registered in the field provider, and two methods. `seeds(memory, robot, now)` returns the field's targets, each a `Seed` with the start value $-\beta \, v$, where $v$ is how much the target is worth and $\beta$ is how many cells of travel a value of 1 is worth: the lower the start value, the more attractive the target. Its attribute `window_blocks` says how many 16 × 16 blocks around the robot's block the field is searched cell by cell (2 for TREAT, 1 for EXPLORE, which is rebuilt far more often). `field_key(memory, robot, now)` returns any hashable value that changes whenever the seeds would change; the provider reuses the field for as long as the key, the terrain and the robot's block stay the same, and only then asks for seeds again. The key covers only what the seeds depend on (terrain is the provider's business), and the key and the seeds may depend on the robot's position only through its 16 × 16 block. Only the provider calls a seeder.
 
-A **`Behavior`** (`swarm/behavior.py`) bids for what the robot does next. Its `propose(ctx)` returns a tuple of `ActionCandidate`s, or an empty tuple when it has nothing to propose. A candidate says what to do if it wins (`action`, an `Intent`), how much the behaviour wants it (`score`, the highest wins), which behaviour proposed it (`source`), and which cell the bid commits the robot to (`target`, or `None`), which the arbiter (#39) will use to tell a new target from the one the robot is already heading for. A behaviour may read any seeder's field through `ctx.fields.field_for(name, position, ctx.time)`, but only when it needs one, since building a field is the expensive part. It never moves the robot itself:
+A **`Behavior`** (`swarm/behavior.py`) bids for what the robot does next. Its `propose(ctx)` returns a tuple of `ActionCandidate`s, or an empty tuple when it has nothing to propose. A candidate says what to do if it wins (`action`, an `Intent`), how much the behaviour wants it (`score`, the highest wins), which behaviour proposed it (`source`), and which cell the bid commits the robot to (`target`, or `None`), which the arbiter (#39) will use to tell a new target from the one the robot is already heading for. The `DecisionContext` holds the robot's own state, what it sensed, its memory and its inbox, but no fields: a behaviour scores from these alone, with a heuristic such as how many pests memory knows and how severe they are, or how low the battery is. Building a field is the expensive part, and only the winner's is built. A behaviour never moves the robot itself:
 
-- to move, it proposes `FollowField(seeder_name)`, and the navigator steps along that field only if the candidate wins;
-- standing on its target (`field.target_for(position) == position`), it proposes its on-the-spot action instead, such as `Treat(position)` or `Charge()`.
+- to move, it proposes `FollowField(seeder_name)`, and only if the candidate wins does the brain build that field and the navigator step along it;
+- when memory says the robot stands on its target, such as a known pest at its cell, it proposes its on-the-spot action instead, such as `Treat(position)` or `Charge()`;
+- when memory says there is nothing to pursue, such as no known pest, it proposes nothing, since a winning `FollowField` whose seeder has no targets only idles.
 
-An `Intent` is `FollowField`, `Treat`, `Charge` or `Idle`. There is deliberately no `Move`, so the type checker keeps every step inside the navigator. The score's scale, shared by all behaviours, is still to be settled with the arbiter (#39); until then the field-following behaviours use the negated potential at the robot's cell, in cells.
+An `Intent` is `FollowField`, `Treat`, `Charge` or `Idle`. There is deliberately no `Move`, so the type checker keeps every step inside the navigator. The score's scale, shared by all behaviours, is still to be settled with the arbiter (#39); until then the behaviours bid a fixed score.
 
 A TREAT seeder after the design document, with target value severity × confidence and $\beta = 10$ cells, could look like this. The key here is a five-minute time bucket, so the field follows the decaying confidences, but a newly found pest is only seen at the next bucket or block; a memory counter that changes when a pest appears or disappears would make it react at once:
 
@@ -146,7 +147,7 @@ class TreatSeeder:
         return tuple(seeds)
 ```
 
-`VERIFY` would use `severity * (1 - confidence)` instead; `RECHARGE` would seed the dock cells with value 0 and a constant key. The behaviour that pursues it reads the field to score, and bids to follow it or to treat on the spot:
+`VERIFY` would use `severity * (1 - confidence)` instead; `RECHARGE` would seed the dock cells with value 0 and a constant key. The behaviour that pursues it scores from the pests in memory, and bids to follow the field or to treat on the spot:
 
 ```python
 class TreatInfestation:
@@ -154,14 +155,14 @@ class TreatInfestation:
 
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
         position = ctx.self_state.position
-        seeded = ctx.fields.field_for(TreatSeeder.name, position, ctx.time)
-        if seeded is None:                                    # no known pests: no bid
+        pests = [pest for pest in ctx.memory.infestations() if pest.severity > 0]
+        if not pests:                                         # no known pests: no bid
             return ()
-        target = seeded.field.target_for(position)
-        score = -seeded.field.value_at(position)              # lower potential is better
-        if target == position:                                # on the pest: treat it
-            return (ActionCandidate(Treat(position), score, self.name, target),)
-        return (ActionCandidate(FollowField(TreatSeeder.name), score, self.name, target),)
+        score = max(pest.severity * ctx.memory.confidence(pest, ctx.time) for pest in pests)
+        here = ctx.memory.infestation_at(position)
+        if here is not None and here.severity > 0:            # on a pest: treat it
+            return (ActionCandidate(Treat(position), score, self.name, position),)
+        return (ActionCandidate(FollowField(TreatSeeder.name), score, self.name, None),)
 ```
 
 The brain is then assembled from its memory, its field provider with the seeders registered, a navigator over the provider's quadtree, and its behaviours. Drones (`BodyType.SCOUT`) fly over obstacles:
