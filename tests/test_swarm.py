@@ -220,7 +220,7 @@ def test_treat_infestation_bids_to_follow_its_seeders_field() -> None:
 
     candidates = behavior.propose(_context(sensed=[], seeders=[_FixedTargetSeeder()]))
 
-    assert [(c.action, c.target) for c in candidates] == [(FollowField("fixed-target"), (5, 5))]
+    assert [(c.action, c.target) for c in candidates] == [(FollowField("fixed-target"), None)]
 
 
 def test_a_winning_follow_field_becomes_a_step_along_the_field() -> None:
@@ -269,9 +269,10 @@ def test_agent_broadcasts_its_memory_and_peer_learns_it() -> None:
         )
     )
 
-    assert len(first.outbox) == 1
-    assert first.outbox[0].kind is MessageKind.KNOWLEDGE
-    assert first.outbox[0].payload == (fact,)
+    status, knowledge = first.outbox
+    assert status.kind is MessageKind.STATUS
+    assert knowledge.kind is MessageKind.KNOWLEDGE
+    assert knowledge.payload == (fact,)
 
     receiver.decide(
         Perception(
