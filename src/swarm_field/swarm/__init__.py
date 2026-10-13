@@ -29,10 +29,6 @@ from swarm_field.swarm.brain import ComposedAgent
 from swarm_field.swarm.memory import AgentMemory, DecayConfig, MemoryView
 from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.provider import FieldProvider
-from swarm_field.swarm.scoring import (
-    SCORE_SCALE_CELLS,
-    score_from_potential,
-)
 from swarm_field.swarm.seeder import FieldSeeder, SeededField, TreatSeeder
 from swarm_field.swarm.steering import (
     QuadtreeSensing,
@@ -42,7 +38,6 @@ from swarm_field.swarm.steering import (
 )
 
 __all__ = [
-    "SCORE_SCALE_CELLS",
     "ActionCandidate",
     "AgentMemory",
     "Arbiter",
@@ -68,5 +63,4 @@ __all__ = [
     "TreatSeeder",
     "UtilityArbiter",
     "Vector2",
-    "score_from_potential",
 ]
