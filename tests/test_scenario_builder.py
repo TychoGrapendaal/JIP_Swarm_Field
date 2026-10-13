@@ -50,6 +50,9 @@ def test_s1_is_single_crop_and_all_scouts() -> None:
 
     assert len(set(config.crops.values())) == 1
     assert all(robot.body is BodyType.SCOUT for robot in config.robots)
+    assert all(robot.v_max == 8.0 for robot in config.robots)
+    assert config.field.cell_size == 10.0
+    assert config.docks == ((0, 0),)
     assert config.obstacles == ()
 
 
@@ -62,6 +65,8 @@ def test_s3_contains_multiple_crop_species_and_body_types() -> None:
         BodyType.KILLER,
         BodyType.BATTERY,
     }
+    battery_robots = [robot for robot in config.robots if robot.body is BodyType.BATTERY]
+    assert all(robot.v_max == 1.0 and robot.spare_batteries == 3 for robot in battery_robots)
 
 
 def test_pest_configuration_is_seed_independent_but_presets_are_distinct() -> None:

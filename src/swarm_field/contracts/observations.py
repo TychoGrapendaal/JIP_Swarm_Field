@@ -74,6 +74,7 @@ class PeerObservation(ObservationBase):
 
     peer: RobotId | None
     body: BodyType
+    battery: float | None = None
 
 
 Observation = CropObservation | InfestationObservation | TerrainObservation | PeerObservation

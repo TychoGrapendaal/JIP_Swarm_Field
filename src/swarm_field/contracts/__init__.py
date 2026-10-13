@@ -1,6 +1,6 @@
 """Shared boundary types used by the swarm, simulation and visualization modules."""
 
-from swarm_field.contracts.actions import Action, Charge, Idle, Move, Treat
+from swarm_field.contracts.actions import Action, Charge, Idle, Move, ReplaceBattery, Treat
 from swarm_field.contracts.agent import (
     AgentInspection,
     Decision,
@@ -60,6 +60,7 @@ __all__ = [
     "RobotId",
     "RobotPublicState",
     "RobotSelfState",
+    "ReplaceBattery",
     "RobotSpec",
     "ScenarioConfig",
     "ScenarioId",

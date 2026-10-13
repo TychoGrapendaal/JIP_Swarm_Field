@@ -4,11 +4,12 @@
 decision point it merges what the robot sensed and received into its memory, keeps the field
 provider's quadtree in sync with new terrain facts, gathers the scored candidates of its
 behaviors, picks the best and turns its intent into one action: the navigator steps along the
-field a ``FollowField`` names, and any other intent passes through. Communication and capability
-gating are added as those parts are built.
+field a ``FollowField`` names, and any other intent passes through. Knowledge broadcasts share the
+robot memory, and a per-body capability gate filters candidates and validates the final action.
 """
 
 import logging
+from dataclasses import replace
 from typing import cast
 
 from swarm_field.contracts import (
@@ -19,6 +20,7 @@ from swarm_field.contracts import (
     Idle,
     Message,
     MessageKind,
+    Move,
     Observation,
     ObservationBase,
     Perception,
@@ -26,6 +28,7 @@ from swarm_field.contracts import (
     TerrainObservation,
     Time,
 )
+from swarm_field.swarm.capabilities import CapabilitySet, capabilities_for
 from swarm_field.swarm.behavior import (
     ActionCandidate,
     Behavior,
@@ -59,12 +62,14 @@ class ComposedAgent:
         memory: AgentMemory,
         fields: FieldProvider,
         navigator: Navigator,
+        capabilities: CapabilitySet | None = None,
     ) -> None:
         self.robot_id: RobotId = robot_id
         self.behaviors: list[Behavior] = behaviors
         self.memory: AgentMemory = memory
         self.fields: FieldProvider = fields
         self.navigator: Navigator = navigator
+        self.capabilities: CapabilitySet | None = capabilities
         self._current_goal: str | None = None
 
     def decide(self, perception: Perception) -> Decision:
@@ -78,6 +83,22 @@ class ComposedAgent:
         ]
         self.fields.update_terrain(terrain_cells)
 
+        # Ground-truth body identity in the perception is authoritative. This also keeps
+        # manually assembled agents safe if they were passed the wrong capability profile.
+        canonical_capabilities = capabilities_for(perception.self_state.body)
+        if self.capabilities is None or self.capabilities.body is not perception.self_state.body:
+            capabilities = canonical_capabilities
+        else:
+            # Explicit profiles may make a canonical body stricter, never grant it extra
+            # actions or physical abilities that the body type does not possess.
+            capabilities = replace(
+                canonical_capabilities,
+                action_types=(
+                    canonical_capabilities.action_types & self.capabilities.action_types
+                )
+                | {Idle},
+            )
+
         ctx = DecisionContext(
             time=perception.time,
             self_state=perception.self_state,
@@ -85,10 +106,13 @@ class ComposedAgent:
             memory=self.memory,
             fields=self.fields,
             inbox=perception.inbox,
+            capabilities=capabilities,
         )
         candidates: list[ActionCandidate] = []
         for behavior in self.behaviors:
-            candidates.extend(behavior.propose(ctx))
+            for candidate in behavior.propose(ctx):
+                if self._candidate_is_allowed(candidate, capabilities):
+                    candidates.append(candidate)
 
         # TODO: an arbiter (fixed-priority overrides such as low battery, hysteresis against
         # switching objectives back and forth) instead of simply taking the highest score.
@@ -100,7 +124,31 @@ class ComposedAgent:
 
         self._current_goal = best.source
         action = self._action_for(best.action, perception.self_state.position, perception.time)
+        # Validate the concrete action as well as the proposed intent: a FollowField intent
+        # becomes a Move (or Idle) only after the navigator has resolved it.
+        if not capabilities.can(type(action)):
+            logger.warning(
+                "Blocked disallowed action %s from robot %s (%s)",
+                type(action).__name__,
+                self.robot_id,
+                capabilities.body.name,
+            )
+            action = Idle()
+            self._current_goal = None
         return Decision(action=action, outbox=outbox)
+
+    @staticmethod
+    def _candidate_is_allowed(
+        candidate: ActionCandidate, capabilities: CapabilitySet
+    ) -> bool:
+        """Apply the capability gate before candidate scoring.
+
+        A ``FollowField`` is a movement intent, not an action crossing the simulation boundary,
+        so it is checked against the capability for ``Move``. Other intents map directly to
+        their action classes.
+        """
+        action_type = Move if isinstance(candidate.action, FollowField) else type(candidate.action)
+        return capabilities.can(action_type)
 
     def inspect(self) -> AgentInspection:
         return AgentInspection(

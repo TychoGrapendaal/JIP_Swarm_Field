@@ -2,7 +2,7 @@
 
 import pytest
 
-from swarm_field.contracts import BodyType, CellState, FieldGeometry, Treat, WorldSnapshot
+from swarm_field.contracts import BodyType, CellState, FieldGeometry, TimeUnit, Treat, WorldSnapshot
 from swarm_field.simulation import RobotState, WorldState
 from swarm_field.visualization import MatplotlibRenderer
 from swarm_field.visualization.matplotlib_renderer import cell_rgba_image
@@ -73,7 +73,7 @@ def test_render_tracks_an_infestation_as_it_is_treated() -> None:
     before = renderer.axes.get_images()[0].get_array().copy()
 
     world.apply_action(1, Treat(cell=(3, 1)), time=100)
-    renderer.render(world.snapshot(100))
+    renderer.render(world.snapshot(30 * TimeUnit.MINUTE + 100))
     after = renderer.axes.get_images()[0].get_array()
 
     assert not (before == after).all()

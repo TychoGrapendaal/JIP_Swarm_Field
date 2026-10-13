@@ -9,19 +9,31 @@ back on.
 """
 
 from swarm_field.contracts import Vector2
+from swarm_field.swarm.assembly import build_agent
 from swarm_field.swarm.behavior import (
     ActionCandidate,
     Behavior,
     DecisionContext,
+    ExploreField,
     FollowField,
     Intent,
+    ReturnToDock,
+    SupplyBattery,
     TreatInfestation,
 )
 from swarm_field.swarm.brain import ComposedAgent
+from swarm_field.swarm.capabilities import BODY_CAPABILITIES, CapabilitySet, capabilities_for
 from swarm_field.swarm.memory import AgentMemory, DecayConfig, MemoryView
 from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.provider import FieldProvider
-from swarm_field.swarm.seeder import FieldSeeder, SeededField, TreatSeeder
+from swarm_field.swarm.seeder import (
+    BatteryRequestSeeder,
+    DockSeeder,
+    ExploreSeeder,
+    FieldSeeder,
+    SeededField,
+    TreatSeeder,
+)
 from swarm_field.swarm.steering import (
     QuadtreeSensing,
     Sensing,
@@ -32,10 +44,16 @@ from swarm_field.swarm.steering import (
 __all__ = [
     "ActionCandidate",
     "AgentMemory",
+    "BODY_CAPABILITIES",
+    "BatteryRequestSeeder",
     "Behavior",
+    "CapabilitySet",
     "ComposedAgent",
     "DecayConfig",
     "DecisionContext",
+    "DockSeeder",
+    "ExploreField",
+    "ExploreSeeder",
     "FieldProvider",
     "FieldSeeder",
     "FollowField",
@@ -43,11 +61,15 @@ __all__ = [
     "MemoryView",
     "Navigator",
     "QuadtreeSensing",
+    "ReturnToDock",
     "SeededField",
     "Sensing",
     "Steerer",
     "SteeringConfig",
+    "SupplyBattery",
     "TreatInfestation",
     "TreatSeeder",
     "Vector2",
+    "build_agent",
+    "capabilities_for",
 ]

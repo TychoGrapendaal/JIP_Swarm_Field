@@ -10,7 +10,7 @@ from collections.abc import Hashable
 from dataclasses import dataclass
 from typing import Protocol
 
-from swarm_field.contracts import CellId, Time
+from swarm_field.contracts import BodyType, CellId, Time, TimeUnit
 from swarm_field.swarm.field import GridPotentialField, Seed
 from swarm_field.swarm.memory import MemoryView
 
@@ -58,16 +58,100 @@ class SeededField:
 
 
 class TreatSeeder:
-    """Mock of the TREAT seeder: known pests, weighted by severity and confidence (#40)."""
+    """Attract the killer toward known infestations, weighted by severity and confidence."""
 
     name: str = "treat"
 
     def field_key(self, memory: MemoryView, now: Time) -> Hashable:
-        # TODO (#40): a key that changes when the known pests do (see FieldSeeder.field_key).
-        return None
+        facts = tuple(
+            (fact.cell, fact.observed_at, round(fact.severity, 3))
+            for fact in memory.infestations()
+            if fact.severity > 0.0
+        )
+        # Confidence changes with age, so refresh the cached field once per simulated minute.
+        return now // TimeUnit.MINUTE, facts
 
     def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
-        # TODO (#40): one seed per known pest, with start value -beta * severity * confidence
-        # (see docs/robot-memory-and-navigation.md, "How to use it"). For now there are no
-        # targets.
-        return ()
+        result = []
+        for fact in memory.infestations():
+            confidence = memory.confidence(fact, now)
+            attractiveness = fact.severity * confidence
+            if attractiveness > 0.0:
+                result.append(Seed(fact.cell, -attractiveness))
+        return tuple(result)
+
+
+class ExploreSeeder:
+    """Seed every cell whose terrain the robot has not observed yet."""
+
+    name: str = "explore"
+
+    def field_key(self, memory: MemoryView, now: Time) -> Hashable:
+        return tuple(
+            (x, y)
+            for x in range(memory.width)
+            for y in range(memory.height)
+            if memory.terrain_at((x, y)) is None
+        )
+
+    def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
+        return tuple(
+            Seed((x, y), 0.0)
+            for x in range(memory.width)
+            for y in range(memory.height)
+            if memory.terrain_at((x, y)) is None
+        )
+
+
+class BatteryRequestSeeder:
+    """Seed recent low-battery peer sightings for the mobile battery-support robot."""
+
+    name: str = "battery-support"
+    low_battery_threshold: float = 0.25
+    observation_ttl: Time = 60 * TimeUnit.SECOND
+
+    def field_key(self, memory: MemoryView, now: Time) -> Hashable:
+        return tuple(
+            sorted(
+                (
+                    fact.peer,
+                    fact.cell,
+                    round(fact.battery, 2),
+                    fact.observed_at,
+                )
+                for fact in memory.peers()
+                if fact.peer is not None
+                and fact.battery is not None
+                and fact.body in (BodyType.SCOUT, BodyType.KILLER)
+                and fact.battery <= self.low_battery_threshold
+                and 0 <= now - fact.observed_at <= self.observation_ttl
+                and memory.confidence(fact, now) >= 0.5
+            )
+        )
+
+    def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
+        return tuple(
+            Seed(fact.cell, -1.0 + fact.battery)
+            for fact in memory.peers()
+            if fact.peer is not None
+            and fact.battery is not None
+            and fact.body in (BodyType.SCOUT, BodyType.KILLER)
+            and fact.battery <= self.low_battery_threshold
+            and 0 <= now - fact.observed_at <= self.observation_ttl
+            and memory.confidence(fact, now) >= 0.5
+        )
+
+
+class DockSeeder:
+    """Seed configured dock cells so low-energy robots can return for recharge."""
+
+    name: str = "dock"
+
+    def __init__(self, docks: tuple[CellId, ...] = ()) -> None:
+        self._docks = tuple(docks)
+
+    def field_key(self, memory: MemoryView, now: Time) -> Hashable:
+        return self._docks
+
+    def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
+        return tuple(Seed(dock, 0.0) for dock in self._docks)

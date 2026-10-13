@@ -4,18 +4,21 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from swarm_field.contracts import (
+    BodyType,
     CellId,
     Charge,
     Idle,
     Message,
     Observation,
+    ReplaceBattery,
     RobotSelfState,
     Time,
     Treat,
 )
+from swarm_field.swarm.capabilities import CapabilitySet, capabilities_for
 from swarm_field.swarm.memory import MemoryView
 from swarm_field.swarm.provider import FieldProvider
-from swarm_field.swarm.seeder import TreatSeeder
+from swarm_field.swarm.seeder import BatteryRequestSeeder, ExploreSeeder, TreatSeeder
 
 
 @dataclass(frozen=True)
@@ -29,7 +32,7 @@ class FollowField:
     seeder: str
 
 
-Intent = FollowField | Treat | Charge | Idle
+Intent = FollowField | Treat | Charge | ReplaceBattery | Idle
 """What a behaviour wants the robot to do if its candidate wins.
 
 The brain's own counterpart of a contract ``Action``; it never crosses into the simulation.
@@ -79,6 +82,7 @@ class DecisionContext:
     memory: MemoryView
     fields: FieldProvider
     inbox: list[Message] = field(default_factory=list)
+    capabilities: CapabilitySet | None = None
 
 
 class Behavior(Protocol):
@@ -101,7 +105,7 @@ class Behavior(Protocol):
 
 
 class TreatInfestation:
-    """Skeleton of the pest-response behaviour: follow the field of the TREAT seeder."""
+    """Follow reported infestations and treat them when the robot reaches a target cell."""
 
     name: str = "treat-infestation"
 
@@ -115,12 +119,160 @@ class TreatInfestation:
             return ()
         target = seeded.field.target_for(position)
         if target == position:
-            # TODO (#40): standing on a pest: propose Treat(cell=position).
-            return ()
-        # TODO (#39): a score on the scale shared by all behaviours. Lower potential is better,
-        # so negate it for now.
+            infestation = ctx.memory.infestation_at(position)
+            if infestation is None or infestation.severity <= 0.0:
+                return ()
+            return (
+                ActionCandidate(
+                    action=Treat(cell=position),
+                    score=100.0 + infestation.severity,
+                    source=self.name,
+                    target=position,
+                ),
+            )
+        # Lower field potential means the robot is closer to an attractive target.
         score = -seeded.field.value_at(position)
         candidate = ActionCandidate(
             action=FollowField(self._seeder), score=score, source=self.name, target=target
         )
         return (candidate,)
+
+
+class ExploreField:
+    """Explore unknown cells, using the field built by ``ExploreSeeder``."""
+
+    name: str = "explore-field"
+
+    def __init__(self, seeder: str = ExploreSeeder.name) -> None:
+        self._seeder = seeder
+
+    def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
+        position = ctx.self_state.position
+        seeded = ctx.fields.field_for(self._seeder, position, ctx.time)
+        if seeded is None:
+            return ()
+        target = seeded.field.target_for(position)
+        if target is None or target == position:
+            return ()
+        return (
+            ActionCandidate(
+                action=FollowField(self._seeder),
+                score=1.0,
+                source=self.name,
+                target=target,
+            ),
+        )
+
+
+class SupplyBattery:
+    """Visit low-battery peers and replace their battery when co-located."""
+
+    name: str = "supply-battery"
+    low_battery_threshold: float = 0.25
+
+    def __init__(self, seeder: str = BatteryRequestSeeder.name) -> None:
+        self._seeder = seeder
+
+    def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
+        if ctx.self_state.spare_batteries <= 0:
+            return ()
+
+        position = ctx.self_state.position
+        seeded = ctx.fields.field_for(self._seeder, position, ctx.time)
+        if seeded is None:
+            return ()
+        target = seeded.field.target_for(position)
+        if target is None:
+            return ()
+        if target == position:
+            eligible = [
+                peer
+                for peer in ctx.memory.peers()
+                if peer.cell == position
+                and peer.battery is not None
+                and peer.battery <= self.low_battery_threshold
+                and peer.body in (BodyType.SCOUT, BodyType.KILLER)
+                and ctx.time - peer.observed_at <= 60_000
+                and ctx.memory.confidence(peer, ctx.time) >= 0.5
+            ]
+            if not eligible:
+                return ()
+            recipient = min(eligible, key=lambda peer: (peer.battery, peer.peer or -1))
+            if recipient.peer is None:
+                return ()
+            return (
+                ActionCandidate(
+                    action=ReplaceBattery(robot_id=recipient.peer),
+                    score=100.0 + (1.0 - (recipient.battery or 0.0)),
+                    source=self.name,
+                    target=position,
+                ),
+            )
+
+        return (
+            ActionCandidate(
+                action=FollowField(self._seeder),
+                score=10.0,
+                source=self.name,
+                target=target,
+            ),
+        )
+
+
+class ReturnToDock:
+    """Return to a known dock when low on energy or when a battery robot is out of spares."""
+
+    name: str = "return-to-dock"
+
+    def __init__(self, seeder: str = "dock") -> None:
+        self._seeder = seeder
+
+    def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
+        profile = ctx.capabilities
+        if profile is None:
+            profile = capabilities_for(ctx.self_state.body)
+
+        position = ctx.self_state.position
+        seeded = ctx.fields.field_for(self._seeder, position, ctx.time)
+        if seeded is None:
+            return ()
+        target = seeded.field.target_for(position)
+        if target is None:
+            return ()
+
+        at_dock = target == position
+        if at_dock and (
+            ctx.self_state.battery < 1.0
+            or (
+                ctx.self_state.body is BodyType.BATTERY
+                and ctx.self_state.spare_batteries < profile.spare_battery_capacity
+            )
+        ):
+            return (
+                ActionCandidate(
+                    action=Charge(),
+                    score=200.0,
+                    source=self.name,
+                    target=position,
+                ),
+            )
+
+        if ctx.self_state.body is BodyType.BATTERY:
+            needs_dock = (
+                ctx.self_state.battery <= 0.25 or ctx.self_state.spare_batteries <= 0
+            )
+        else:
+            # A scout/killer stays available to the swarm while a support robot may still help;
+            # it heads to the dock only when the battery is nearly exhausted.
+            needs_dock = ctx.self_state.battery <= 0.10
+        if not needs_dock:
+            return ()
+
+        return (
+            ActionCandidate(
+                action=FollowField(self._seeder),
+                score=200.0,
+                source=self.name,
+                target=target,
+            ),
+        )

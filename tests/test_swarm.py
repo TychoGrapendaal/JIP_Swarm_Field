@@ -38,7 +38,9 @@ from swarm_field.swarm.field import Seed
 _FIELD = FieldGeometry(width=10, height=10, cell_size=10.0, row_sp=0.0, in_row_sp=0.0, headland=0.0)
 
 
-def _perception(sensed: list[Observation] | None = None) -> Perception:
+def _perception(
+    sensed: list[Observation] | None = None, body: BodyType = BodyType.SCOUT
+) -> Perception:
     time = 0
     if sensed is None:
         sensed = _sensed(time)
@@ -48,7 +50,7 @@ def _perception(sensed: list[Observation] | None = None) -> Perception:
             robot_id=1,
             position=(0, 0),
             battery=1.0,
-            body=BodyType.SCOUT,
+            body=body,
             speed_mps=2.0,
             consumable=1.0,
             health=1.0,
@@ -188,7 +190,7 @@ def test_agent_picks_highest_scoring_candidate() -> None:
         ]
     )
 
-    decision = agent.decide(_perception())
+    decision = agent.decide(_perception(body=BodyType.KILLER))
 
     assert decision.action == Treat((1, 0))
     assert agent.inspect().current_goal == "multi"

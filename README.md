@@ -2,7 +2,7 @@
 
 A decentralized swarm algorithm and simulation for robots cultivating and monitoring a crop field. The simulation is deliberately coarse-grained: one grid cell represents a field patch rather than one plant, and the model is intended to scale to hundreds of robots.
 
-See [`docs/high-level-world-model.md`](docs/high-level-world-model.md) for the current world abstraction, [`docs/system-decomposition.md`](docs/system-decomposition.md) for module boundaries, and [`docs/architecture.md`](docs/architecture.md) for the broader architecture.
+See [`docs/high-level-world-model.md`](docs/high-level-world-model.md) for the current world abstraction, [`docs/body-capabilities.md`](docs/body-capabilities.md) for the per-body action gate and robot profiles, [`docs/system-decomposition.md`](docs/system-decomposition.md) for module boundaries, and [`docs/architecture.md`](docs/architecture.md) for the broader architecture.
 
 ## Current B.1 world model
 
@@ -13,9 +13,11 @@ See [`docs/high-level-world-model.md`](docs/high-level-world-model.md) for the c
 - Each robot has its own movement speed in metres per second.
 - Movement time is calculated from the distance between cells, cell size, and robot speed.
 - Infestation is represented as a per-cell severity value, providing a coarse-grained basis for later dynamic pest-spread models.
-- Robots receive local obstacle and infestation observations and can use this information to calculate potential-field attraction and repulsion.
-- A robot does not currently know about obstacles or infestations outside its local observation range.
-- The B.3 range-based communication channel is implemented; higher-level belief sharing is still the algorithm’s responsibility, so distant infestation information only propagates when agents choose to send messages.
+- Observation footprints depend on body type: scouts sense pest/disease severity in a 3 × 3 cell footprint, killers sense severity in their current cell, and battery robots do not sense infestations. Every body has a local terrain ring for obstacle avoidance.
+- Scouts can traverse ground-obstacle cells; killer and battery ground robots cannot.
+- Infestation observations and nearby peer status are stored in local memory and broadcast by the default composed brain. Distant facts are only available after a broadcast is delivered by the range-based channel.
+- Battery levels are normalized from 0 to 1. Travel reduces the level using each body's endurance assumption, dock charging restores it over simulated time, and battery robots carry three spare batteries by default.
+- See [`docs/body-capabilities.md`](docs/body-capabilities.md) for action permissions, role-specific behaviour assembly, endurance/recharge defaults and current modelling limits.
 
 ## Requirements
 
@@ -129,10 +131,10 @@ uv run --with matplotlib python examples/renderer_demo.py --frames 60 --save fra
 
 ## Current demonstration limitations
 
-- The exploration behavior is currently a simple baseline and is not yet a dedicated coverage/exploration algorithm.
-- Goal-directed navigation uses a potential field over the robot's believed terrain, with a reactive wall-follow as its fallback. Exploration is being rebuilt on the same fields (#41).
+- The scout's exploration behaviour currently targets unknown cells with a nearest-field baseline; it is not yet a dedicated coverage-optimisation algorithm.
+- Goal-directed navigation uses a potential field over the robot's believed terrain, with a reactive wall-follow as its fallback. The current scout exploration behaviour uses the same fields to target unknown cells; it is not yet a dedicated coverage-optimisation algorithm.
 - Navigation is planned over what the robot believes, so a wrong obstacle belief is followed exactly; there is no observation-based recovery from it yet.
-- The communication channel is implemented, but the current utility behaviour does not yet use peer messages to follow a pest found by another robot.
+- The communication channel and knowledge relay are implemented. There is not yet exclusive target assignment, claim resolution or a dedicated low-battery request protocol.
 - Coarse-grained infestation dynamics are implemented as a scheduled `WorldTick`; the current model supports severity growth, neighbour spread, and stochastic spawning.
 - Sensing is currently local; distant obstacles and infestations are unknown unless information is later propagated through communication.
 - The visualization adapter only renders snapshots so far; interactive inspection, time control, and injecting infestations are not implemented yet.
