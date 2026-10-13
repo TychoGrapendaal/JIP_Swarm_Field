@@ -132,5 +132,4 @@ class TreatInfestation:
                 num_killers += 1
         # The more pests are left per killer already known, the more this robot is needed.
         score = 1 / (1 + math.exp(-(len(seeded.seeds) - num_killers)))
-        target = seeded.field.target_for(position)
-        return (ActionCandidate(FollowField(self._seeder), score, self.name, target),)
+        return (ActionCandidate(FollowField(self._seeder), score, self.name, None),)

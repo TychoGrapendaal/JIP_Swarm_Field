@@ -220,7 +220,7 @@ def test_treat_infestation_bids_to_follow_its_seeders_field() -> None:
 
     candidates = behavior.propose(_context(sensed=[], seeders=[_FixedTargetSeeder()]))
 
-    assert [(c.action, c.target) for c in candidates] == [(FollowField("fixed-target"), (5, 5))]
+    assert [(c.action, c.target) for c in candidates] == [(FollowField("fixed-target"), None)]
 
 
 def test_a_winning_follow_field_becomes_a_step_along_the_field() -> None:
