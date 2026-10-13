@@ -1,29 +1,17 @@
-"""Interactive swarm-field console (C.1).
+"""Interactive swarm-field console (C.1) on a small hand-built world.
 
-A running scenario you can steer from the window: robots act through the real B loop
-(``RobotDecision`` events drive ``SwarmAgent.decide``), pests spread via ``WorldTick``, and
-the frontend-injected interactions go through the typed ``Command`` port.
+Three robots wander a 24 by 16 field while pests spread. Unlike ``scenario_viewer.py``, which
+drives a real scenario preset, this world is built here, so it exercises the ``Command`` port
+on its own. The console itself (time controls, injecting, inspecting, recording and replaying)
+is ``swarm_field.console``; see the README for every flag.
 
-- Click an empty cell to inject an infestation (``InjectInfestation`` → ``apply_command``).
-- Click a robot to inspect it (``SwarmAgent.inspect()`` → ``AgentInspection`` panel).
+- Click an empty cell to inject an infestation; click a robot to inspect it.
+- space / p pause, s steps one event, + / - change the speed, 0 resets it to 1x.
 
-Time controls (``Pause`` / ``StepOnce`` / ``SetTimeScale`` commands) pace the render loop:
-
-- space / p    pause / resume
-- s            step once: advance by exactly the next simulation event
-- + / =        double the simulation speed
-- -            halve the simulation speed
-- 0            reset to 1x
-
-Run:
+Run in a window, until it is closed:
     uv run python examples/interactive_demo.py
 
-Headless (write frames as PNGs instead of opening a window):
-    uv run python examples/interactive_demo.py --frames 240 --save frames/interactive
-
-Record a session, then replay it exactly, in a window or as a video (``.gif``, or ``.mp4`` if
-ffmpeg is installed). The recording holds the seed and every injected pest with its simulation
-time, and is written when the window closes:
+Record a session, then replay it in a window or into a video:
     uv run python examples/interactive_demo.py --record recordings/demo.json
     uv run python examples/interactive_demo.py --replay recordings/demo.json
     uv run python examples/interactive_demo.py --replay recordings/demo.json --save demo.mp4
@@ -32,28 +20,27 @@ time, and is written when the window closes:
 from __future__ import annotations
 
 import argparse
-import math
 from collections.abc import Hashable
-from pathlib import Path
 from random import Random
 
-import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
-
+from swarm_field.console import (
+    InteractiveConsole,
+    add_session_arguments,
+    format_time,
+    save_session,
+    show_window,
+    validate_session_arguments,
+    write_recording,
+)
 from swarm_field.contracts import (
     BodyType,
     CellId,
-    Command,
     CommandLog,
     FieldGeometry,
-    InjectInfestation,
-    Pause,
     RobotId,
-    SetTimeScale,
-    StepOnce,
     SwarmAgent,
     Time,
-    TimedCommand,
+    TimeUnit,
 )
 from swarm_field.simulation import (
     CommandReplay,
@@ -75,16 +62,16 @@ from swarm_field.swarm import (
     Navigator,
 )
 from swarm_field.swarm.field import Seed
-from swarm_field.visualization import MatplotlibRenderer, save_frames
+from swarm_field.visualization import MatplotlibRenderer
 
 FIELD_WIDTH = 24
 FIELD_HEIGHT = 16
 CELL_SIZE_M = 2.0
-BASE_STEP_MS = 500
 WORLD_TICK_PERIOD = 3_000
-INJECT_SEVERITY = 0.8
-DEFAULT_FRAMES = 240
-FRAME_INTERVAL_MS = 60
+DEFAULT_SEED = 7
+DEFAULT_SPEED = 1.0
+SAVED_SESSION_HOURS = 2 * TimeUnit.MINUTE / TimeUnit.HOUR
+"""Length of a new session saved without a window, which has no window to close."""
 SPEED_BY_BODY = {
     BodyType.SCOUT: 2.0,
     BodyType.KILLER: 1.2,
@@ -214,243 +201,46 @@ def build_context(seed: int) -> SimulationContext:
     return ctx
 
 
-def apply_time_command(
-    command: Command, paused: bool, speed: float, step_pending: bool
-) -> tuple[bool, float, bool]:
-    """Translate a time-pacing command into render-loop state (paused, speed, step).
-
-    ``StepOnce`` steps exactly once and then freezes: after the single event the run stays
-    paused until the user resumes.
-    """
-    if isinstance(command, Pause):
-        return not paused, speed, False
-    if isinstance(command, StepOnce):
-        return True, speed, True
-    if isinstance(command, SetTimeScale):
-        return paused, command.factor, False
-    return paused, speed, step_pending
-
-
-def keys_to_command(key: str, speed: float) -> Command | None:
-    """Map a pressed key to the ``Command`` it expresses, or ``None``."""
-    if key in (" ", "p"):
-        return Pause()
-    if key == "s":
-        return StepOnce()
-    if key in ("+", "="):
-        return SetTimeScale(factor=min(16.0, speed * 2.0))
-    if key == "-":
-        return SetTimeScale(factor=max(0.25, speed / 2.0))
-    if key == "0":
-        return SetTimeScale(factor=1.0)
-    return None
-
-
-class InteractiveConsole:
-    """Owns a running context, marches its clock per render frame and records the commands.
-
-    The clock always advances through a ``CommandReplay``: a live session replays an empty
-    log, and a replayed session the recorded one, so both take exactly the same path.
-
-    Attributes:
-        replay: Advances the context, applying the replayed log's commands on the way.
-        renderer: Draws the world.
-        replaying: Whether the session plays back a recording. Injecting is then disabled, so
-            the run stays the recorded one, and the clock stops where the recording ended.
-        recorded: The commands applied in this session, for ``command_log``.
-    """
-
-    def __init__(
-        self,
-        replay: CommandReplay,
-        renderer: MatplotlibRenderer,
-        replaying: bool = False,
-    ) -> None:
-        self.replay: CommandReplay = replay
-        self.ctx: SimulationContext = replay.ctx
-        self.renderer: MatplotlibRenderer = renderer
-        self.replaying: bool = replaying
-        self.recorded: list[TimedCommand] = []
-        self.time: int = 0
-        self.paused: bool = False
-        self.speed: float = 1.0
-        self.step_pending: bool = False
-        self.selected: RobotId | None = None
-
-    def advance(self, render: bool = False) -> None:
-        """Advance one render frame: process pending events, then draw the world."""
-        if self.step_pending:
-            self.replay.step()
-            self.step_pending = False
-        elif not self.paused:
-            until = self.time + int(BASE_STEP_MS * self.speed)
-            if self.replaying:
-                until = min(until, self.replay.log.until)
-            self.replay.advance_to(until)
-        self.time = self.ctx.now
-
-        if render:
-            self.draw()
-
-    def command_log(self) -> CommandLog:
-        """The recording of this session so far: its seed and the commands applied in it."""
-        return CommandLog(seed=self.replay.log.seed, until=self.time, commands=tuple(self.recorded))
-
-    def apply_click(self, x_data: float, y_data: float) -> None:
-        """Inject on an empty cell, or select/deselect a robot occupying one."""
-        cell = (math.floor(x_data), math.floor(y_data))
-        if not self.ctx.world.is_inside(cell):
-            return
-        robots_here = self.ctx.world.robots_at(cell)
-        if robots_here:
-            robot = robots_here[0]
-            self.selected = None if self.selected == robot else robot
-            return
-        if self.replaying or self.ctx.world.cell(cell).obstacle:
-            return
-        command = InjectInfestation(cell=cell, severity=INJECT_SEVERITY)
-        self.ctx.apply_command(command)
-        self.recorded.append(TimedCommand(time=self.ctx.now, command=command))
-
-    def on_click(self, event: object) -> None:
-        click = getattr(event, "xdata", None)
-        y_click = getattr(event, "ydata", None)
-        if click is None or y_click is None:
-            return
-        self.apply_click(click, y_click)
-
-    def draw(self) -> None:
-        """Render a snapshot through the ``Renderer`` port and overlay the inspection panel."""
-        self.renderer.render(self.ctx.world.snapshot(self.time))
-        self._draw_panel()
-
-    def _draw_panel(self) -> None:
-        axes = self.renderer.axes
-        if self.selected is not None:
-            inspection = self.ctx.agents[self.selected].inspect()
-            x, y = self.ctx.world.continuous_position(self.selected, self.time)
-            axes.scatter([x], [y], s=240, facecolors="none", edgecolors="black", linewidths=2)
-            lines = [
-                f"robot {inspection.robot_id}",
-                f"goal: {inspection.current_goal}",
-                f"belief: {inspection.belief}",
-            ]
-            axes.text(
-                0.02,
-                0.985,
-                "\n".join(lines),
-                transform=axes.transAxes,
-                ha="left",
-                va="top",
-                fontsize=9,
-                family="monospace",
-                bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.9},
-            )
-        mode = "PAUSED" if self.paused else f"{self.speed:g}x"
-        hint = "click field: inject | click robot: inspect"
-        if self.replaying:
-            hint = f"REPLAY until t={self.replay.log.until / 1000:.1f}s | click robot: inspect"
-        axes.set_title(f"Interactive console | t={self.time / 1000:.1f}s | {mode} | {hint}")
-
-
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--frames",
-        type=int,
-        default=None,
-        help=f"number of frames to run (default {DEFAULT_FRAMES}, or a replay's full length)",
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--seed", type=int, default=7, help="random seed")
-    parser.add_argument(
-        "--save",
-        type=Path,
-        default=None,
-        help="save instead of opening a window: a .gif or .mp4 video, or a directory of PNGs",
-    )
-    parser.add_argument(
-        "--record",
-        type=Path,
-        default=None,
-        help="write the session's seed and injected pests to this JSON file at the end",
-    )
-    parser.add_argument(
-        "--replay",
-        type=Path,
-        default=None,
-        help="play back a recording written by --record instead of a fresh session",
-    )
-    return parser.parse_args()
-
-
-def save_session(console: InteractiveConsole, frames: int, path: Path) -> None:
-    """Run ``frames`` frames without a window, writing a video or a directory of PNGs."""
-    figure = console.renderer.figure
-
-    def draw_frame(_index: int) -> None:
-        console.advance(render=True)
-
-    save_frames(figure, draw_frame, frames, path, fps=1000 // FRAME_INTERVAL_MS)
-    plt.close(figure)
-    print(f"Wrote {frames} frames to {path}")
-
-
-def write_recording(console: InteractiveConsole, path: Path | None) -> None:
-    """Write the session's ``CommandLog`` to ``path``, if a recording was asked for."""
-    if path is None:
-        return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(console.command_log().to_json(), encoding="utf-8")
-    print(f"Recorded {len(console.recorded)} commands up to t={console.time / 1000:.1f}s in {path}")
+    add_session_arguments(parser, default_speed=DEFAULT_SPEED, default_hours=None)
+    args = parser.parse_args()
+    validate_session_arguments(parser, args, default_hours=None)
+    return args
 
 
 def main() -> None:
     args = parse_args()
-    log = CommandLog(seed=args.seed, until=0, commands=())
+    log = CommandLog(seed=DEFAULT_SEED, until=0, commands=())
+    if args.seed is not None:
+        log = CommandLog(seed=args.seed, until=0, commands=())
+    horizon: Time | None = None
     if args.replay is not None:
         log = CommandLog.from_json(args.replay.read_text(encoding="utf-8"))
-    replaying = args.replay is not None
+        horizon = log.until
+    elif args.hours is not None:
+        horizon = int(args.hours * TimeUnit.HOUR)
+    elif args.save is not None:
+        horizon = int(SAVED_SESSION_HOURS * TimeUnit.HOUR)
+
     console = InteractiveConsole(
-        CommandReplay(build_context(log.seed), log), MatplotlibRenderer(), replaying=replaying
+        CommandReplay(build_context(log.seed), log),
+        MatplotlibRenderer(),
+        label=f"interactive/{log.seed}",
+        horizon=horizon,
+        replaying=args.replay is not None,
+        speed=args.speed,
     )
-    renderer = console.renderer
-
-    frames = args.frames
-    if frames is None:
-        frames = DEFAULT_FRAMES
-        if replaying:
-            frames = math.ceil(log.until / BASE_STEP_MS) + 1
-
-    if args.save is not None:
-        save_session(console, frames, args.save)
+    if args.save is None:
+        show_window(console)
+    else:
+        frames = save_session(console, args.save)
+        print(f"Wrote {frames} frames up to {format_time(console.time)} to {args.save}")
+    if args.record is not None:
         write_recording(console, args.record)
-        return
-
-    def on_key(event: object) -> None:
-        key = getattr(event, "key", None)
-        if key is None:
-            return
-        command = keys_to_command(key, console.speed)
-        if command is not None:
-            console.paused, console.speed, console.step_pending = apply_time_command(
-                command, console.paused, console.speed, console.step_pending
-            )
-
-    def update(_frame: int) -> None:
-        console.advance(render=True)
-
-    renderer.figure.canvas.mpl_connect("key_press_event", on_key)
-    renderer.figure.canvas.mpl_connect("button_press_event", console.on_click)
-    animation = FuncAnimation(
-        renderer.figure,
-        update,
-        frames=frames,
-        interval=FRAME_INTERVAL_MS,
-        repeat=True,
-    )
-    _ = animation
-    plt.show()
-    write_recording(console, args.record)
+        print(f"Recorded {len(console.recorded)} commands up to {format_time(console.time)}")
 
 
 if __name__ == "__main__":

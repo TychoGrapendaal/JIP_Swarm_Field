@@ -85,11 +85,14 @@ class CommandLog:
         seed: The seed the run was built from.
         until: Simulation time the recording ended at.
         commands: The applied commands, in the order they were applied.
+        scenario: Name of the scenario preset the run was built from, or ``None`` for a run
+            that a frontend builds itself and so needs only the seed.
     """
 
     seed: int
     until: Time
     commands: tuple[TimedCommand, ...]
+    scenario: str | None = None
 
     def to_json(self) -> str:
         """The log as a JSON document, readable by ``from_json``."""
@@ -103,7 +106,12 @@ class CommandLog:
             }
             for timed in self.commands
         ]
-        document = {"seed": self.seed, "until": self.until, "commands": commands}
+        document = {
+            "scenario": self.scenario,
+            "seed": self.seed,
+            "until": self.until,
+            "commands": commands,
+        }
         return json.dumps(document, indent=2)
 
     @classmethod
@@ -120,6 +128,13 @@ class CommandLog:
             x, y = inject["cell"]
             command = InjectInfestation(cell=(int(x), int(y)), severity=float(inject["severity"]))
             commands.append(TimedCommand(time=int(entry["time"]), command=command))
+        # Recordings from before the scenario was stored have no such key.
+        scenario = document.get("scenario")
+        if scenario is not None:
+            scenario = str(scenario)
         return cls(
-            seed=int(document["seed"]), until=int(document["until"]), commands=tuple(commands)
+            seed=int(document["seed"]),
+            until=int(document["until"]),
+            commands=tuple(commands),
+            scenario=scenario,
         )

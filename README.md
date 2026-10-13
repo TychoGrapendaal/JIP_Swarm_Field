@@ -129,93 +129,83 @@ Write frames as PNGs instead of opening a window:
 uv run --with matplotlib python examples/renderer_demo.py --frames 60 --save frames
 ```
 
-### Interactive console (C.1)
+### Interactive console and scenario viewer (C.1)
+
+Two scripts open a run in a steerable window. Both are thin command lines around the same console, `swarm_field.console`, so they offer the same controls and the same flags:
+
+- `examples/interactive_demo.py` runs a small hand-built world of three wandering robots, so it exercises the `Command` port on its own.
+- `examples/scenario_viewer.py` runs a real experiment: `runner.build_experiment` resolves the scenario preset and `runner.build_run` assembles the robots and brains, so the window shows the same run `runner.run_experiment` would produce. It defaults to `S2` with seed `101` for one simulated hour, the horizon `runner.sweep_scenarios` uses, and it records the run's metrics.
 
 ```bash
 uv run python examples/interactive_demo.py
 ```
 
-An interactive running scenario: robots act through the discrete-event loop (`RobotDecision` events drive `SwarmAgent.decide`) while pests spread via `WorldTick`. The window is steerable:
-
-- Click an empty cell to inject an infestation (`InjectInfestation` command).
-- Click a robot to inspect its brain state via `SwarmAgent.inspect()` — a read-only `AgentInspection` panel shows the robot's current goal and belief.
-- `space` / `p` pause and resume, `s` advances exactly one simulation event, `+` / `-` and `0` change the simulation speed.
-
-The interactions flow through the typed `Command` port (`InjectInfestation` is applied by the simulation; `Pause` / `StepOnce` / `SetTimeScale` pace the render clock). Headless frame generation works like the renderer demo:
-
-```bash
-uv run python examples/interactive_demo.py --frames 240 --save frames/interactive
-```
-
-#### Recording and replaying a session
-
-Add `--record` to save a session. The window works exactly as without it; the recording is written when the window is closed:
-
-```bash
-uv run python examples/interactive_demo.py --record recordings/demo.json
-```
-
-A recording is a small JSON `CommandLog`: the seed, the simulation time the session ended at, and every injected pest with the simulation time it was applied at. Because a run is a function of its seed, this is enough to reproduce the session exactly. Pause, step and speed changes are not recorded, since they change how fast the run is shown, not what happens in it.
-
-Replay a recording in a window:
-
-```bash
-uv run python examples/interactive_demo.py --replay recordings/demo.json
-```
-
-The replay plays at 1x from the start and stops where the recording ended. Pausing, stepping, changing the speed and inspecting robots still work, but injecting is disabled so the run stays the recorded one.
-
-Or render the replay to a video instead of opening a window:
-
-```bash
-uv run python examples/interactive_demo.py --replay recordings/demo.json --save demo.mp4
-```
-
-`--save` decides the output by its suffix: `.gif` writes a GIF (no extra software needed), `.mp4` writes a video and needs [ffmpeg](https://ffmpeg.org/) on the `PATH`, and any other path is a directory of PNG frames. By default a replay renders its full length; `--frames N` renders only the first `N` frames, at 0.5 s of simulation time per frame.
-
-| Flag | Meaning |
-|---|---|
-| `--seed N` | Seed of a new session (default 7); a replay uses the seed from its recording. |
-| `--frames N` | Number of frames to run (default 240, or the full length of a replay). |
-| `--save PATH` | Save instead of opening a window: `.gif`, `.mp4`, or a directory of PNGs. |
-| `--record PATH` | Write the session's `CommandLog` to `PATH` when it ends. |
-| `--replay PATH` | Play back a recording written by `--record`. |
-
-### Watching a real experiment (C.1 over B.5)
-
-```bash
-uv run python examples/scenario_viewer.py
-```
-
-The interactive console above drives a hand-built three-robot world, so it can exercise the `Command` port on its own. This demo drives a *real* experiment instead: `runner.build_experiment` resolves the scenario preset and `runner.build_run` assembles the robot roster and brains, so the window shows the same object graph `runner.run_experiment` would drive. It defaults to `S2` with seed `101` for one simulated hour — the horizon `runner.sweep_scenarios` uses — and offers the same steering controls: click a cell to inject an infestation, click a robot for its `AgentInspection` panel, and `space` / `s` / `+` / `-` / `0` to pause, step, and change speed. The run stops at its horizon rather than looping forever.
-
 ```bash
 uv run python examples/scenario_viewer.py --scenario S3 --seed 7 --hours 6
 ```
 
-A scenario preset carries no duration of its own, so `--hours` sets the horizon. The metrics cadence is shortened to match the pest dynamics, because the default of one sample per hour would leave the figures in the title static for the whole run; cadence changes what is measured, never what the world does. Headless frame generation works like the other demos, and stops when the run reaches its horizon:
+In the window:
+
+- Click an empty cell to inject an infestation (`InjectInfestation` command).
+- Click a robot to inspect its brain state via `SwarmAgent.inspect()`: a read-only `AgentInspection` panel shows its current goal and a summary of its belief.
+- `space` / `p` pause and resume, `s` advances exactly one simulation event, `+` / `-` double and halve the speed, and `0` resets it to 1x.
+
+The interactions flow through the typed `Command` port: `InjectInfestation` is applied by the simulation, and `Pause` / `StepOnce` / `SetTimeScale` pace the console's clock.
+
+#### Flags
+
+| Flag | Meaning | Interactive demo | Scenario viewer |
+|---|---|---|---|
+| `--scenario NAME` | Scenario preset to run. | – | `S2` |
+| `--seed N` | Seed of a new run. | 7 | 101 |
+| `--hours H` | Simulated hours the run lasts; it stops there. | until the window closes | 1 |
+| `--speed X` | Simulated time per frame: 0.5 s times `X`. In a window this is the starting speed. | 1 | 4 |
+| `--save PATH` | Run to the horizon without a window, into a `.gif`, an `.mp4` (needs [ffmpeg](https://ffmpeg.org/)) or, for any other path, a directory of PNG frames. | | |
+| `--record PATH` | When the run ends, write its recording to `PATH`. | | |
+| `--replay PATH` | Play back a recording instead of starting a new run. | | |
+| `--out DIR` | When the run ends, write its metrics series and a summary row to `DIR`. | – | ✓ |
+
+Each flag controls one thing, which is why there are several: `--scenario`, `--seed` and `--replay` choose the run; `--hours` sets how long it lasts and `--speed` how much of it one frame shows; and the run can produce three different outputs, which can be combined:
+
+- `--save` is what the run looks like: a video or PNG frames.
+- `--record` is what the user did: a small JSON `CommandLog` with the scenario, the seed, the time the run ended and every injected pest with its simulation time. A run is a function of its seed, so this is enough to replay it exactly, and to render it again later at another speed. Pause, step and speed changes are not recorded, because they change how the run is shown, not what happens in it.
+- `--out` is what the run measured: the metrics series as CSV and JSON, and a summary row in the same format as the sweeps below.
+
+A replay takes its scenario, seed and length from the recording, so combining `--replay` with `--scenario`, `--seed`, `--hours` or `--record` is refused. During a replay, pausing, stepping, changing the speed and inspecting still work, but injecting is disabled so the run stays the recorded one.
+
+#### Recording, replaying and exporting
+
+Record a session in a window; the recording is written when the window is closed:
 
 ```bash
-uv run python examples/scenario_viewer.py --frames 240 --save frames/viewer
+uv run python examples/scenario_viewer.py --record recordings/s2.json
 ```
 
-#### Recording an experiment in the background
-
-Give `--save` a video file to record a whole experiment without opening a window. The run goes to its `--hours` horizon, writes the video and stops:
+Replay it in a window, or render it into a video:
 
 ```bash
-uv run python examples/scenario_viewer.py --scenario S2 --hours 6 --speed 16 --save runs/s2.mp4
+uv run python examples/scenario_viewer.py --replay recordings/s2.json
 ```
 
-Like in the interactive console, `.gif` needs no extra software and `.mp4` needs [ffmpeg](https://ffmpeg.org/) on the `PATH`. `--speed` sets how much simulated time one frame covers: 0.5 s times the speed, so the default speed of 4 shows 2 s per frame. The video plays at 16 frames per second, which gives these lengths for a run of `H` hours:
+```bash
+uv run python examples/scenario_viewer.py --replay recordings/s2.json --speed 16 --save runs/s2.mp4
+```
+
+Run a whole experiment in the background, and get the video and the metrics of that same run:
+
+```bash
+uv run python examples/scenario_viewer.py --scenario S2 --hours 6 --speed 16 --save runs/s2.mp4 --out runs/s2
+```
+
+A run without a window needs a horizon: the scenario viewer always has one, and the interactive demo uses two simulated minutes when `--hours` is not given. The video plays at 16 frames per second, which gives these lengths:
 
 | `--speed` | Simulated time per frame | Frames per simulated hour | Video length per simulated hour |
 |---|---|---|---|
-| 4 (default) | 2 s | 1800 | about 1 min 53 s |
+| 4 | 2 s | 1800 | about 1 min 53 s |
 | 16 | 8 s | 450 | about 28 s |
 | 64 | 32 s | 113 | about 7 s |
 
-Drawing a frame takes roughly a tenth of a second, so a long run at a low speed takes a few minutes to record. `--frames N` caps the video at `N` frames; the run then stops before its horizon. Without `--save`, `--speed` is the speed the window starts at.
+Drawing a frame takes roughly a tenth of a second, so a long run at a low speed takes a few minutes to record.
 
 ### Seeded scenario sweep with metrics (B.5)
 
@@ -269,7 +259,7 @@ uv run python examples/robustness_demo.py --out runs/robustness
 - Coarse-grained infestation dynamics are implemented as a scheduled `WorldTick`; the current model supports severity growth, neighbour spread, and stochastic spawning.
 - Robot batteries are drained by a coarse cost model (per metre, per decision, per treat) and robot failure and position error can be injected for robustness runs, but there is no charging station, no consumable replenishment and no recovery from a failure.
 - Sensing is currently local; distant obstacles and infestations are unknown unless information is later propagated through communication.
-- The visualization adapter renders read-only snapshots; interactive time control, infestation injection, robot inspection and recording and replaying a session are demonstrated in `examples/interactive_demo.py` (C.1).
+- The visualization adapter renders read-only snapshots; interactive time control, infestation injection, robot inspection, and recording and replaying a run live in `swarm_field.console`, with `examples/interactive_demo.py` and `examples/scenario_viewer.py` as its command lines (C.1).
 
 ## Project layout
 
