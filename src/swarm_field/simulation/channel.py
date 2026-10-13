@@ -41,13 +41,17 @@ class Channel:
     decision.
 
     Attributes:
-        sent: How many messages have been handed to the channel since the run began. The
-            payload is never read, so this counts broadcasts rather than deliveries.
+        sent: How many messages have been handed to the channel since the run began. Every
+            robot broadcasts at every decision, so this follows the number of decisions.
+        received: How many times a message reached a robot in range since the run began: a
+            broadcast heard by three robots counts three times. This measures how much the
+            robots actually communicated.
     """
 
     def __init__(self) -> None:
         self._inboxes: dict[RobotId, list[Message]] = {}
         self.sent: int = 0
+        self.received: int = 0
 
     def broadcast(self, world: WorldState, time: Time, outbox: Iterable[Message]) -> None:
         """Deliver a robot's outbox now, to the inbox of every robot in the sender's range."""
@@ -55,6 +59,7 @@ class Channel:
             self.sent += 1
             for recipient in robots_in_range_of(message.sender, world, time):
                 self._inboxes.setdefault(recipient, []).append(message)
+                self.received += 1
 
     def take_inbox(self, robot: RobotId) -> list[Message]:
         """Remove and return the messages waiting for ``robot``."""
