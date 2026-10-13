@@ -18,7 +18,7 @@ The name must match a registered seeder. There is no built-in `ExploreSeeder` or
 
 At each decision, the behaviour asks `ctx.fields.field_for(self._seeder, position, ctx.time)` for the field. `FieldProvider` keeps a cached field while its inputs remain valid and builds a replacement when needed. The solved field is derived from the robot's memory and terrain; `MemoryView` itself stores observations, not a solved potential field.
 
-The returned field may be `None`, and a present field may have no target for the robot's position. Both cases are handled without skipping score calculation: field-based criteria use their fallback values, and the resulting candidate proposes `Idle`.
+The returned field may be `None`, and a present field may have no target for the robot's position. Those cases still result in an `Idle` candidate, but the score is still built from the remaining criteria using their fallback values.
 
 ## Candidate and score
 
@@ -31,8 +31,8 @@ $$
 The current criteria are:
 
 - **Non-scout fraction:** one minus the fraction of `PeerObservation` payloads in the inbox whose body is `BodyType.SCOUT`. If there are no peer observations, the criterion returns `1.0`.
-- **Average field score:** the average of finite values in the seeded field's settled nodes. Infinite and other non-finite values are ignored. If there is no field or no finite value, the criterion returns `1.0`.
-- **Unexplored-cell criterion:** one minus the fraction of settled nodes whose field value is exactly `1.0`. If there is no field or no settled node, the criterion returns `1.0`. This exact-value check is provisional and should be replaced with an explicit representation of unexplored cells.
+- **Target revisit worth:** the revisit worth of the chosen target cell, computed from `revisit_worths(last_observed_times[target], monitorable_cells[target], now, revisit_age)`. If there is no useful target, the criterion falls back to `1.0`.
+- **Unexplored-cell criterion:** one minus the fraction of cells in `last_observed_times()` that are still `-inf`, which marks cells never observed. If there are no cells, the criterion returns `1.0`.
 
 The candidate uses `FollowField(self._seeder)` when the field has a target other than the robot's current position. It uses `Idle` when the field is missing, the target is missing, or the robot is already at the target. The candidate's `target` is the field target, or `None` when there is no field target.
 

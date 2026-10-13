@@ -1,5 +1,6 @@
 from collections.abc import Hashable
 
+import numpy as np
 import pytest
 
 from swarm_field.contracts import (
@@ -14,6 +15,7 @@ from swarm_field.contracts import (
     Time,
 )
 from swarm_field.swarm.behavior import DecisionContext, ExploreBehaviour, FollowField
+from swarm_field.swarm.explore import ExploreConfig, revisit_worths
 from swarm_field.swarm.field import Seed
 from swarm_field.swarm.memory import AgentMemory, MemoryView
 from swarm_field.swarm.provider import FieldProvider
@@ -23,11 +25,12 @@ _FIELD = FieldGeometry(width=10, height=10, cell_size=1.0, row_sp=0.0, in_row_sp
 
 class _ExploreSeeder:
     name: str = "explore"
+    window_blocks: int = 1
 
     def __init__(self, target: CellId | None) -> None:
         self._target: CellId | None = target
 
-    def field_key(self, memory: MemoryView, now: Time) -> Hashable:
+    def field_key(self, memory: MemoryView, robot: CellId, now: Time) -> Hashable:
         return None
 
     def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
@@ -77,7 +80,7 @@ def test_propose_scores_and_idles_when_field_is_missing() -> None:
 
     assert candidate.action == Idle()
     assert candidate.target is None
-    assert candidate.score == 1.0
+    assert candidate.score == pytest.approx(2 / 3)
 
 
 def test_body_type_criterion_returns_non_scout_fraction() -> None:
@@ -111,3 +114,19 @@ def test_update_weight_blends_toward_equal_weights_after_time_advances() -> None
     updated_weights = behavior._update_weight(ctx, [1.0, 0.0, 0.0], previous_time=0)
 
     assert updated_weights == pytest.approx([13 / 15, 1 / 15, 1 / 15])
+
+
+def test_explore_score_criterion_uses_target_worth() -> None:
+    behavior = ExploreBehaviour("explore")
+    memory: AgentMemory = AgentMemory(1, _FIELD)
+    memory._last_seen[1, 1] = 0.0
+    memory._monitorable[1, 1] = True
+
+    expected = revisit_worths(
+        np.asarray([[memory.last_observed_times()[1, 1]]], dtype=np.float64),
+        np.asarray([[memory.monitorable_cells()[1, 1]]], dtype=np.bool_),
+        80,
+        ExploreConfig.revisit_age,
+    )[0, 0]
+
+    assert behavior._explore_score_criteria(memory, 80, (1, 1)) == pytest.approx(expected)

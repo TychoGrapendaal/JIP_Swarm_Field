@@ -1,8 +1,9 @@
 """Composable robot behaviours for the high-level cell model."""
 
 from dataclasses import dataclass, field
-from math import isfinite
 from typing import Protocol
+
+import numpy as np
 
 from swarm_field.contracts import (
     BodyType,
@@ -16,13 +17,10 @@ from swarm_field.contracts import (
     Time,
     Treat,
 )
-from swarm_field.swarm.explore import ExploreSeeder
+from swarm_field.swarm.explore import ExploreConfig, ExploreSeeder, revisit_worths
 from swarm_field.swarm.memory import MemoryView
 from swarm_field.swarm.provider import FieldProvider
 from swarm_field.swarm.seeder import TreatSeeder
-
-import numpy as np
-import random
 
 
 @dataclass(frozen=True)
@@ -150,9 +148,9 @@ class ExploreBehaviour:
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
         """Build this robot's exploration candidate for the current decision.
 
-        The score combines the nearby non-scout fraction, average finite field score, and
-        explored-cell fraction. If no usable field target exists, the scored candidate proposes
-        ``Idle`` instead of following a field.
+        The score combines the nearby non-scout fraction, the revisit worth of the selected
+        target cell, and the unexplored-cell fraction. If no usable field target exists, the
+        scored candidate proposes ``Idle`` instead of following a field.
         """
         position = ctx.self_state.position
         inbox = ctx.inbox
@@ -161,9 +159,10 @@ class ExploreBehaviour:
         target = None
         if seeded_field is not None:
             target = seeded_field.field.target_for(position)
+
         criteria_scores = [
             self._body_type_criteria(inbox),
-            self._explore_score_criteria(seeded_field),
+            self._explore_score_criteria(memory, ctx.time, target),
             self._unexplore_criteria(memory),
         ]
         previous_time = self._previous_time
@@ -191,27 +190,31 @@ class ExploreBehaviour:
         )
         return 1 - (matching_robots / len(peer_observations))
 
-    def _explore_score_criteria(self, seeded_field: SeededField | None, target: CellId | None) -> float:
-        """Return the average finite score in the provided exploration field."""
-        if target is None or seeded_field is None:
+    def _explore_score_criteria(
+        self,
+        memory: MemoryView,
+        time: Time,
+        target: CellId | None,
+    ) -> float:
+        """Return the revisit worth of the chosen exploration target."""
+        if target is None:
             return 1.0
-        if seeded_field.field.value_at(target) is None:
-            return 0.0
-        random_value = random.uniform(0, 1)
-        if random_value:
-            return 1.0
-        return sum(scores) / len(scores)
+
+        revisit_age = ExploreConfig.revisit_age
+        last_seen = np.asarray([memory.last_observed_times()[target]], dtype=np.float64)
+        monitorable = np.asarray([memory.monitorable_cells()[target]], dtype=np.bool_)
+        worth = revisit_worths(last_seen, monitorable, time, revisit_age)[0]
+        return float(worth)
 
     def _unexplore_criteria(self, memory: MemoryView) -> float:
         """Return the 1 - (fraction of unexplored cells in the provided exploration field)."""
-        if memory.last_observed_time() is None:
+        last_seen = memory.last_observed_times()
+        if last_seen is None:
             return 1.0
-        total_cells = len(memory.last_observed_time())
+        total_cells = last_seen.size
         if total_cells == 0:
             return 1.0
-        unexplored_cells = sum(
-            1 for result in memory.last_observed_time() if result.value == -np.inf
-        )
+        unexplored_cells = np.count_nonzero(np.isneginf(last_seen))
         return 1 - (unexplored_cells / total_cells)
 
     def _update_weight(
