@@ -10,6 +10,7 @@ messages it receives. Capability gating is added as that part is built.
 """
 
 import logging
+from typing import cast
 
 from swarm_field.contracts import (
     Action,
@@ -20,6 +21,8 @@ from swarm_field.contracts import (
     Message,
     MessageKind,
     Observation,
+    ObservationBase,
+    PeerObservation,
     Perception,
     RobotId,
     TerrainObservation,
@@ -70,6 +73,7 @@ class ComposedAgent:
         self.navigator: Navigator = navigator
         self.arbiter: Arbiter = arbiter
         self._current_goal: str | None = None
+        self._current_target: CellId | None = None
 
     def decide(self, perception: Perception) -> Decision:
         received = self._facts_received(perception.inbox)
@@ -95,15 +99,18 @@ class ComposedAgent:
             candidates.extend(behavior.propose(ctx))
 
         choice = self.arbiter.choose(candidates, perception.time)
-        outbox = self._messages_to_send(perception.time)
         if choice is None:
             self._current_goal = None
-            return Decision(action=Idle(), outbox=outbox)
+            self._current_target = None
+            return Decision(action=Idle(), outbox=self._messages_to_send(perception))
 
         best = choice.candidate
         self._current_goal = best.source
-        action = self._action_for(best.action, perception.self_state.position, perception.time)
-        return Decision(action=action, outbox=outbox)
+        action, target = self._action_for(
+            best.action, perception.self_state.position, perception.time
+        )
+        self._current_target = target
+        return Decision(action=action, outbox=self._messages_to_send(perception))
 
     def inspect(self) -> AgentInspection:
         return AgentInspection(
@@ -112,33 +119,56 @@ class ComposedAgent:
             belief=self.memory.snapshot(),
         )
 
-    def _action_for(self, intent: Intent, robot: CellId, now: Time) -> Action:
+    def _action_for(self, intent: Intent, robot: CellId, now: Time) -> tuple[Action, CellId | None]:
         """The action that carries out the winning candidate's intent."""
         if not isinstance(intent, FollowField):
-            return intent
+            return intent, None
         field = self.fields.field_for(intent.seeder, robot, now)
         if field is None:
             logger.warning("FollowField couldn't find the corresponding field %s", intent.seeder)
-            return Idle()
+            return Idle(), None
         return self.navigator.step_towards(field, robot)
 
     def _facts_received(self, inbox: list[Message]) -> list[Observation]:
         """The facts carried by the received ``KNOWLEDGE`` messages of other robots."""
         facts: list[Observation] = []
         for message in inbox:
-            if message.kind is not MessageKind.KNOWLEDGE or message.sender == self.robot_id:
-                continue
-            if not isinstance(message.payload, tuple):
-                logger.warning("Ignoring KNOWLEDGE message with payload %r", message.payload)
-                continue
-            facts.extend(fact for fact in message.payload if isinstance(fact, Observation))
+            if message.kind is MessageKind.KNOWLEDGE:
+                if not isinstance(message.payload, (tuple, list)):
+                    continue
+                for fact in message.payload:
+                    if isinstance(fact, ObservationBase):
+                        facts.append(cast(Observation, fact))
+            elif message.kind is MessageKind.STATUS:
+                if isinstance(message.payload, PeerObservation):
+                    facts.append(message.payload)
         return facts
 
-    def _messages_to_send(self, now: Time) -> list[Message]:
-        """The messages to broadcast at this decision point: the robot's memory, if any."""
-        facts = self.memory.snapshot()
-        if not facts:
-            return []
-        return [
-            Message(sender=self.robot_id, sent_at=now, kind=MessageKind.KNOWLEDGE, payload=facts)
-        ]
+    def _messages_to_send(self, perception: Perception) -> list[Message]:
+        """The messages to broadcast at this decision point: the robot's status and its memory.
+
+        The status tells peers where the robot is and which target it is heading for, the
+        winning candidate's ``target``, so that they can avoid the same target.
+        """
+        status = PeerObservation(
+            cell=perception.self_state.position,
+            confidence=1.0,
+            observed_at=perception.time,
+            source=self.robot_id,
+            peer=self.robot_id,
+            body=perception.self_state.body,
+            target=self._current_target,
+        )
+        status_message = Message(
+            sender=self.robot_id,
+            sent_at=perception.time,
+            kind=MessageKind.STATUS,
+            payload=status,
+        )
+        memory_message = Message(
+            sender=self.robot_id,
+            sent_at=perception.time,
+            kind=MessageKind.KNOWLEDGE,
+            payload=tuple(self.memory.records()),
+        )
+        return [status_message, memory_message]

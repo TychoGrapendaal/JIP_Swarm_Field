@@ -70,10 +70,13 @@ class PeerObservation(ObservationBase):
     Attributes:
         peer: The peer's identity if resolvable, else ``None`` for an anonymous sighting.
         body: The peer's body type.
+        target: The cell the peer says it is heading for, or ``None`` if it has none or the
+            sighting does not tell.
     """
 
     peer: RobotId | None
     body: BodyType
+    target: CellId | None = None
 
 
 Observation = CropObservation | InfestationObservation | TerrainObservation | PeerObservation
