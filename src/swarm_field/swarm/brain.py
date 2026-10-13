@@ -3,9 +3,10 @@
 ``ComposedAgent`` is the thin orchestrator that implements the ``SwarmAgent`` boundary. At each
 decision point it merges what the robot sensed and received into its memory, keeps the field
 provider's quadtree in sync with new terrain facts, gathers the scored candidates of its
-behaviors, picks the best and turns its intent into one action: the navigator steps along the
-field a ``FollowField`` names, and any other intent passes through. Communication and capability
-gating are added as those parts are built.
+behaviors, lets its arbiter pick one and turns its intent into one action: the navigator steps
+along the field a ``FollowField`` names, and any other intent passes through. The robot
+broadcasts its memory in a ``KNOWLEDGE`` message and merges the facts of the ``KNOWLEDGE``
+messages it receives. Capability gating is added as that part is built.
 """
 
 import logging
@@ -27,6 +28,7 @@ from swarm_field.contracts import (
     TerrainObservation,
     Time,
 )
+from swarm_field.swarm.arbiter import Arbiter
 from swarm_field.swarm.behavior import (
     ActionCandidate,
     Behavior,
@@ -51,6 +53,8 @@ class ComposedAgent:
         fields: The robot's quadtree, and the grid potential fields of its seeders, shared by
             the behaviors (to score) and the navigator (to move).
         navigator: Moves the robot along the winning candidate's field.
+        arbiter: Picks the candidate the robot acts on and holds the robot to its choice. Every
+            robot needs its own, since an arbiter remembers its robot's commitment.
     """
 
     def __init__(
@@ -60,12 +64,14 @@ class ComposedAgent:
         memory: AgentMemory,
         fields: FieldProvider,
         navigator: Navigator,
+        arbiter: Arbiter,
     ) -> None:
         self.robot_id: RobotId = robot_id
         self.behaviors: list[Behavior] = behaviors
         self.memory: AgentMemory = memory
         self.fields: FieldProvider = fields
         self.navigator: Navigator = navigator
+        self.arbiter: Arbiter = arbiter
         self._current_goal: str | None = None
         self._current_target: CellId | None = None
 
@@ -92,14 +98,13 @@ class ComposedAgent:
         for behavior in self.behaviors:
             candidates.extend(behavior.propose(ctx))
 
-        # TODO: an arbiter (fixed-priority overrides such as low battery, hysteresis against
-        # switching objectives back and forth) instead of simply taking the highest score.
-        best = max(candidates, key=lambda c: c.score, default=None)
-        if best is None:
+        choice = self.arbiter.choose(candidates, perception.time)
+        if choice is None:
             self._current_goal = None
             self._current_target = None
             return Decision(action=Idle(), outbox=self._messages_to_send(perception))
 
+        best = choice.candidate
         self._current_goal = best.source
         action, target = self._action_for(
             best.action, perception.self_state.position, perception.time
@@ -125,7 +130,7 @@ class ComposedAgent:
         return self.navigator.step_towards(field, robot)
 
     def _facts_received(self, inbox: list[Message]) -> list[Observation]:
-        """The facts carried by the received messages."""
+        """The facts carried by the received ``KNOWLEDGE`` messages of other robots."""
         facts: list[Observation] = []
         for message in inbox:
             if message.kind is MessageKind.KNOWLEDGE:
