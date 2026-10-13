@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Hashable, Sequence
+from math import exp, isnan
 from pathlib import Path
 from random import Random
 
@@ -53,7 +54,6 @@ from swarm_field.swarm import (
     MemoryView,
     Navigator,
     UtilityArbiter,
-    score_from_potential,
 )
 from swarm_field.swarm.field import Seed
 from swarm_field.visualization import MatplotlibRenderer
@@ -85,6 +85,33 @@ ROBOTS: tuple[tuple[BodyType, CellId], ...] = (
 )
 SPEED_BY_BODY: dict[BodyType, float] = {BodyType.SCOUT: 1.5, BodyType.KILLER: 0.8}
 GOAL_LABELS: dict[str, str] = {"explore": "E", "treat": "T"}
+
+
+SCORE_SCALE_CELLS = 10.0
+"""The shared scale, in cells, of the logistic that turns a potential into a score.
+
+One scale for every field-based behaviour keeps their scores comparable. At 10 cells, equal to
+the TREAT field's beta, a target of value 1 under the robot scores about 0.73, a target worth
+exactly its trip 0.5, and one 30 cells of net travel away about 0.05.
+"""
+
+
+def score_from_potential(potential: float, scale: float = SCORE_SCALE_CELLS) -> float:
+    """A field's potential at the robot's cell as a score on the shared ``[0, 1]`` scale.
+
+    The potential is the route to the target plus the target's start value ``-beta * value``,
+    in cells, so lower is better. The logistic ``1 / (1 + exp(potential / scale))`` keeps the
+    order of the bids, maps a potential of 0 (the target is worth exactly the trip) to 0.5, and
+    an unreachable target (an infinite potential) to 0.
+    """
+    if isnan(potential):
+        raise ValueError("potential must be a number")
+    exponent = potential / scale
+    if exponent > 700.0:
+        return 0.0
+    if exponent < -700.0:
+        return 1.0
+    return 1.0 / (1.0 + exp(exponent))
 
 
 class KnownPests:

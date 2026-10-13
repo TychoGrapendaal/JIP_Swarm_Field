@@ -1,7 +1,7 @@
 """Arbitration: which candidate a robot acts on, and when it abandons what it is doing.
 
 Every behaviour bids ``ActionCandidate``s on the shared ``[0, 1]`` score scale (see
-``swarm_field.swarm.scoring``); the arbiter picks one. It sees only the bids and the time,
+``docs/research/arbiter.md``); the arbiter picks one. It sees only the bids and the time,
 never memory, the robot's state or which behaviours exist, so any list of behaviours works with
 it. A bid's ``source`` names its objective and its ``target`` the cell it commits to; both are
 compared for equality only.
