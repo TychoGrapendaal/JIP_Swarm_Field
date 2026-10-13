@@ -3,6 +3,7 @@
 from collections.abc import Hashable
 
 from swarm_field.contracts import (
+    AgentObjective,
     BodyType,
     CellId,
     FieldGeometry,
@@ -175,7 +176,15 @@ class _FieldFollower:
         seeded = ctx.fields.field_for(self.name, position, ctx.time)
         assert seeded is not None
         target = seeded.field.target_for(position)
-        return (ActionCandidate(FollowField(self.name), self._score, self.name, target),)
+        return (
+            ActionCandidate(
+                FollowField(self.name),
+                self._score,
+                self.name,
+                target,
+                objective=AgentObjective.TREAT,
+            ),
+        )
 
 
 def test_agent_picks_highest_scoring_candidate() -> None:
@@ -217,8 +226,14 @@ def test_agent_idles_without_candidates_and_announces_target_clear() -> None:
 
 def test_agent_announces_the_winning_candidate_target() -> None:
     target = (5, 5)
-    candidate = ActionCandidate(action=Treat(target), score=1.0, source="treat", target=target)
-    agent = _agent([_MultiBehavior("treat", (candidate,))])
+    candidate = ActionCandidate(
+        action=Treat(target),
+        score=1.0,
+        source="treat-infestation",
+        target=target,
+        objective=AgentObjective.TREAT,
+    )
+    agent = _agent([_MultiBehavior("treat-infestation", (candidate,))])
 
     decision = agent.decide(_perception())
 
@@ -231,34 +246,45 @@ def test_agent_announces_the_winning_candidate_target() -> None:
     assert isinstance(announcement, PeerTargetObservation)
     assert announcement.source == 1
     assert announcement.target == target
-    assert announcement.objective == "treat"
+    assert announcement.objective is AgentObjective.TREAT
     assert announcement.observed_at == 0
 
 
-def test_peer_target_announcement_discourages_duplicate_target() -> None:
+def test_peer_target_announcement_does_not_change_candidate_scoring() -> None:
     claimed_target = (5, 5)
     alternative_target = (6, 6)
     claim = PeerTargetObservation(
         source=2,
         target=claimed_target,
-        objective="treat",
+        objective=AgentObjective.TREAT,
         confidence=1.0,
         observed_at=0,
     )
     inbox = [Message(sender=2, sent_at=0, kind=MessageKind.KNOWLEDGE, payload=(claim,))]
     candidates = (
         ActionCandidate(
-            action=Treat(claimed_target), score=1.0, source="treat", target=claimed_target
+            action=Treat(claimed_target),
+            score=1.0,
+            source="treat",
+            target=claimed_target,
+            objective=AgentObjective.TREAT,
         ),
         ActionCandidate(
-            action=Treat(alternative_target), score=0.5, source="treat", target=alternative_target
+            action=Treat(alternative_target),
+            score=0.5,
+            source="treat",
+            target=alternative_target,
+            objective=AgentObjective.TREAT,
         ),
     )
     agent = _agent([_MultiBehavior("treat", candidates)])
 
     decision = agent.decide(_perception(inbox=inbox))
 
-    assert decision.action == Treat(alternative_target)
+    # Target announcements are transported and remembered by this change, but target-selection
+    # policy belongs to the individual field seeder and is intentionally not applied by the brain.
+    assert decision.action == Treat(claimed_target)
+    assert claim in tuple(agent.memory.peer_targets())
 
 
 def test_sensed_terrain_reaches_memory_and_the_quadtree() -> None:

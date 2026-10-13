@@ -3,6 +3,7 @@
 from math import exp, isclose
 
 from swarm_field.contracts import (
+    AgentObjective,
     BodyType,
     CellId,
     CropObservation,
@@ -144,7 +145,7 @@ def _peer_target(
     source: RobotId,
     target: CellId | None,
     at: Time,
-    objective: str | None = "treat",
+    objective: AgentObjective | None = AgentObjective.TREAT,
     confidence: float = 1.0,
 ) -> PeerTargetObservation:
     return PeerTargetObservation(
@@ -176,7 +177,7 @@ def test_a_peer_can_clear_its_current_target_with_a_newer_announcement() -> None
     memory.merge([old_target, cleared_target])
 
     assert list(memory.peer_targets()) == [cleared_target]
-    assert memory.peer_target_confidence((3, 3), "treat", now=20) == 0.0
+    assert memory.peer_target_confidence((3, 3), AgentObjective.TREAT, now=20) == 0.0
 
 
 def test_peer_target_confidence_decays_like_other_peer_facts() -> None:
@@ -184,9 +185,9 @@ def test_peer_target_confidence_decays_like_other_peer_facts() -> None:
     target = _peer_target(source=2, target=(3, 3), at=0, confidence=0.8)
     memory.merge([target])
 
-    assert isclose(memory.peer_target_confidence((3, 3), "treat", now=0), 0.8)
+    assert isclose(memory.peer_target_confidence((3, 3), AgentObjective.TREAT, now=0), 0.8)
     assert isclose(
-        memory.peer_target_confidence((3, 3), "treat", now=DecayConfig().peer),
+        memory.peer_target_confidence((3, 3), AgentObjective.TREAT, now=DecayConfig().peer),
         0.8 * exp(-1),
     )
-    assert memory.peer_target_confidence((3, 3), "explore", now=0) == 0.0
+    assert memory.peer_target_confidence((3, 3), AgentObjective.EXPLORE, now=0) == 0.0

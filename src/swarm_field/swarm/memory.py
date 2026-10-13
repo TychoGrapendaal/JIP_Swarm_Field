@@ -13,6 +13,7 @@ from math import exp
 from typing import Protocol
 
 from swarm_field.contracts import (
+    AgentObjective,
     CellId,
     FieldGeometry,
     InfestationObservation,
@@ -73,7 +74,9 @@ class MemoryView(Protocol):
 
     def peer_targets(self) -> Iterator[PeerTargetObservation]: ...
 
-    def peer_target_confidence(self, target: CellId, objective: str, now: Time) -> float: ...
+    def peer_target_confidence(
+        self, target: CellId, objective: AgentObjective, now: Time
+    ) -> float: ...
 
     def confidence(self, fact: Observation, now: Time) -> float: ...
 
@@ -170,7 +173,9 @@ class AgentMemory:
         """The newest target announcement from each other robot, including explicit clears."""
         return iter(self._peer_targets.values())
 
-    def peer_target_confidence(self, target: CellId, objective: str, now: Time) -> float:
+    def peer_target_confidence(
+        self, target: CellId, objective: AgentObjective, now: Time
+    ) -> float:
         """Return the strongest fresh claim on ``target`` for ``objective``.
 
         Zero means no peer currently advertises that exact target/objective pair. Announcements

@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from swarm_field.contracts import (
+    AgentObjective,
     CellId,
     Charge,
     Idle,
@@ -57,6 +58,11 @@ class ActionCandidate:
     score: float
     source: str
     target: CellId | None
+    objective: AgentObjective | None = None
+
+    def __post_init__(self) -> None:
+        if self.target is not None and self.objective is None:
+            raise ValueError("A candidate with a target must declare its AgentObjective.")
 
 
 @dataclass(frozen=True)
@@ -121,6 +127,10 @@ class TreatInfestation:
         # so negate it for now.
         score = -seeded.field.value_at(position)
         candidate = ActionCandidate(
-            action=FollowField(self._seeder), score=score, source=self.name, target=target
+            action=FollowField(self._seeder),
+            score=score,
+            source=self.name,
+            target=target,
+            objective=AgentObjective.TREAT,
         )
         return (candidate,)

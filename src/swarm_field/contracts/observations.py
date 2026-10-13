@@ -6,7 +6,16 @@ how reliable, when, by whom); peer-target announcements are intent facts without
 
 from dataclasses import dataclass
 
-from swarm_field.contracts.ids import BodyType, CellId, CropType, PestType, RobotId, Terrain, Time
+from swarm_field.contracts.ids import (
+    AgentObjective,
+    BodyType,
+    CellId,
+    CropType,
+    PestType,
+    RobotId,
+    Terrain,
+    Time,
+)
 
 
 @dataclass(frozen=True)
@@ -82,13 +91,14 @@ class PeerTargetObservation:
 
     Unlike ``PeerObservation``, this is a report about intent, not physical location.
     ``source`` identifies the robot whose intent is being reported; ``target=None`` and
-    ``objective=None`` explicitly mean that it currently has no target. The original source
+    ``objective=None`` explicitly mean that it currently has no target. Objectives use
+    :class:`AgentObjective`, not behaviour-specific free-form strings. The original source
     and timestamp are retained when other robots forward the fact through knowledge sharing.
     """
 
     source: RobotId
     target: CellId | None
-    objective: str | None
+    objective: AgentObjective | None
     confidence: float
     observed_at: Time
 
