@@ -1,6 +1,6 @@
 """Tests for the composed brain and high-level movement action."""
 
-from collections.abc import Hashable
+from collections.abc import Hashable, Sequence
 
 from swarm_field.contracts import (
     AgentObjective,
@@ -25,6 +25,7 @@ from swarm_field.contracts import (
 from swarm_field.swarm import (
     ActionCandidate,
     AgentMemory,
+    ArbiterChoice,
     Behavior,
     ComposedAgent,
     DecisionContext,
@@ -91,6 +92,15 @@ def _sensed(time: Time) -> list[Observation]:
     ]
 
 
+class _MaxArbiter:
+    """A mock arbiter: the highest score wins, without hysteresis."""
+
+    def choose(self, candidates: Sequence[ActionCandidate], now: Time) -> ArbiterChoice | None:
+        if not candidates:
+            return None
+        return ArbiterChoice(max(candidates, key=lambda c: c.score), switched=False)
+
+
 def _agent(behaviors: list[Behavior], seeders: list[FieldSeeder] | None = None) -> ComposedAgent:
     memory = AgentMemory(1, _FIELD)
     fields = FieldProvider(memory, flies=False, seeders=seeders or [])
@@ -100,6 +110,7 @@ def _agent(behaviors: list[Behavior], seeders: list[FieldSeeder] | None = None) 
         memory=memory,
         fields=fields,
         navigator=Navigator(fields.quadtree),
+        arbiter=_MaxArbiter(),
     )
 
 
@@ -304,7 +315,7 @@ def test_treat_infestation_bids_to_follow_its_seeders_field() -> None:
 
     candidates = behavior.propose(_context(sensed=[], seeders=[_FixedTargetSeeder()]))
 
-    assert [(c.action, c.target) for c in candidates] == [(FollowField("fixed-target"), (5, 5))]
+    assert [(c.action, c.target) for c in candidates] == [(FollowField("fixed-target"), None)]
 
 
 def test_a_winning_follow_field_becomes_a_step_along_the_field() -> None:
@@ -314,3 +325,83 @@ def test_a_winning_follow_field_becomes_a_step_along_the_field() -> None:
 
     assert decision.action == Move((1, 1))
     assert agent.inspect().current_goal == TreatInfestation.name
+
+
+def test_agent_broadcasts_its_memory_and_peer_learns_it() -> None:
+    sender = _agent([])
+    receiver_memory = AgentMemory(2, _FIELD)
+    receiver_fields = FieldProvider(receiver_memory, flies=False, seeders=[])
+    receiver = ComposedAgent(
+        robot_id=2,
+        behaviors=[],
+        memory=receiver_memory,
+        fields=receiver_fields,
+        navigator=Navigator(receiver_fields.quadtree),
+        arbiter=_MaxArbiter(),
+    )
+    fact = InfestationObservation(
+        cell=(6, 6),
+        confidence=1.0,
+        observed_at=0,
+        source=1,
+        severity=0.8,
+        pest=None,
+    )
+
+    first = sender.decide(
+        Perception(
+            time=0,
+            self_state=RobotSelfState(
+                robot_id=1,
+                position=(0, 0),
+                battery=1.0,
+                body=BodyType.SCOUT,
+                speed_mps=1.0,
+                consumable=1.0,
+                health=1.0,
+            ),
+            sensed=[fact],
+            inbox=[],
+        )
+    )
+
+    status, knowledge = first.outbox
+    assert status.kind is MessageKind.STATUS
+    assert knowledge.kind is MessageKind.KNOWLEDGE
+    assert knowledge.payload == (fact,)
+
+    receiver.decide(
+        Perception(
+            time=5_000,
+            self_state=RobotSelfState(
+                robot_id=2,
+                position=(0, 0),
+                battery=1.0,
+                body=BodyType.SCOUT,
+                speed_mps=1.0,
+                consumable=1.0,
+                health=1.0,
+            ),
+            sensed=[],
+            inbox=first.outbox,
+        )
+    )
+
+    assert receiver_memory.infestation_at((6, 6)) == fact
+
+
+def test_the_winners_field_is_followed_without_rebuilding_either_field() -> None:
+    """Two behaviours read their fields at every decision point; each field is built once."""
+    winner = _CountingSeeder("winner", (5, 5))
+    loser = _CountingSeeder("loser", (0, 9))
+    agent = _agent([_FieldFollower("winner", 2.0), _FieldFollower("loser", 1.0)], [winner, loser])
+    resensed = TerrainObservation(
+        cell=(1, 0), confidence=1.0, observed_at=0, source=1, terrain=Terrain.FREE
+    )
+
+    for _ in range(3):
+        decision = agent.decide(_perception(sensed=[resensed]))
+        assert decision.action == Move((1, 1))
+
+    assert winner.seeds_asked == 1
+    assert loser.seeds_asked == 1
