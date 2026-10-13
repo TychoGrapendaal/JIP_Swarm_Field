@@ -126,7 +126,7 @@ class Memory(Protocol):
 
 class FieldSeeder(Protocol):      # the targets of one potential field, registered by name
     name: str
-    def field_key(self, memory: "MemoryView", now: Time) -> Hashable: ...  # changes when the seeds do
+    def field_key(self, memory: "MemoryView", robot: CellId, now: Time) -> Hashable: ...  # changes when the seeds do
     def seeds(self, memory: "MemoryView", robot: CellId, now: Time) -> tuple[Seed, ...]: ...
 
 class FieldProvider:              # holds the seeders and the quadtree, caches one field per seeder

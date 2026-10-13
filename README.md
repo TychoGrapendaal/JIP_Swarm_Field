@@ -13,8 +13,8 @@ See [`docs/high-level-world-model.md`](docs/high-level-world-model.md) for the c
 - Each robot has its own movement speed in metres per second.
 - Movement time is calculated from the distance between cells, cell size, and robot speed.
 - Infestation is represented as a per-cell severity value, providing a coarse-grained basis for later dynamic pest-spread models.
-- Robots receive local obstacle and infestation observations and can use this information to calculate potential-field attraction and repulsion.
-- A robot does not currently know about obstacles or infestations outside its local observation range.
+- A robot senses only the cell it stands on: its crop, infestation and terrain, and the peers sharing it. A cell is a patch of field (about 10 × 10 m) that the robot monitors as a whole.
+- A robot does not know about obstacles or infestations elsewhere unless it starts with a map or learns them from peers.
 - The B.3 range-based communication channel is implemented; higher-level belief sharing is still the algorithm’s responsibility, so distant infestation information only propagates when agents choose to send messages.
 
 ## Requirements
@@ -47,6 +47,12 @@ Time the quadtree potential field against a plain Dijkstra over every cell, and 
 
 ```bash
 uv run python -m tests.benchmark_field --sizes 100 250 500
+```
+
+Compare variants and parameters of the EXPLORE seeder: five robots exploring a 32 × 32 field for three simulated hours, four seeds per variant, spread over processes (takes about ten minutes on 20 cores; not part of `pytest`). The results are in [`docs/explore.md`](docs/explore.md):
+
+```bash
+uv run python -m tests.benchmark_explore --size 32 --hours 3 --seeds 4 --jobs 20
 ```
 
 ## Demonstrations
@@ -89,6 +95,20 @@ For an even larger test:
 uv run --with matplotlib python examples/mass_swarm_visualization.py --robots 1000 --seed 7
 ```
 
+### Exploration demonstration (#41)
+
+```bash
+uv run python examples/explore_demo.py
+```
+
+Five scouts explore and keep monitoring a field with the EXPLORE seeder, drawn by the general-purpose `SimulationViewer`. The overlay shades how stale each cell is in ground truth, trails show where the robots went, dashed lines the target each robot is heading for, and a panel the coverage measures (coverage, idleness, redundancy). `--no-discount` turns off the peer discount, `--block-side 16` uses 16 × 16 blocks, and `--obstacles` adds a river with one bridge. Record a video instead of opening a window:
+
+```bash
+uv run python examples/explore_demo.py --obstacles --save explore.mp4
+```
+
+`SimulationViewer` (in `swarm_field.visualization`) works for any run: give it a function from a time to a `WorldSnapshot` (e.g. `ExploreRun.snapshot_at`), and optionally a per-cell overlay, the robots' goals and the lines of the panel.
+
 ### Wall-following steering demonstration
 
 ```bash
@@ -129,12 +149,11 @@ uv run --with matplotlib python examples/renderer_demo.py --frames 60 --save fra
 
 ## Current demonstration limitations
 
-- The exploration behavior is currently a simple baseline and is not yet a dedicated coverage/exploration algorithm.
-- Goal-directed navigation uses a potential field over the robot's believed terrain, with a reactive wall-follow as its fallback. Exploration is being rebuilt on the same fields (#41).
+- Goal-directed navigation and exploration use potential fields over the robot's believed terrain, with a reactive wall-follow as their fallback. Exploration (`ExploreSeeder`, see [`docs/explore.md`](docs/explore.md)) has no behaviour of its own yet; the demo and the benchmark follow its field with a stand-in.
 - Navigation is planned over what the robot believes, so a wrong obstacle belief is followed exactly; there is no observation-based recovery from it yet.
 - The communication channel is implemented, but the current utility behaviour does not yet use peer messages to follow a pest found by another robot.
 - Coarse-grained infestation dynamics are implemented as a scheduled `WorldTick`; the current model supports severity growth, neighbour spread, and stochastic spawning.
-- Sensing is currently local; distant obstacles and infestations are unknown unless information is later propagated through communication.
+- Sensing covers the robot's own cell only; obstacles elsewhere are unknown unless the robot starts with the terrain map, and infestations elsewhere unless peers share them.
 - The visualization adapter only renders snapshots so far; interactive inspection, time control, and injecting infestations are not implemented yet.
 
 ## Project layout

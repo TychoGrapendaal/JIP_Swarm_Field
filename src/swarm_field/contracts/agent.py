@@ -77,11 +77,19 @@ class RobotPublicState:
 
 @dataclass
 class AgentInspection:
-    """Read-only algorithm state for the visualization layer."""
+    """Read-only algorithm state for the visualization layer.
+
+    Attributes:
+        robot_id: The robot inspected.
+        current_goal: The name of the behaviour that won the last decision, if any.
+        belief: The robot's beliefs, in a shape the algorithm chooses.
+        current_target: The cell the last winning candidate committed the robot to, if any.
+    """
 
     robot_id: RobotId
     current_goal: str | None
     belief: object
+    current_target: CellId | None = None
 
 
 class SwarmAgent(Protocol):

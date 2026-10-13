@@ -135,11 +135,12 @@ def test_treat_changes_field_patch_and_consumable() -> None:
     assert world.robots[1].consumable == 0.8
 
 
-def test_observe_for_reports_multiple_visible_peers() -> None:
+def test_observe_for_reports_only_the_robots_own_cell() -> None:
     robots = [
         _robot(1, position=(1, 1)),
-        _robot(2, position=(2, 1)),
-        _robot(3, position=(2, 1)),
+        _robot(2, position=(1, 1)),
+        _robot(3, position=(1, 1)),
+        _robot(4, position=(2, 1)),
     ]
     world = WorldState(_field(), robots=robots)
 
@@ -148,6 +149,7 @@ def test_observe_for_reports_multiple_visible_peers() -> None:
         observation for observation in observations if isinstance(observation, PeerObservation)
     ]
 
+    assert {observation.cell for observation in observations} == {(1, 1)}
     assert {peer.peer for peer in peers} == {2, 3}
 
 

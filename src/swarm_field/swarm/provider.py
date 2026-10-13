@@ -76,7 +76,7 @@ class FieldProvider:
         microseconds.
         """
         found = self._seeders[seeder]
-        key = found.field_key(self._memory, now)
+        key = found.field_key(self._memory, robot, now)
         version = self.quadtree.version
         block = self._block_of(robot)
         cached = self._slots.get(seeder)
@@ -86,7 +86,8 @@ class FieldProvider:
         seeds = found.seeds(self._memory, robot, now)
         field: SeededField | None = None
         if seeds:
-            field = SeededField(seeds, build_grid_potential_field(seeds, self.quadtree, robot))
+            built = build_grid_potential_field(seeds, self.quadtree, robot, found.window_blocks)
+            field = SeededField(seeds, built)
         self._slots[seeder] = _CachedField(key=key, version=version, block=block, field=field)
         return field
 

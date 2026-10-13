@@ -65,15 +65,18 @@ class TerrainObservation(ObservationBase):
 
 @dataclass(frozen=True)
 class PeerObservation(ObservationBase):
-    """A sighting of another robot at ``cell``.
+    """A sighting of another robot at ``cell``, or a robot's report of itself.
 
     Attributes:
         peer: The peer's identity if resolvable, else ``None`` for an anonymous sighting.
         body: The peer's body type.
+        target: The cell the peer is heading for, if it reported one. Only a robot's report
+            of itself carries it; a sighting cannot tell.
     """
 
     peer: RobotId | None
     body: BodyType
+    target: CellId | None = None
 
 
 Observation = CropObservation | InfestationObservation | TerrainObservation | PeerObservation
