@@ -3,11 +3,10 @@
 ``ComposedAgent`` is the thin orchestrator that implements the ``SwarmAgent`` boundary. At each
 decision point it merges what the robot sensed and received into its memory, keeps the field
 provider's quadtree in sync with new terrain facts, gathers the scored candidates of its
-behaviors, lets its arbiter pick one (or takes the highest score without one) and turns its
-intent into one action: the navigator steps along the field a ``FollowField`` names, and any
-other intent passes through. The robot broadcasts its memory in a ``KNOWLEDGE`` message and
-merges the facts of the ``KNOWLEDGE`` messages it receives. Capability gating is added as that
-part is built.
+behaviors, lets its arbiter pick one and turns its intent into one action: the navigator steps
+along the field a ``FollowField`` names, and any other intent passes through. The robot
+broadcasts its memory in a ``KNOWLEDGE`` message and merges the facts of the ``KNOWLEDGE``
+messages it receives. Capability gating is added as that part is built.
 """
 
 import logging
@@ -51,9 +50,8 @@ class ComposedAgent:
         fields: The robot's quadtree, and the grid potential fields of its seeders, shared by
             the behaviors (to score) and the navigator (to move).
         navigator: Moves the robot along the winning candidate's field.
-        arbiter: Picks the candidate the robot acts on and holds the robot to its choice.
-            Without one, the brain takes the highest-scoring candidate outright, with no
-            overrides or hysteresis.
+        arbiter: Picks the candidate the robot acts on and holds the robot to its choice. Every
+            robot needs its own, since an arbiter remembers its robot's commitment.
     """
 
     def __init__(
@@ -63,14 +61,14 @@ class ComposedAgent:
         memory: AgentMemory,
         fields: FieldProvider,
         navigator: Navigator,
-        arbiter: Arbiter | None = None,
+        arbiter: Arbiter,
     ) -> None:
         self.robot_id: RobotId = robot_id
         self.behaviors: list[Behavior] = behaviors
         self.memory: AgentMemory = memory
         self.fields: FieldProvider = fields
         self.navigator: Navigator = navigator
-        self.arbiter: Arbiter | None = arbiter
+        self.arbiter: Arbiter = arbiter
         self._current_goal: str | None = None
 
     def decide(self, perception: Perception) -> Decision:
@@ -96,12 +94,13 @@ class ComposedAgent:
         for behavior in self.behaviors:
             candidates.extend(behavior.propose(ctx))
 
-        best = self._select(candidates, perception.time)
+        choice = self.arbiter.choose(candidates, perception.time)
         outbox = self._messages_to_send(perception.time)
-        if best is None:
+        if choice is None:
             self._current_goal = None
             return Decision(action=Idle(), outbox=outbox)
 
+        best = choice.candidate
         self._current_goal = best.source
         action = self._action_for(best.action, perception.self_state.position, perception.time)
         return Decision(action=action, outbox=outbox)
@@ -112,17 +111,6 @@ class ComposedAgent:
             current_goal=self._current_goal,
             belief=self.memory.snapshot(),
         )
-
-    def _select(self, candidates: list[ActionCandidate], now: Time) -> ActionCandidate | None:
-        """The candidate to act on: the arbiter's choice, or the highest score without one."""
-        if self.arbiter is None:
-            if not candidates:
-                return None
-            return max(candidates, key=lambda candidate: candidate.score)
-        choice = self.arbiter.choose(candidates, now)
-        if choice is None:
-            return None
-        return choice.candidate
 
     def _action_for(self, intent: Intent, robot: CellId, now: Time) -> Action:
         """The action that carries out the winning candidate's intent."""
