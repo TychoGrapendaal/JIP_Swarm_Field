@@ -74,6 +74,7 @@ class DecisionContext:
         sensed: What the robot sensed at this decision point (already merged into memory).
         memory: The robot's facts about the field and its peers.
         inbox: The messages received at this decision point.
+        current_target: The target committed to by the preceding decision, if any.
     """
 
     time: Time
@@ -81,6 +82,7 @@ class DecisionContext:
     sensed: list[Observation]
     memory: MemoryView
     inbox: list[Message] = field(default_factory=list)
+    current_target: CellId | None = None
 
 
 class Behavior(Protocol):
@@ -161,11 +163,11 @@ class ExploreBehaviour:
         self._previous_time = ctx.time
         score = sum(w * s for w, s in zip(weights, criteria_scores, strict=True))
         action = FollowField(self._seeder)
-        # TODO (#41): standing on a target: propose Idle().
-        # if previous_target is None or previous_target == position:
-        #     action = Idle()
-        _ = position  # TODO (#41): standing on a target: propose Idle().
-        candidate = ActionCandidate(action=action, score=score, source=self.name, target=None)
+        target = None
+        if ctx.current_target == position:
+            action = Idle()
+            target = position
+        candidate = ActionCandidate(action=action, score=score, source=self.name, target=target)
         return (candidate,)
 
     def _body_type_criteria(self, inbox: list[Message]) -> float:
