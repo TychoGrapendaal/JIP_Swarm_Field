@@ -123,10 +123,10 @@ def test_explore_score_criterion_uses_target_worth() -> None:
     memory._monitorable[1, 1] = True
 
     expected = revisit_worths(
-        np.asarray([[memory.last_observed_times()[1, 1]]], dtype=np.float64),
-        np.asarray([[memory.monitorable_cells()[1, 1]]], dtype=np.bool_),
+        np.asarray([[memory.last_observed_times()]], dtype=np.float64),
+        np.asarray([[memory.monitorable_cells()]], dtype=np.bool_),
         80,
         ExploreConfig.revisit_age,
     )[0, 0]
 
-    assert behavior._explore_score_criteria(memory, 80, (1, 1)) == pytest.approx(expected)
+    assert behavior._explore_score_criteria(memory, 80) == pytest.approx(expected)

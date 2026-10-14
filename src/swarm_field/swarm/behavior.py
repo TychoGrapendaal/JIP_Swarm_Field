@@ -155,14 +155,10 @@ class ExploreBehaviour:
         position = ctx.self_state.position
         inbox = ctx.inbox
         memory = ctx.memory
-        seeded_field = ctx.fields.field_for(self._seeder, position, ctx.time)
-        target = None
-        if seeded_field is not None:
-            target = seeded_field.field.target_for(position)
 
         criteria_scores = [
             self._body_type_criteria(inbox),
-            self._explore_score_criteria(memory, ctx.time, target),
+            self._explore_score_criteria(memory, ctx.time),
             self._unexplore_criteria(memory),
         ]
         previous_time = self._previous_time
@@ -173,9 +169,11 @@ class ExploreBehaviour:
         self._previous_time = ctx.time
         score = sum(w * s for w, s in zip(weights, criteria_scores, strict=True))
         action = FollowField(self._seeder)
-        if seeded_field is None or target is None or target == position:
-            action = Idle()
-        candidate = ActionCandidate(action=action, score=score, source=self.name, target=target)
+        # TODO (#41): standing on a target: propose Idle().
+        # if previous_target is None or previous_target == position:
+        #     action = Idle()
+        _ = position  # TODO (#41): standing on a target: propose Idle().
+        candidate = ActionCandidate(action=action, score=score, source=self.name, target=None)
         return (candidate,)
 
     def _body_type_criteria(self, inbox: list[Message]) -> float:
@@ -194,17 +192,14 @@ class ExploreBehaviour:
         self,
         memory: MemoryView,
         time: Time,
-        target: CellId | None,
     ) -> float:
         """Return the revisit worth of the chosen exploration target."""
-        if target is None:
-            return 1.0
-
         revisit_age = ExploreConfig.revisit_age
-        last_seen = np.asarray([memory.last_observed_times()[target]], dtype=np.float64)
-        monitorable = np.asarray([memory.monitorable_cells()[target]], dtype=np.bool_)
-        worth = revisit_worths(last_seen, monitorable, time, revisit_age)[0]
-        return float(worth)
+        last_seen = np.asarray([memory.last_observed_times()], dtype=np.float64)
+        monitorable = np.asarray([memory.monitorable_cells()], dtype=np.bool_)
+        worths = revisit_worths(last_seen, monitorable, time, revisit_age)
+        avg_worth = np.mean(worths)
+        return avg_worth
 
     def _unexplore_criteria(self, memory: MemoryView) -> float:
         """Return the 1 - (fraction of unexplored cells in the provided exploration field)."""
