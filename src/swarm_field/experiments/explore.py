@@ -115,9 +115,9 @@ class ExploreScenario:
 
 
 class FollowSeederField:
-    """Follow one seeder's field, bidding the negated potential at the robot's cell.
+    """Always bid a fixed score to follow one seeder's field.
 
-    It has nothing to bid without a field, or when the robot stands on its target.
+    As the only behaviour of a robot it always wins, so its score does not matter.
     """
 
     name: str = "follow-field"
@@ -126,15 +126,7 @@ class FollowSeederField:
         self._seeder: str = seeder
 
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
-        position = ctx.self_state.position
-        seeded = ctx.fields.field_for(self._seeder, position, ctx.time)
-        if seeded is None:
-            return ()
-        target = seeded.field.target_for(position)
-        if target is None or target == position:
-            return ()
-        score = -seeded.field.value_at(position)
-        return (ActionCandidate(FollowField(self._seeder), score, self.name, target),)
+        return (ActionCandidate(FollowField(self._seeder), 0.5, self.name, target=None),)
 
 
 class RandomWaypointSeeder:

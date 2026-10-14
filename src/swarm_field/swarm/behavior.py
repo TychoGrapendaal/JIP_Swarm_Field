@@ -19,7 +19,6 @@ from swarm_field.contracts import (
 )
 from swarm_field.swarm.explore import ExploreConfig, ExploreSeeder, revisit_worths
 from swarm_field.swarm.memory import MemoryView
-from swarm_field.swarm.provider import FieldProvider
 from swarm_field.swarm.seeder import TreatSeeder
 
 
@@ -53,9 +52,10 @@ class ActionCandidate:
         score: How much the behaviour wants it; the highest score wins. The scale shared by all
             behaviours is settled together with the arbiter (#39).
         source: The name of the proposing behaviour.
-        target: The cell this candidate commits the robot to, such as the field's target at the
-            robot's cell, or ``None``. The arbiter uses it to tell a new target from the one
-            the robot is already heading for.
+        target: The cell this candidate commits the robot to, if the behaviour knows it from
+            memory (such as a known pest's cell), or ``None``. The arbiter uses it to tell a new
+            target from the one the robot is already heading for. For a winning ``FollowField``
+            the brain reports the field's target instead.
     """
 
     action: Intent
@@ -73,8 +73,6 @@ class DecisionContext:
         self_state: The robot's perception of itself.
         sensed: What the robot sensed at this decision point (already merged into memory).
         memory: The robot's facts about the field and its peers.
-        fields: Hands out the grid potential fields of the registered seeders by name, through
-            ``field_for``. Behaviours read fields; they never move the robot themselves.
         inbox: The messages received at this decision point.
     """
 
@@ -82,7 +80,6 @@ class DecisionContext:
     self_state: RobotSelfState
     sensed: list[Observation]
     memory: MemoryView
-    fields: FieldProvider
     inbox: list[Message] = field(default_factory=list)
 
 
@@ -91,13 +88,15 @@ class Behavior(Protocol):
 
     At each decision point a behaviour reads the context and returns its candidates, or an
     empty tuple when it has nothing to propose. It decides whether it wants the robot, how much
-    (``score``), and what to do if it wins (``action``). It may read the fields of seeders
-    through ``ctx.fields``, e.g. to score from the potential at the robot's cell.
+    (``score``), and what to do if it wins (``action``), from the robot's own state and its
+    memory alone. It never reads a potential field: building one is expensive, so only the
+    winner's field is built.
 
     A behaviour never moves the robot itself. To move, it proposes ``FollowField`` with a
-    seeder's name, and the navigator steps along that field only if the candidate wins. A
-    behaviour standing on its target (``field.target_for(position) == position``) proposes its
-    on-the-spot action instead, such as ``Treat`` or ``Charge``.
+    seeder's name; only if the candidate wins does the brain build that field, which picks the
+    target, and the navigator step along it. A behaviour whose memory says the robot stands on
+    its target, such as a known pest at the robot's cell, proposes its on-the-spot action
+    instead, such as ``Treat`` or ``Charge``.
     """
 
     name: str
@@ -114,19 +113,12 @@ class TreatInfestation:
         self._seeder: str = seeder
 
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
-        position = ctx.self_state.position
-        seeded = ctx.fields.field_for(self._seeder, position, ctx.time)
-        if seeded is None:
-            return ()
-        target = seeded.field.target_for(position)
-        if target == position:
-            # TODO (#40): standing on a pest: propose Treat(cell=position).
-            return ()
-        # TODO (#39): a score on the scale shared by all behaviours. Lower potential is better,
-        # so negate it for now.
-        score = -seeded.field.value_at(position)
+        # TODO (#40): bid only while memory knows a pest, and propose Treat(cell=position) when
+        # one is known at the robot's cell.
+        # TODO (#39): a score from the robot's state and memory, on the scale shared by all
+        # behaviours.
         candidate = ActionCandidate(
-            action=FollowField(self._seeder), score=score, source=self.name, target=target
+            action=FollowField(self._seeder), score=0.5, source=self.name, target=None
         )
         return (candidate,)
 
