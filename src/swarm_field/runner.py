@@ -66,7 +66,6 @@ from swarm_field.swarm import (
     FieldSeeder,
     FollowSeederField,
     Navigator,
-    RandomWaypointSeeder,
     TreatInfestation,
     TreatSeeder,
     UtilityArbiter,
@@ -142,18 +141,6 @@ def _build_explore_seeder(params: dict[str, Any], rng: Random) -> ExploreSeeder:
     return ExploreSeeder(config)
 
 
-@BEHAVIORS.register("random-waypoint")
-def _build_random_waypoint(params: dict[str, Any], rng: Random) -> FollowSeederField:
-    """Build the random-waypoint baseline's behaviour: follow that seeder's field."""
-    return FollowSeederField(RandomWaypointSeeder.name)
-
-
-@SEEDERS.register("random-waypoint")
-def _build_random_waypoint_seeder(params: dict[str, Any], rng: Random) -> RandomWaypointSeeder:
-    """Build the random-waypoint seeder with its own random source, drawn now from ``rng``."""
-    return RandomWaypointSeeder(Random(rng.getrandbits(64)))
-
-
 @dataclass(frozen=True)
 class BrainSpec:
     """How to assemble one robot's brain, by name.
@@ -194,8 +181,7 @@ class ExperimentConfig:
         brains_by_body: A different brain for the robots of some body types; the others get
             ``brain``.
         robots_know_terrain: Whether every robot starts with the field's terrain map in its
-            memory. A robot senses only the cell it stands on, so a ground robot never observes
-            an obstacle it cannot enter.
+            memory. Otherwise it learns an obstacle only once it stands next to it.
         stagger_decisions: Whether each robot decides first at a random time within one
             ``decision_interval``, drawn from the seed, instead of all robots at time zero. Runs
             with different seeds then interleave the robots' decisions differently, also when

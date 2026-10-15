@@ -249,10 +249,11 @@ class WorldState:
         )
 
     def observe_for(self, robot_id: RobotId, time: Time) -> list[Observation]:
-        """Generate the observations of the one cell the robot stands on.
+        """Generate what the robot senses: its own cell, and the terrain around it.
 
-        A cell is a patch of field the robot monitors as a whole, so every fact kind (crop,
-        infestation, terrain, peers sharing the cell) comes from the robot's own cell only.
+        A cell is a patch of field the robot monitors as a whole, so its crop, its infestation
+        and the peers sharing it come from the robot's own cell only. Obstacles are large, such
+        as a river, so the robot also sees the terrain of its neighbouring cells.
         """
         robot = self._robot(robot_id)
         observations: list[Observation] = []
@@ -279,18 +280,19 @@ class WorldState:
                 pest=None,
             )
         )
-        terrain = Terrain.FREE
-        if state.obstacle:
-            terrain = Terrain.OBSTACLE
-        observations.append(
-            TerrainObservation(
-                cell=cell,
-                confidence=1.0,
-                observed_at=time,
-                source=robot_id,
-                terrain=terrain,
+        for seen in [cell, *self.neighbours(cell)]:
+            terrain = Terrain.FREE
+            if self.cells[seen].obstacle:
+                terrain = Terrain.OBSTACLE
+            observations.append(
+                TerrainObservation(
+                    cell=seen,
+                    confidence=1.0,
+                    observed_at=time,
+                    source=robot_id,
+                    terrain=terrain,
+                )
             )
-        )
 
         for peer in self.robots_at(cell):
             if peer != robot_id:

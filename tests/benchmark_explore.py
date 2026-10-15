@@ -29,6 +29,7 @@ from swarm_field.contracts import CellId, MetricsSample, Time, TimeUnit
 from swarm_field.experiments import ExploreScenario, river_and_rocks
 from swarm_field.runner import run_experiment
 from swarm_field.swarm import ExploreConfig
+from tests.baselines import RANDOM_WAYPOINT_BRAIN
 
 _REFERENCE = ExploreConfig()
 """The variant the others are compared with: the defaults, 8 x 8 blocks with the discount."""
@@ -117,19 +118,25 @@ def run(job: Job) -> Result:
     if variant.obstacles:
         obstacles = river_and_rocks(job.size)
     end: Time = int(job.hours * TimeUnit.HOUR)
+    explore = _REFERENCE
+    if variant.explore is not None:
+        explore = variant.explore
     scenario = ExploreScenario(
         width=job.size,
         height=job.size,
         robots=job.robots,
         obstacles=obstacles,
         radio_range_m=variant.radio_range_m,
-        explore=variant.explore,
+        explore=explore,
         measure_from=end // 2,
         until=end,
         seed=job.seed,
     )
+    experiment = scenario.into_experiment(variant.name)
+    if variant.explore is None:
+        experiment = replace(experiment, brain=RANDOM_WAYPOINT_BRAIN)
     started = time.perf_counter()
-    summary = run_experiment(scenario.into_experiment(variant.name))
+    summary = run_experiment(experiment)
     return Result(summary.series, time.perf_counter() - started)
 
 

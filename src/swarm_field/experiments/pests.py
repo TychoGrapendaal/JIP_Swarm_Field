@@ -10,9 +10,8 @@ weighs exploring against treating. Without it a killer waits until it hears of a
 ``WorldTick`` spawns pests on random free cells at ``pests_per_hour``, and grows and spreads
 them as ``PestDynamicsSpec`` says. Robots share their memory and status only through the
 channel, within ``radio_range_m``, so a killer learns of a pest when a robot that knows of it
-comes in range. Robots start with the field's terrain map, since they only sense the cell they
-stand on and would never see an obstacle they cannot enter. ``MetricsCollector`` measures the
-run.
+comes in range. Robots start with the field's terrain map, so they plan around obstacles they
+have not seen yet. ``MetricsCollector`` measures the run.
 """
 
 from __future__ import annotations

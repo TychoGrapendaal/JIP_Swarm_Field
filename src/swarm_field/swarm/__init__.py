@@ -32,7 +32,6 @@ from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.provider import FieldProvider
 from swarm_field.swarm.seeder import (
     FieldSeeder,
-    RandomWaypointSeeder,
     SeededField,
     TreatSeeder,
 )
@@ -64,7 +63,6 @@ __all__ = [
     "MemoryView",
     "Navigator",
     "QuadtreeSensing",
-    "RandomWaypointSeeder",
     "SeededField",
     "Sensing",
     "Steerer",

@@ -2,10 +2,10 @@
 
 ``ExploreScenario.into_experiment`` describes the run as an ``ExperimentConfig`` for
 ``swarm_field.runner``, which assembles and runs it. Every robot is a scout with one behaviour,
-the mock explore behaviour on the EXPLORE field (``ExploreSeeder``), or the random-waypoint
-baseline (``RandomWaypointSeeder``). There are no pests. Robots start with the field's terrain
-map, since they only sense the cell they stand on, and share what they know over the channel
-within ``radio_range_m``. The idleness and redundancy of ``MetricsCollector`` measure the swarm.
+the mock explore behaviour on the EXPLORE field (``ExploreSeeder``). There are no pests. Robots
+start with the field's terrain map, so they plan around obstacles they have not seen yet, and
+share what they know over the channel within ``radio_range_m``. The idleness and redundancy of
+``MetricsCollector`` measure the swarm.
 """
 
 from __future__ import annotations
@@ -41,8 +41,7 @@ class ExploreScenario:
         speed_mps: The robots' speed; a straight move takes ``cell_size / speed_mps`` seconds.
         decision_interval: The time between two decisions of a robot.
         radio_range_m: How far a robot's broadcasts reach.
-        explore: The parameters of the EXPLORE field, or ``None`` for the random-waypoint
-            baseline.
+        explore: The parameters of the EXPLORE field.
         sample_period: The time between two metrics samples.
         fresh_age: A visit to a cell sensed less than this before is redundant.
         measure_from: Idleness is averaged from this time on.
@@ -59,7 +58,7 @@ class ExploreScenario:
     speed_mps: float = 1.0
     decision_interval: Time = 2_500
     radio_range_m: float = float("inf")
-    explore: ExploreConfig | None = field(default_factory=ExploreConfig)
+    explore: ExploreConfig = field(default_factory=ExploreConfig)
     sample_period: Time = TimeUnit.MINUTE
     fresh_age: Time = 30 * TimeUnit.MINUTE
     measure_from: Time = 0
@@ -107,11 +106,9 @@ class ExploreScenario:
                 spawn_probability=0.0, growth_rate=0.0, spread_probability=0.0
             ),
         )
-        brain = BrainSpec(behaviors=("random-waypoint",), seeders=("random-waypoint",), params={})
-        if self.explore is not None:
-            brain = BrainSpec(
-                behaviors=("explore",), seeders=("explore",), params={"explore": self.explore}
-            )
+        brain = BrainSpec(
+            behaviors=("explore",), seeders=("explore",), params={"explore": self.explore}
+        )
         return ExperimentConfig(
             label=label,
             scenario=scenario,

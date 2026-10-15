@@ -15,8 +15,6 @@ from swarm_field.contracts import (
     InfestationObservation,
     MetricsSample,
     Move,
-    Terrain,
-    TerrainObservation,
     Time,
 )
 from swarm_field.simulation import (
@@ -71,12 +69,6 @@ def _context(world: WorldState, collector: MetricsCollector) -> SimulationContex
     return SimulationContext(now=0, rng=Random(0), agents={}, world=world, metrics=collector)
 
 
-def _terrain(cell: tuple[int, int], now: Time = 0) -> TerrainObservation:
-    return TerrainObservation(
-        cell=cell, confidence=1.0, observed_at=now, source=1, terrain=Terrain.FREE
-    )
-
-
 def _infestation(cell: tuple[int, int], severity: float, now: Time = 0) -> InfestationObservation:
     return InfestationObservation(
         cell=cell, confidence=1.0, observed_at=now, source=1, severity=severity, pest=None
@@ -99,7 +91,7 @@ def test_sample_counts_targets_and_reads_coverage_from_truth() -> None:
     collector = _collector(world)
     world.cell((0, 0)).infestation = 0.4
     world.cell((1, 1)).infestation = 0.2
-    collector.observe([_terrain((0, 0)), _terrain((1, 1))], now=0)
+    collector.observe([_infestation((0, 0), 0.4), _infestation((1, 1), 0.2)], now=0)
 
     taken = collector.sample(world, now=0, messages_sent=3)
 
@@ -114,13 +106,13 @@ def test_coverage_is_monotone_and_capped_by_the_cropped_cells() -> None:
     world = _cropped_world()
     collector = _collector(world)
 
-    collector.observe([_terrain((0, 0))], now=0)
+    collector.observe([_infestation((0, 0), 0.0)], now=0)
     first = collector.sample(world, now=0, messages_sent=0)
-    collector.observe([_terrain((0, 0)), _terrain((0, 1))], now=10)
+    collector.observe([_infestation((0, 0), 0.0), _infestation((0, 1), 0.0)], now=10)
     second = collector.sample(world, now=10, messages_sent=0)
 
     assert second.coverage > first.coverage
-    collector.observe([_terrain(cell) for cell in world.cells], now=20)
+    collector.observe([_infestation(cell, 0.0) for cell in world.cells], now=20)
     assert collector.sample(world, now=20, messages_sent=0).coverage == 1.0
 
 
@@ -128,9 +120,9 @@ def test_a_return_visit_is_redundant_and_unsensed_cells_age_with_the_run() -> No
     world = _cropped_world()
     collector = _collector(world)
 
-    collector.observe([_terrain((0, 0), 0)], now=0)
-    collector.observe([_terrain((1, 0), 10)], now=10)
-    collector.observe([_terrain((0, 0), 20)], now=20)
+    collector.observe([_infestation((0, 0), 0.0, 0)], now=0)
+    collector.observe([_infestation((1, 0), 0.0, 10)], now=10)
+    collector.observe([_infestation((0, 0), 0.0, 20)], now=20)
     taken = collector.sample(world, now=100, messages_sent=0)
 
     assert taken.redundancy == pytest.approx(1 / 3)
@@ -169,7 +161,7 @@ def test_bare_soil_is_never_counted_as_covered() -> None:
     world.cell((3, 3)).crop = None
     collector = _collector(world)
 
-    collector.observe([_terrain((3, 3))], now=0)
+    collector.observe([_infestation((3, 3), 0.0)], now=0)
     taken = collector.sample(world, now=0, messages_sent=0)
 
     assert taken.coverage == 0.0

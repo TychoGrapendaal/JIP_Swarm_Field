@@ -13,7 +13,7 @@ See [`docs/high-level-world-model.md`](docs/high-level-world-model.md) for the c
 - Each robot has its own movement speed in metres per second.
 - Movement time is calculated from the distance between cells, cell size, and robot speed.
 - Infestation is represented as a per-cell severity value, providing a coarse-grained basis for later dynamic pest-spread models.
-- A robot senses only the cell it stands on: its crop, infestation and terrain, and the peers sharing it. A cell is a patch of field (about 10 × 10 m) that the robot monitors as a whole.
+- A robot senses the crop, the infestation and the peers of the cell it stands on, and the terrain of that cell and its neighbours. A cell is a patch of field (about 10 × 10 m) that the robot monitors as a whole, while obstacles such as a river are large enough to see from the next cell.
 - A robot does not know about obstacles or infestations elsewhere unless it starts with a map or learns them from peers.
 - Runs are reproducible: one seeded random source drives the world, a second drives fault injection, and `runner.py` builds every run from a `BrainSpec` so algorithms can be compared as configuration.
 - The B.3 range-based communication channel is implemented; higher-level belief sharing is still the algorithm’s responsibility, so distant infestation information only propagates when agents choose to send messages.
@@ -289,7 +289,7 @@ uv run python examples/robustness_demo.py --out runs/robustness
 - Goal-directed navigation and exploration use potential fields over the robot's believed terrain, with a reactive wall-follow as their fallback. Exploration (`ExploreSeeder`, see [`docs/explore.md`](docs/explore.md)) has no behaviour of its own yet; the demo and the benchmark follow its field with a stand-in.
 - Navigation is planned over what the robot believes, so a wrong obstacle belief is followed exactly; there is no observation-based recovery from it yet.
 - Coarse-grained infestation dynamics are implemented as a scheduled `WorldTick`; the current model supports severity growth, neighbour spread, and stochastic spawning.
-- Sensing covers the robot's own cell only; obstacles elsewhere are unknown unless the robot starts with the terrain map, and infestations elsewhere unless peers share them.
+- Sensing covers the robot's own cell, and the terrain of its neighbours; obstacles further away are unknown unless the robot starts with the terrain map, and infestations elsewhere unless peers share them.
 - Robot batteries are drained by a coarse cost model (per metre, per decision, per treat) and robot failure and position error can be injected for robustness runs, but there is no charging station, no consumable replenishment and no recovery from a failure.
 - The visualization adapter renders read-only snapshots; interactive time control, infestation injection, robot inspection, and recording and replaying a run live in `swarm_field.console`, with `examples/interactive_demo.py` and `examples/scenario_viewer.py` as its command lines (C.1).
 

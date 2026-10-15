@@ -26,6 +26,7 @@ from pathlib import Path
 
 from swarm_field.contracts import (
     CellId,
+    InfestationObservation,
     MetricsSample,
     Observation,
     RobotId,
@@ -107,12 +108,15 @@ class MetricsCollector:
     def observe(self, observations: Iterable[Observation], now: Time) -> None:
         """Record what a robot sensed at ``now``.
 
-        Sensing a cell for the first time settles both the coverage figure and, for a cell
-        that was already infested, its detection latency. Every sensing keeps the cell fresh for
-        the idleness, and a robot arriving in a cell is a visit, redundant if the cell was
-        sensed less than ``fresh_age`` before.
+        A cell counts as sensed when its infestation is: a robot also sees the terrain of the
+        cells around it, which tells nothing about their pests. Sensing a cell for the first time
+        settles both the coverage figure and, for a cell that was already infested, its detection
+        latency. Every sensing keeps the cell fresh for the idleness, and a robot arriving in a
+        cell is a visit, redundant if the cell was sensed less than ``fresh_age`` before.
         """
         for observation in observations:
+            if not isinstance(observation, InfestationObservation):
+                continue
             cell = observation.cell
             if cell in self._crop_cells:
                 self._record_visit(observation.source, cell, now)
