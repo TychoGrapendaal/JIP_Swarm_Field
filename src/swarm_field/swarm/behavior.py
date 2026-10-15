@@ -255,3 +255,20 @@ class ExploreBehaviour:
             for nw, ow in zip(normalized_weights, old_weights, strict=True)
         ]
         return weights
+class FollowSeederField:
+    """A mock behaviour: always bid 0.5 to follow one seeder's field, for the objective EXPLORE.
+
+    As the only behaviour of a robot it always wins. Next to other behaviours it is a mock
+    explore behaviour with an even bid on the arbiter's scale.
+    """
+
+    name: str = "follow-field"
+
+    def __init__(self, seeder: str) -> None:
+        self._seeder: str = seeder
+
+    def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
+        candidate = ActionCandidate(
+            FollowField(self._seeder), 0.5, self.name, target=None, objective=AgentObjective.EXPLORE
+        )
+        return (candidate,)

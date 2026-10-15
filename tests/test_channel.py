@@ -87,3 +87,21 @@ def test_take_inbox_empties_it() -> None:
     channel.take_inbox(2)
 
     assert channel.take_inbox(2) == []
+
+
+def test_received_counts_every_delivery_while_sent_counts_every_broadcast() -> None:
+    world = _world(
+        [
+            _robot(1, (0, 0), radio_range_m=2.0),
+            _robot(2, (1, 0), radio_range_m=2.0),
+            _robot(3, (2, 0), radio_range_m=0.0),
+            _robot(4, (9, 9), radio_range_m=2.0),
+        ]
+    )
+    channel = Channel()
+
+    channel.broadcast(world, 0, [_hello(1)])  # heard by 2 and 3
+    channel.broadcast(world, 0, [_hello(4)])  # heard by nobody
+
+    assert channel.sent == 2
+    assert channel.received == 2

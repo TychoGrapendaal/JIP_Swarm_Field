@@ -1,23 +1,17 @@
-"""Runnable experiments: the simulation (B) and the robot brain (A) assembled for one study.
+"""Experiments: scenarios built by hand, run by ``swarm_field.runner``.
 
-This is a composition root. It is the only package that imports both ``simulation`` and
-``swarm``; they still never import each other.
+Each scenario describes its field, robots, brains and metrics as an ``ExperimentConfig``; the
+runner assembles and runs it. ``LiveRun`` advances one such run step by step, for a viewer.
 """
 
-from swarm_field.experiments.explore import (
-    ExploreRun,
-    ExploreScenario,
-    FollowSeederField,
-    RandomWaypointSeeder,
-    build_explore_run,
-    river_and_rocks,
-)
+from swarm_field.experiments.explore import ExploreScenario, cropped_cells, river_and_rocks
+from swarm_field.experiments.pests import PestScenario
+from swarm_field.experiments.run import LiveRun
 
 __all__ = [
-    "ExploreRun",
     "ExploreScenario",
-    "FollowSeederField",
-    "RandomWaypointSeeder",
-    "build_explore_run",
+    "LiveRun",
+    "PestScenario",
+    "cropped_cells",
     "river_and_rocks",
 ]

@@ -1,5 +1,6 @@
 """Tests for the discrete-event simulation core and pest dynamics."""
 
+from collections.abc import Hashable
 from dataclasses import dataclass
 from random import Random
 from typing import override
@@ -10,11 +11,17 @@ from swarm_field.contracts import (
     Action,
     AgentInspection,
     BodyType,
+    CellId,
     Decision,
     FieldGeometry,
     Idle,
+    InfestationObservation,
+    InjectInfestation,
     Move,
+    Pause,
     Perception,
+    SetTimeScale,
+    StepOnce,
     Time,
 )
 from swarm_field.simulation import (
@@ -26,6 +33,16 @@ from swarm_field.simulation import (
     WorldState,
     WorldTick,
 )
+from swarm_field.swarm import (
+    AgentMemory,
+    ComposedAgent,
+    FieldProvider,
+    MemoryView,
+    Navigator,
+    TreatInfestation,
+    UtilityArbiter,
+)
+from swarm_field.swarm.field import Seed
 
 
 def _context() -> SimulationContext:
@@ -44,6 +61,22 @@ def _context() -> SimulationContext:
         agents={},
         world=WorldState(field),
     )
+
+
+class _FixedTargetSeeder:
+    """One fixed target, so a behaviour has a field to follow without any pest logic."""
+
+    name: str = "fixed-target"
+    window_blocks: int = 2
+
+    def __init__(self, target: CellId) -> None:
+        self._target: CellId = target
+
+    def field_key(self, memory: MemoryView, robot: CellId, now: Time) -> Hashable:
+        return None
+
+    def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
+        return (Seed(self._target, 0.0),)
 
 
 @dataclass
@@ -235,6 +268,75 @@ def test_robot_decision_perceives_acts_and_requeues_at_fixed_interval() -> None:
     assert isinstance(next_event, RobotDecision)
     assert next_event.time == 10_000
     assert next_event.robot == 1
+
+
+def test_loop_step_processes_next_event_timestamp() -> None:
+    log: list[Time] = []
+    ctx = _context()
+    ctx.schedule(_RecordingEvent(time=30, log=log))
+    ctx.schedule(_RecordingEvent(time=10, log=log))
+    ctx.schedule(_RecordingEvent(time=20, log=log))
+
+    SimulationLoop().step(ctx)
+
+    assert log == [10]
+    assert ctx.now == 10
+    assert len(ctx.queue) == 2
+
+
+def test_apply_command_injects_infestation() -> None:
+    ctx = _context()
+
+    ctx.apply_command(InjectInfestation(cell=(2, 2), severity=0.7))
+
+    assert ctx.world.cell((2, 2)).infestation == pytest.approx(0.7)
+    assert ctx.world.cell((1, 1)).infestation == 0.0
+
+
+def test_apply_command_ignores_time_pacing_commands() -> None:
+    ctx = _context()
+    for command in (Pause(), StepOnce(), SetTimeScale(2.0)):
+        ctx.apply_command(command)
+
+
+def test_robot_decision_drives_a_real_brain() -> None:
+    field = FieldGeometry(
+        width=5,
+        height=5,
+        cell_size=1.0,
+        row_sp=1.0,
+        in_row_sp=1.0,
+        headland=0.0,
+    )
+    robot = RobotState(robot_id=0, position=(2, 2), body=BodyType.SCOUT, speed_mps=2.0)
+    memory = AgentMemory(0, field)
+    # TreatInfestation bids only while memory knows a pest.
+    memory.merge([InfestationObservation((2, 3), 1.0, 0, 1, severity=0.5, pest=None)])
+    seeder = _FixedTargetSeeder((2, 3))
+    fields = FieldProvider(memory, flies=False, seeders=[seeder])
+    ctx = SimulationContext(
+        now=0,
+        rng=Random(0),
+        agents={
+            0: ComposedAgent(
+                robot_id=0,
+                behaviors=[TreatInfestation(seeder.name)],
+                memory=memory,
+                fields=fields,
+                navigator=Navigator(fields.quadtree),
+                arbiter=UtilityArbiter(),
+            )
+        },
+        world=WorldState(field, robots=[robot]),
+    )
+    ctx.schedule(RobotDecision(time=0, robot=0))
+
+    SimulationLoop().run(ctx, until=5_000)
+
+    assert ctx.world.positions()[0] != (2, 2)
+    next_event = ctx.queue.peek()
+    assert isinstance(next_event, RobotDecision)
+    assert next_event.robot == 0
 
 
 def test_robot_decision_delivers_outbox_to_next_perception() -> None:

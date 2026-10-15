@@ -19,3 +19,14 @@ class SimulationLoop:
             ctx.now = event.time
             event.handle(ctx)
         ctx.now = until
+
+    def step(self, ctx: SimulationContext) -> None:
+        """Process the next pending event timestamp (inclusive), then stop.
+
+        One "step" of the interactive time control: every event scheduled at the earliest
+        pending timestamp is handled. A no-op when the queue is empty.
+        """
+        event = ctx.queue.peek()
+        if event is None:
+            return
+        self.run(ctx, until=event.time)

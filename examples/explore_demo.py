@@ -1,14 +1,14 @@
 """A swarm exploring and monitoring a field with the EXPLORE seeder, drawn by ``SimulationViewer``.
 
 Five scouts start side by side in a corner of a field of 10 m cells. Each is a real
-``ComposedAgent`` following the EXPLORE field (``ExploreSeeder``) on the real simulation loop;
-see ``swarm_field.experiments`` for how the run is assembled.
+``ComposedAgent`` following the EXPLORE field (``ExploreSeeder``), assembled and run by
+``swarm_field.runner`` from an ``ExploreScenario``.
 
 The overlay shades what each cell is worth to the EXPLORE rule in ground truth, from the age
 since any robot last stood on it: dark is fresh (worth nothing until the revisit age), bright is
 stale. Trails show where the robots
-went, dashed lines the target each robot is heading for, and the panel the coverage measures of
-``CoverageTracker``.
+went, dashed lines the target each robot is heading for, and the panel the measures of
+``MetricsCollector``.
 
 Run from the repository root with:
     uv run python examples/explore_demo.py
@@ -28,14 +28,9 @@ from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
 
-from swarm_field.contracts import CellId, RobotId, Time, TimeUnit, WorldSnapshot
-from swarm_field.experiments import (
-    ExploreRun,
-    ExploreScenario,
-    build_explore_run,
-    river_and_rocks,
-)
-from swarm_field.swarm import ExploreConfig, ExploreSeeder, FieldSeeder
+from swarm_field.contracts import CellId, Time, TimeUnit, WorldSnapshot
+from swarm_field.experiments import ExploreScenario, LiveRun, river_and_rocks
+from swarm_field.swarm import ExploreConfig
 from swarm_field.swarm.explore import revisit_worths
 from swarm_field.visualization import SimulationViewer
 
@@ -65,18 +60,20 @@ def main() -> None:
         height=args.size,
         robots=args.robots,
         obstacles=obstacles,
+        explore=config,
+        sample_period=20 * TimeUnit.SECOND,
         measure_from=int(args.hours * TimeUnit.HOUR) // 2,
     )
-
-    def seeder_for(robot: RobotId) -> FieldSeeder:
-        return ExploreSeeder(config)
-
-    run = build_explore_run(scenario, seeder_for)
+    run = LiveRun.from_config(scenario.into_experiment())
     monitorable = np.ones((args.size, args.size), dtype=np.bool_)
 
     def staleness(snapshot: WorldSnapshot) -> NDArray[np.float64]:
-        visits = np.maximum(run.tracker.last_visits(), 0.0)
-        values = revisit_worths(visits, monitorable, snapshot.time, config.revisit_age)
+        visits = np.full((args.size, args.size), -np.inf)
+        for cell, sensed_at in run.metrics.last_sensed_times().items():
+            visits[cell] = sensed_at
+        values = revisit_worths(
+            np.maximum(visits, 0.0), monitorable, snapshot.time, config.revisit_age
+        )
         for cell, state in snapshot.cells.items():
             if state.obstacle:
                 values[cell] = np.nan
@@ -97,27 +94,42 @@ def main() -> None:
     viewer.animate(frames, fps=args.fps, save=args.save)
 
 
-def panel_lines(run: ExploreRun, now: Time, config: ExploreConfig) -> list[str]:
-    """The run's settings and its coverage measures so far."""
-    summary = run.summary()
+def panel_lines(run: LiveRun, now: Time, config: ExploreConfig) -> list[str]:
+    """The run's settings and its measures so far."""
     discount = "off"
     if config.spread_peers:
         discount = "on"
-    return [
+    lines = [
         f"time         {now / TimeUnit.HOUR:5.2f} h",
-        f"robots       {len(run.agents)}",
+        f"robots       {len(run.agents())}",
         f"blocks       {config.block_side} x {config.block_side}",
         f"discount     {discount}",
         f"revisit age  {config.revisit_age / TimeUnit.MINUTE:.0f} min",
         "",
-        f"covered      {summary.covered:6.1%}",
-        f"90 % at      {_minutes(summary.time_to_90)}",
-        f"100 % at     {_minutes(summary.time_to_full)}",
-        f"redundancy   {summary.redundancy:6.1%}",
-        f"idleness     {summary.mean_idleness / TimeUnit.MINUTE:5.1f} min (mean)",
-        f"             {summary.worst_idleness / TimeUnit.MINUTE:5.1f} min (worst)",
-        "  measured from half the run on",
     ]
+    latest = run.metrics.latest()
+    if latest is None:
+        return lines
+    lines.extend(
+        [
+            f"covered      {latest.coverage:6.1%}",
+            f"90 % at      {_minutes(_time_to_cover(run, 0.9))}",
+            f"100 % at     {_minutes(_time_to_cover(run, 1.0))}",
+            f"redundancy   {latest.redundancy:6.1%}",
+            f"idleness     {latest.mean_idleness_ms / TimeUnit.MINUTE:5.1f} min (mean)",
+            f"             {latest.worst_idleness_ms / TimeUnit.MINUTE:5.1f} min (worst)",
+            "  measured from half the run on",
+        ]
+    )
+    return lines
+
+
+def _time_to_cover(run: LiveRun, share: float) -> Time | None:
+    """The first sample at which ``share`` of the field had been sensed, or ``None``."""
+    for sample in run.metrics.series():
+        if sample.coverage >= share:
+            return sample.time
+    return None
 
 
 def _minutes(time: Time | None) -> str:

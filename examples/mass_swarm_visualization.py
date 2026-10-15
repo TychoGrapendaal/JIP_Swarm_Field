@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from matplotlib.colors import ListedColormap
 
-from swarm_field.contracts import BodyType, FieldGeometry, Move, Terrain, Treat
+from swarm_field.contracts import BodyType, FieldGeometry, Move, Observation, Terrain, Treat
 from swarm_field.simulation import RobotState, WorldState
 
 FIELD_WIDTH = 50
@@ -67,7 +67,7 @@ class PotentialFieldController:
                 self.world.apply_action(robot_id, Move(to=target), time=time)
 
     @staticmethod
-    def _update_memory(memory: LocalPotentialMemory, observations: list[object]) -> None:
+    def _update_memory(memory: LocalPotentialMemory, observations: list[Observation]) -> None:
         for observation in observations:
             cell = getattr(observation, "cell", None)
             if cell is None:

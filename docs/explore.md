@@ -1,6 +1,6 @@
 # EXPLORE: drawing robots to stale information (#41)
 
-This document describes the EXPLORE field seeder, how it is measured, and what the measurements say. The seeder is `ExploreSeeder` in `swarm/explore.py`; the measurements come from `CoverageTracker` (`simulation/coverage.py`), the runnable experiment in `swarm_field.experiments`, and `tests/benchmark_explore.py`. How a seeder fits into the brain is described in [`robot-memory-and-navigation.md`](./robot-memory-and-navigation.md) under "Writing a behaviour".
+This document describes the EXPLORE field seeder, how it is measured, and what the measurements say. The seeder is `ExploreSeeder` in `swarm/explore.py`; the measurements come from `MetricsCollector` (`simulation/metrics.py`), the experiment `ExploreScenario` in `swarm_field.experiments`, run by `swarm_field.runner`, and `tests/benchmark_explore.py`. How a seeder fits into the brain is described in [`robot-memory-and-navigation.md`](./robot-memory-and-navigation.md) under "Writing a behaviour".
 
 Exploring a new field and monitoring a known one are one objective. A cell is worth visiting again by how long ago anyone observed it, and a never-seen cell is simply the oldest information there is. A robot observes only the cell it stands on, so visiting a cell is observing it.
 
@@ -74,20 +74,20 @@ The defaults are the ones that did best in the benchmark below.
 
 ## Measuring exploration
 
-`CoverageTracker` measures a run from ground truth, independently of what the robots believe. A `CoverageSample` event records the robots' cells every second, which is shorter than any move, so no visit is missed. Over the cells that are not obstacles:
+`MetricsCollector` measures a run from ground truth, independently of what the robots believe. A robot senses the cell it stands on at every decision, and every cell it senses is recorded, so no visit is missed; the ages are sampled once a minute. Over the cropped cells, which in the experiments are all cells that are not obstacles:
 
 | Measure | Definition | What it shows |
 | --- | --- | --- |
-| Coverage, `t90`, `full` | The share of cells visited at least once, and when 90 % and all of them were. | How fast the swarm explores a new field. |
-| Mean idleness | The age $t - t_\text{last}(c)$ of a cell, averaged over cells and over the samples from `measure_from` on. A cell never visited is as old as the run. | How fresh the swarm keeps its information. |
+| Coverage, `t90`, `full` | The share of cells sensed at least once, and when 90 % and all of them were. | How fast the swarm explores a new field. |
+| Mean idleness | The age $t - t_\text{last}(c)$ of a cell, averaged over cells and over the samples from `measure_from` on. A cell never sensed is as old as the run. | How fresh the swarm keeps its information. |
 | Worst idleness | The largest age in those samples. | The worst-case detection latency. |
-| Redundancy | The share of visits to a cell visited less than 30 minutes before. | Wasted travel and robots getting in each other's way. |
+| Redundancy | The share of visits to a cell sensed less than 30 minutes before. | Wasted travel and robots getting in each other's way. |
 
 The mean idleness is also the expected detection latency. A pest appearing at a uniformly random time in a cell with visit gaps $g_i$ waits $\sum_i g_i^2 / (2 \sum_i g_i)$ on average, and the time-averaged age of that cell is the same expression. So the benchmark measures how fast new pests are found without injecting any.
 
 ## The experiment and the benchmark
 
-`swarm_field.experiments.build_explore_run` assembles one run: a field with optional obstacles, robots starting side by side in a corner, each a real `ComposedAgent` on the real simulation loop, and a `CoverageTracker`. Every robot has one behaviour, `FollowSeederField`, which follows the field of its seeder and bids a fixed score, so the arbiter has nothing to choose and needs no mock. Robots start with the terrain map, since they never sense an obstacle they cannot enter. Their status goes over the real channel. Sharing observations is not built yet (#34), so `share_observations` stands in for it: every infestation fact a robot senses reaches every other robot at its next decision, as with perfect communication. `ExploreScenario.seed` staggers the robots' first decisions, so repeated runs interleave them differently. `RandomWaypointSeeder` is the baseline: one random target cell, and a new one once the robot stands on it.
+`ExploreScenario.into_experiment` describes one run as an `ExperimentConfig`, which `swarm_field.runner` assembles and runs: a field with optional obstacles, robots starting side by side in a corner, each a real `ComposedAgent` on the real simulation loop, and a `MetricsCollector`. Every robot has one behaviour, the mock explore behaviour `FollowSeederField`, which follows the field of its seeder and bids a fixed score, so the arbiter has nothing to choose. Robots start with the terrain map, since they never sense an obstacle they cannot enter. They share their memory and status over the channel, with an unlimited radio range unless `radio_range_m` says otherwise. `ExploreScenario.seed` staggers the robots' first decisions, so repeated runs interleave them differently. `RandomWaypointSeeder` is the baseline: one random target cell, and a new one once the robot stands on it.
 
 `tests/benchmark_explore.py` runs every variant with several seeds and prints the mean of each measure; `tests/test_explore_swarm.py` checks the main findings on a small field.
 
@@ -175,7 +175,7 @@ The revisit age with saturating values and the block max (32 × 32, four seeds; 
 ## What is not done
 
 - **The behaviour.** `ExploreBehaviour` (Jin, branch `41-explore-objective`) scores EXPLORE against other objectives. The experiments use the stand-in `FollowSeederField`.
-- **Sharing observations.** Belief sharing (#34) is replaced by a perfect, test-side pool in the experiments.
+- **Results recorded before the move to the runner.** The tables above were measured with `CoverageTracker`, which no longer exists, and with a perfect pool that shared every sensed fact instantly. The experiments now share over the channel, and the "no sharing" variants are a radio range of 0, which also turns off the peer discount. The tables need a re-run with `tests/benchmark_explore.py`.
 - **Holes on large fields.** On 64 × 64 cells the worst idleness stays above 300 minutes. Uncapped linear growth fixed most of it (see "Earlier value rules") but was left out to keep the rule simple.
 - **Choosing the revisit age.** It should grow with the time the swarm needs to sweep its field, which depends on the field and the number of robots; it is a fixed parameter for now, and the swarm-size experiment is still to do.
 - **Decisions while moving.** Robots decide every 2.5 s while a move takes 10 to 14 s. The navigator then sees no progress for three ticks and hands over to the steerer, whose moves the simulation ignores while the robot is moving. This is harmless but wasted work.

@@ -9,7 +9,8 @@ viewer knows nothing of the simulation or the algorithm:
 - goals: a dashed line from each robot to the cell it is heading for;
 - a text panel: lines describing the run, e.g. its metrics.
 
-The animation opens in a window, or is saved as a ``.gif`` (Pillow) or ``.mp4`` (ffmpeg).
+The animation opens in a window, or is saved through ``save_frames``: a ``.gif``, an ``.mp4`` or a
+directory of PNG frames.
 """
 
 from __future__ import annotations
@@ -23,7 +24,11 @@ import numpy as np
 from numpy.typing import NDArray
 
 from swarm_field.contracts import CellId, RobotId, Time, WorldSnapshot
-from swarm_field.visualization.matplotlib_renderer import BODY_COLORS, MatplotlibRenderer
+from swarm_field.visualization.matplotlib_renderer import (
+    BODY_COLORS,
+    MatplotlibRenderer,
+    save_frames,
+)
 
 if TYPE_CHECKING:
     from matplotlib.text import Text
@@ -98,12 +103,16 @@ class SimulationViewer:
             self._panel_text.set_text("\n".join(self._panel(snapshot)))
 
     def animate(self, frame_times: Sequence[Time], fps: int = 20, save: Path | None = None) -> None:
-        """Play the frames in a window, or save them to ``save`` (``.gif`` or ``.mp4``)."""
-        import matplotlib.pyplot as plt
-        from matplotlib.animation import FFMpegWriter, FuncAnimation, PillowWriter
+        """Play the frames in a window, or save them to ``save`` with ``save_frames``."""
 
         def draw_frame(index: int) -> None:
             self.draw(frame_times[index])
+
+        if save is not None:
+            save_frames(self.renderer.figure, draw_frame, len(frame_times), save, fps=fps)
+            return
+        import matplotlib.pyplot as plt
+        from matplotlib.animation import FuncAnimation
 
         animation = FuncAnimation(
             self.renderer.figure,
@@ -112,13 +121,8 @@ class SimulationViewer:
             interval=1000 / fps,
             repeat=False,
         )
-        if save is None:
-            plt.show()
-            return
-        writer = PillowWriter(fps=fps)
-        if save.suffix == ".mp4":
-            writer = FFMpegWriter(fps=fps)
-        animation.save(str(save), writer=writer)
+        _ = animation
+        plt.show()
 
     def _draw_trails(self, snapshot: WorldSnapshot) -> None:
         """Remember each robot's cell and draw its last ``trail_length`` cells."""

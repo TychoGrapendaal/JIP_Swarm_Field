@@ -22,6 +22,7 @@ from swarm_field.swarm.behavior import (
     DecisionContext,
     ExploreBehaviour,
     FollowField,
+    FollowSeederField,
     Intent,
     TreatInfestation,
 )
@@ -30,7 +31,12 @@ from swarm_field.swarm.explore import ExploreConfig, ExploreSeeder
 from swarm_field.swarm.memory import AgentMemory, DecayConfig, MemoryView
 from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.provider import FieldProvider
-from swarm_field.swarm.seeder import FieldSeeder, SeededField, TreatSeeder
+from swarm_field.swarm.seeder import (
+    FieldSeeder,
+    RandomWaypointSeeder,
+    SeededField,
+    TreatSeeder,
+)
 from swarm_field.swarm.steering import (
     QuadtreeSensing,
     Sensing,
@@ -55,10 +61,12 @@ __all__ = [
     "FieldProvider",
     "FieldSeeder",
     "FollowField",
+    "FollowSeederField",
     "Intent",
     "MemoryView",
     "Navigator",
     "QuadtreeSensing",
+    "RandomWaypointSeeder",
     "SeededField",
     "Sensing",
     "Steerer",
