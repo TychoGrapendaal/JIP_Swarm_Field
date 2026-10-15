@@ -81,15 +81,15 @@ SPEED_BY_BODY = {
 
 
 class _WanderSeeder:
-    """Stand-in for the EXPLORE seeder (#41): a random walk over believed ground.
+    """A random walk over believed ground, to keep the demo's robots moving.
 
     It names one random neighbouring cell as the wander field's only target, and asks for a new
     one at every decision point by making the field key the decision time. The navigator then
     rebuilds the field per tick and the robot steps towards it. The target is clamped into the
     field, so it is never the unreachable outside cell a robot standing at the edge would pick.
 
-    A real exploration algorithm would seed unvisited or stale cells instead of a random
-    neighbour, and would keep them long enough to be worth walking to.
+    ``ExploreSeeder`` is the real exploration: it seeds the stale cells instead of a random
+    neighbour.
     """
 
     name: str = "wander"

@@ -282,7 +282,7 @@ uv run python examples/robustness_demo.py --scenario S5 --hours 3
 uv run python examples/robustness_demo.py --out runs/robustness
 ```
 
-**What this currently shows:** `active_robots` and `energy/m²` respond to the faults as intended, and the pest dynamics are provably unaffected. The outcome metrics (`coverage`, `targets_remaining`, `detection_latency`) are flat, because the swarm's behaviors are still stubs — `TreatSeeder.seeds()` returns no targets, so every robot commits `Idle` from the first decision and the swarm never moves. [`docs/research/robustness.md`](docs/research/robustness.md) explains what has to land before the sweep measures resilience rather than capacity.
+**What this currently shows:** `active_robots` and `energy/m²` respond to the faults as intended, and the pest dynamics are provably unaffected. The outcome metrics (`coverage`, `targets_remaining`, `detection_latency`) are flat, because the default brain only treats: `TreatInfestation` bids only on pests the robot knows of, a robot senses only its own cell, and nothing explores, so robots that start away from a pest idle from the first decision. [`docs/research/robustness.md`](docs/research/robustness.md) explains what has to land before the sweep measures resilience rather than capacity.
 
 ## Current demonstration limitations
 

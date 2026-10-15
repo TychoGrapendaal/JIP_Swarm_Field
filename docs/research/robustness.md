@@ -41,6 +41,8 @@ The presets build a SCOUT / KILLER / BATTERY roster, but it does not yet affect 
 
 **The machinery works, and the controls hold.** `active_robots` tracks the failure rate exactly as it should (15 → 11 → 1 for S2, 40 → 35 → 14 for S5), so failure injection reaches the world. `energy/m²` falls in proportion to the robots lost, because a stopped robot stops spending. Most importantly `targets_remaining` is identical to the cell in every row: the faults did not disturb the pests, which is exactly the guarantee the separate random source exists to provide.
 
+> **Update.** The table was recorded when `TreatSeeder` was a stub. `TreatSeeder` now seeds the known pests and robots share their memory, but the default `BrainSpec` still carries only `TreatInfestation`. It bids only on pests the robot knows of, and a robot now senses only its own cell, so with nothing exploring the swarm still idles; `messages_sent` is no longer zero. The figures need a re-run with a brain that explores.
+
 **The outcome metrics cannot discriminate yet, and the reason is the algorithm, not the measurement.** `coverage`, `targets_remaining` and `detection_latency` are flat for two separate reasons, both of which are stub-level gaps rather than simulation gaps:
 
 - The swarm does not move. `TreatSeeder.seeds()` returns `()`, so `Navigator.field_for` hands the behaviour no field, `TreatInfestation.propose` returns no candidate at every decision and `ComposedAgent` commits `Idle`. All 15 robots therefore sense the same 5 × 5 neighbourhood they started in and nothing else — 135 distinct cells of 1600, which is the 0.084 in the table. A robot that never leaves its start cell cannot be made to cover less by losing peers, because its peers contributed cells it already covers.
