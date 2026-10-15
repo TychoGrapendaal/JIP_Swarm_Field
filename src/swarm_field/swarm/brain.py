@@ -3,10 +3,10 @@
 ``ComposedAgent`` is the thin orchestrator that implements the ``SwarmAgent`` boundary. At each
 decision point it merges what the robot sensed and received into its memory, keeps the field
 provider's quadtree in sync with new terrain facts, gathers the scored candidates of its
-behaviors, picks the best and turns its intent into one action: the navigator steps along the
-field a ``FollowField`` names, and any other intent passes through. It broadcasts its memory and
-its status (its cell and the winner's target), and merges what its peers broadcast. Capability
-gating is added once it is built.
+behaviors, lets its arbiter pick one and turns its intent into one action: the navigator steps
+along the field a ``FollowField`` names, and any other intent passes through. It broadcasts its
+status (its cell, and the winner's target and objective) and its memory, and merges what its
+peers broadcast. Capability gating is added once it is built.
 """
 
 import logging
@@ -15,6 +15,7 @@ from typing import cast
 from swarm_field.contracts import (
     Action,
     AgentInspection,
+    AgentObjective,
     CellId,
     Decision,
     Idle,
@@ -28,6 +29,7 @@ from swarm_field.contracts import (
     TerrainObservation,
     Time,
 )
+from swarm_field.swarm.arbiter import Arbiter
 from swarm_field.swarm.behavior import (
     ActionCandidate,
     Behavior,
@@ -52,6 +54,8 @@ class ComposedAgent:
         fields: The robot's quadtree, and the grid potential fields of its seeders. Only the
             winner's field is built, to pick its target and for the navigator to follow.
         navigator: Moves the robot along the winning candidate's field.
+        arbiter: Picks the candidate the robot acts on and holds the robot to its choice. Every
+            robot needs its own, since an arbiter remembers its robot's commitment.
     """
 
     def __init__(
@@ -61,14 +65,17 @@ class ComposedAgent:
         memory: AgentMemory,
         fields: FieldProvider,
         navigator: Navigator,
+        arbiter: Arbiter,
     ) -> None:
         self.robot_id: RobotId = robot_id
         self.behaviors: list[Behavior] = behaviors
         self.memory: AgentMemory = memory
         self.fields: FieldProvider = fields
         self.navigator: Navigator = navigator
+        self.arbiter: Arbiter = arbiter
         self._current_goal: str | None = None
         self._current_target: CellId | None = None
+        self._current_objective: AgentObjective | None = None
 
     def decide(self, perception: Perception) -> Decision:
         received = self._facts_received(perception.inbox)
@@ -93,16 +100,22 @@ class ComposedAgent:
         for behavior in self.behaviors:
             candidates.extend(behavior.propose(ctx))
 
-        # TODO: an arbiter (fixed-priority overrides such as low battery, hysteresis against
-        # switching objectives back and forth) instead of simply taking the highest score.
-        best = max(candidates, key=lambda c: c.score, default=None)
-        action: Action = Idle()
-        self._current_goal = None
-        self._current_target = None
-        if best is not None:
-            self._current_goal = best.source
-            self._current_target = best.target
-            action = self._action_for(best.action, perception.self_state.position, perception.time)
+        choice = self.arbiter.choose(candidates, perception.time)
+        if choice is None:
+            self._current_goal = None
+            self._current_target = None
+            self._current_objective = None
+            return Decision(action=Idle(), outbox=self._messages_to_send(perception))
+
+        best = choice.candidate
+        self._current_goal = best.source
+        self._current_objective = best.objective
+        action, field_target = self._action_for(
+            best.action, perception.self_state.position, perception.time
+        )
+        self._current_target = best.target
+        if field_target is not None:
+            self._current_target = field_target
         return Decision(action=action, outbox=self._messages_to_send(perception))
 
     def inspect(self) -> AgentInspection:
@@ -113,19 +126,18 @@ class ComposedAgent:
             current_target=self._current_target,
         )
 
-    def _action_for(self, intent: Intent, robot: CellId, now: Time) -> Action:
-        """The action that carries out the winning candidate's intent.
+    def _action_for(self, intent: Intent, robot: CellId, now: Time) -> tuple[Action, CellId | None]:
+        """The action that carries out the winning candidate's intent, and the field's target.
 
-        For a ``FollowField`` this builds the seeder's field, whose target becomes the robot's
-        current target, and the navigator steps along it.
+        For a ``FollowField`` this builds the seeder's field and the navigator steps along it;
+        the target is the one the field leads to, or ``None`` for any other intent.
         """
         if not isinstance(intent, FollowField):
-            return intent
+            return intent, None
         field = self.fields.field_for(intent.seeder, robot, now)
         if field is None:
             logger.warning("FollowField couldn't find the corresponding field %s", intent.seeder)
-            return Idle()
-        self._current_target = field.field.target_for(robot)
+            return Idle(), None
         return self.navigator.step_towards(field, robot)
 
     def _facts_received(self, inbox: list[Message]) -> list[Observation]:
@@ -150,18 +162,12 @@ class ComposedAgent:
         return facts
 
     def _messages_to_send(self, perception: Perception) -> list[Message]:
-        """The messages to broadcast at this decision point: the memory and the robot's status.
+        """The messages to broadcast at this decision point: the robot's status and its memory.
 
-        The status tells peers where the robot is and which target it is heading for, the
-        target of the winner's field, or else the winning candidate's ``target``, so that they
-        can avoid the same region.
+        The status tells peers where the robot is, which target it is heading for (the target
+        of the winner's field, or else the winning candidate's ``target``) and for which
+        objective, so that they can avoid the same region.
         """
-        knowledge = Message(
-            sender=self.robot_id,
-            sent_at=perception.time,
-            kind=MessageKind.KNOWLEDGE,
-            payload=tuple(self.memory.records()),
-        )
         status = PeerObservation(
             cell=perception.self_state.position,
             confidence=1.0,
@@ -170,6 +176,7 @@ class ComposedAgent:
             peer=self.robot_id,
             body=perception.self_state.body,
             target=self._current_target,
+            objective=self._current_objective,
         )
         status_message = Message(
             sender=self.robot_id,
@@ -177,4 +184,10 @@ class ComposedAgent:
             kind=MessageKind.STATUS,
             payload=status,
         )
-        return [knowledge, status_message]
+        memory_message = Message(
+            sender=self.robot_id,
+            sent_at=perception.time,
+            kind=MessageKind.KNOWLEDGE,
+            payload=tuple(self.memory.records()),
+        )
+        return [status_message, memory_message]

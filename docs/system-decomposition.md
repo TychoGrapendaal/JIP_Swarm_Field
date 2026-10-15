@@ -140,6 +140,8 @@ class TerrainObservation(ObservationBase):
 class PeerObservation(ObservationBase):
     peer: RobotId | None        # identity if resolvable, else an anonymous sighting
     body: BodyType
+    target: CellId | None = None   # the cell the peer says it is heading for
+    objective: AgentObjective | None = None   # what the peer is heading there for
 
 Observation = (
     CropObservation | InfestationObservation | TerrainObservation | PeerObservation
@@ -191,6 +193,7 @@ Action = Move | Turn | Sense | Treat | Charge | Idle
 ```python
 class MessageKind(Enum):
     KNOWLEDGE = auto()          # belief-sharing ("what is there")
+    STATUS    = auto()          # the sender's own position and current target
     CLAIM     = auto()          # task lease, if the algorithm uses one
     STIGMERGY = auto()          # pheromone-style mark ("where to go")
 

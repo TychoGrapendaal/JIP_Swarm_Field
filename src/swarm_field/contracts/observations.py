@@ -6,7 +6,16 @@ how reliable, when, by whom) and are matched with ``match``/``case``, like ``Act
 
 from dataclasses import dataclass
 
-from swarm_field.contracts.ids import BodyType, CellId, CropType, PestType, RobotId, Terrain, Time
+from swarm_field.contracts.ids import (
+    AgentObjective,
+    BodyType,
+    CellId,
+    CropType,
+    PestType,
+    RobotId,
+    Terrain,
+    Time,
+)
 
 
 @dataclass(frozen=True)
@@ -72,11 +81,14 @@ class PeerObservation(ObservationBase):
         body: The peer's body type.
         target: The cell the peer is heading for, if it reported one. Only a robot's report
             of itself carries it; a sighting cannot tell.
+        objective: The objective the peer is pursuing, if it reported one, so that a seeder
+            can tell a peer treating a cell from one exploring it.
     """
 
     peer: RobotId | None
     body: BodyType
     target: CellId | None = None
+    objective: AgentObjective | None = None
 
 
 Observation = CropObservation | InfestationObservation | TerrainObservation | PeerObservation

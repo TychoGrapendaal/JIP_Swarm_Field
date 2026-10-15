@@ -1,14 +1,21 @@
 """Component A — the swarm algorithm (the robot brain).
 
 A brain is a ``ComposedAgent`` assembled from a memory, a field provider, a navigator and a
-list of behaviors, each a small piece of decision logic proposing scored candidates. Behaviors
-that move towards targets propose ``FollowField`` with the name of a ``FieldSeeder`` registered
-in the ``FieldProvider``; if that candidate wins, the navigator follows the seeder's grid
-potential field over the terrain the robot believes in, with a reactive ``Steerer`` to fall
-back on.
+list of behaviors, each a small piece of decision logic proposing candidates scored on one shared
+``[0, 1]`` scale, and an ``Arbiter`` that picks one. Behaviors that move towards targets propose
+``FollowField`` with the name of a ``FieldSeeder`` registered in the ``FieldProvider``; if that
+candidate wins, the navigator follows the seeder's grid potential field over the terrain the
+robot believes in, with a reactive ``Steerer`` to fall back on.
 """
 
 from swarm_field.contracts import Vector2
+from swarm_field.swarm.arbiter import (
+    Arbiter,
+    ArbiterChoice,
+    ArbiterConfig,
+    Commitment,
+    UtilityArbiter,
+)
 from swarm_field.swarm.behavior import (
     ActionCandidate,
     Behavior,
@@ -33,7 +40,11 @@ from swarm_field.swarm.steering import (
 __all__ = [
     "ActionCandidate",
     "AgentMemory",
+    "Arbiter",
+    "ArbiterChoice",
+    "ArbiterConfig",
     "Behavior",
+    "Commitment",
     "ComposedAgent",
     "DecayConfig",
     "DecisionContext",
@@ -52,5 +63,6 @@ __all__ = [
     "SteeringConfig",
     "TreatInfestation",
     "TreatSeeder",
+    "UtilityArbiter",
     "Vector2",
 ]

@@ -20,6 +20,7 @@ from random import Random
 
 from swarm_field.contracts import (
     AgentInspection,
+    AgentObjective,
     BodyType,
     CellId,
     Decision,
@@ -54,6 +55,7 @@ from swarm_field.swarm import (
     FollowField,
     MemoryView,
     Navigator,
+    UtilityArbiter,
 )
 from swarm_field.swarm.field import Seed
 
@@ -126,7 +128,10 @@ class FollowSeederField:
         self._seeder: str = seeder
 
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
-        return (ActionCandidate(FollowField(self._seeder), 0.5, self.name, target=None),)
+        candidate = ActionCandidate(
+            FollowField(self._seeder), 0.5, self.name, target=None, objective=AgentObjective.EXPLORE
+        )
+        return (candidate,)
 
 
 class RandomWaypointSeeder:
@@ -256,6 +261,7 @@ def build_explore_run(scenario: ExploreScenario, seeder_for: SeederFactory) -> E
             memory,
             fields,
             Navigator(fields.quadtree),
+            UtilityArbiter(),
         )
         agents[robot_id] = agent
         context.agents[robot_id] = agent
