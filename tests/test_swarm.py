@@ -1,6 +1,6 @@
 """Tests for the composed brain and high-level movement action."""
 
-from collections.abc import Hashable
+from collections.abc import Hashable, Sequence
 from dataclasses import replace
 
 from swarm_field.contracts import (
@@ -24,6 +24,7 @@ from swarm_field.contracts import (
 from swarm_field.swarm import (
     ActionCandidate,
     AgentMemory,
+    ArbiterChoice,
     Behavior,
     ComposedAgent,
     DecisionContext,
@@ -34,6 +35,7 @@ from swarm_field.swarm import (
     MemoryView,
     Navigator,
     TreatInfestation,
+    TreatSeeder,
 )
 from swarm_field.swarm.field import Seed
 
@@ -88,6 +90,15 @@ def _sensed(time: Time) -> list[Observation]:
     ]
 
 
+class _MaxArbiter:
+    """A mock arbiter: the highest score wins, without hysteresis."""
+
+    def choose(self, candidates: Sequence[ActionCandidate], now: Time) -> ArbiterChoice | None:
+        if not candidates:
+            return None
+        return ArbiterChoice(max(candidates, key=lambda c: c.score), switched=False)
+
+
 def _agent(behaviors: list[Behavior], seeders: list[FieldSeeder] | None = None) -> ComposedAgent:
     memory = AgentMemory(1, _FIELD)
     fields = FieldProvider(memory, flies=False, seeders=seeders or [])
@@ -97,6 +108,7 @@ def _agent(behaviors: list[Behavior], seeders: list[FieldSeeder] | None = None) 
         memory=memory,
         fields=fields,
         navigator=Navigator(fields.quadtree),
+        arbiter=_MaxArbiter(),
     )
 
 
@@ -201,13 +213,27 @@ def test_sensed_terrain_reaches_memory_and_the_quadtree() -> None:
     assert not agent.fields.quadtree.is_traversable((1, 1))
 
 
+def test_treat_infestation_follows_the_field_to_a_known_pest_and_treats_it_on_the_spot() -> None:
+    memory = AgentMemory(1, _FIELD)
+    memory.merge(_sensed(0))
+    behavior = TreatInfestation()
+
+    def proposed_at(position: CellId) -> list[Intent]:
+        self_state = replace(_perception().self_state, position=position)
+        ctx = DecisionContext(time=0, self_state=self_state, sensed=[], memory=memory)
+        return [c.action for c in behavior.propose(ctx)]
+
+    assert proposed_at((0, 0)) == [FollowField(TreatSeeder.name)]
+    assert proposed_at((3, 3)) == [Treat((3, 3))]
+
+
 def test_a_winning_follow_field_becomes_a_step_along_the_field() -> None:
-    agent = _agent([TreatInfestation(_FixedTargetSeeder.name)], seeders=[_FixedTargetSeeder()])
+    agent = _agent([_FieldFollower(_FixedTargetSeeder.name, 0.5)], [_FixedTargetSeeder()])
 
     decision = agent.decide(_perception(sensed=[]))
 
     assert decision.action == Move((1, 1))
-    assert agent.inspect().current_goal == TreatInfestation.name
+    assert agent.inspect().current_goal == _FixedTargetSeeder.name
 
 
 def test_agent_broadcasts_its_memory_and_peer_learns_it() -> None:
@@ -220,6 +246,7 @@ def test_agent_broadcasts_its_memory_and_peer_learns_it() -> None:
         memory=receiver_memory,
         fields=receiver_fields,
         navigator=Navigator(receiver_fields.quadtree),
+        arbiter=_MaxArbiter(),
     )
     fact = InfestationObservation(
         cell=(6, 6),
@@ -247,7 +274,8 @@ def test_agent_broadcasts_its_memory_and_peer_learns_it() -> None:
         )
     )
 
-    knowledge, _status = first.outbox
+    status, knowledge = first.outbox
+    assert status.kind is MessageKind.STATUS
     assert knowledge.kind is MessageKind.KNOWLEDGE
     assert knowledge.payload == (fact,)
 
@@ -288,11 +316,11 @@ def test_only_the_winners_field_is_built_and_it_is_not_rebuilt() -> None:
 
 
 def test_the_agent_broadcasts_its_cell_and_the_winners_target() -> None:
-    agent = _agent([TreatInfestation(_FixedTargetSeeder.name)], seeders=[_FixedTargetSeeder()])
+    agent = _agent([_FieldFollower(_FixedTargetSeeder.name, 0.5)], [_FixedTargetSeeder()])
 
     decision = agent.decide(_perception(sensed=[]))
 
-    _knowledge, message = decision.outbox
+    message, _knowledge = decision.outbox
     assert message.kind is MessageKind.STATUS
     assert isinstance(message.payload, PeerObservation)
     assert (message.payload.peer, message.payload.cell) == (1, (0, 0))

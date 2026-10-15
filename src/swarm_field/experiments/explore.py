@@ -54,6 +54,7 @@ from swarm_field.swarm import (
     FollowField,
     MemoryView,
     Navigator,
+    UtilityArbiter,
 )
 from swarm_field.swarm.field import Seed
 
@@ -256,6 +257,7 @@ def build_explore_run(scenario: ExploreScenario, seeder_for: SeederFactory) -> E
             memory,
             fields,
             Navigator(fields.quadtree),
+            UtilityArbiter(),
         )
         agents[robot_id] = agent
         context.agents[robot_id] = agent

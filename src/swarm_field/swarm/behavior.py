@@ -1,9 +1,11 @@
 """Composable robot behaviours for the high-level cell model."""
 
+import math
 from dataclasses import dataclass, field
 from typing import Protocol
 
 from swarm_field.contracts import (
+    BodyType,
     CellId,
     Charge,
     Idle,
@@ -44,8 +46,8 @@ class ActionCandidate:
 
     Attributes:
         action: What the robot should do if this candidate wins.
-        score: How much the behaviour wants it; the highest score wins. The scale shared by all
-            behaviours is settled together with the arbiter (#39).
+        score: How much the behaviour wants it, on the ``[0, 1]`` scale shared by all
+            behaviours; the arbiter picks the winner.
         source: The name of the proposing behaviour.
         target: The cell this candidate commits the robot to, if the behaviour knows it from
             memory (such as a known pest's cell), or ``None``. The arbiter uses it to tell a new
@@ -99,8 +101,15 @@ class Behavior(Protocol):
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]: ...
 
 
+_TREAT_SCORE = 0.99
+"""The score of treating the pest the robot stands on.
+
+Just below 1, so that the battery behaviour can still outbid it to save the robot from dying.
+"""
+
+
 class TreatInfestation:
-    """Skeleton of the pest-response behaviour: follow the field of the TREAT seeder."""
+    """The pest-response behaviour: follow the field of the TREAT seeder and treat on arrival."""
 
     name: str = "treat-infestation"
 
@@ -108,11 +117,21 @@ class TreatInfestation:
         self._seeder: str = seeder
 
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
-        # TODO (#40): bid only while memory knows a pest, and propose Treat(cell=position) when
-        # one is known at the robot's cell.
-        # TODO (#39): a score from the robot's state and memory, on the scale shared by all
-        # behaviours.
-        candidate = ActionCandidate(
-            action=FollowField(self._seeder), score=0.5, source=self.name, target=None
-        )
-        return (candidate,)
+        position = ctx.self_state.position
+        here = ctx.memory.infestation_at(position)
+        if here is not None and here.severity > 0:
+            return (ActionCandidate(Treat(position), _TREAT_SCORE, self.name, position),)
+
+        num_pests = 0
+        for pest in ctx.memory.infestations():
+            if pest.severity > 0:
+                num_pests += 1
+        if num_pests == 0:
+            return ()
+        num_killers = 0
+        for peer in ctx.memory.peers():
+            if peer.body is BodyType.KILLER:
+                num_killers += 1
+        # The more pests are left per killer already known, the more this robot is needed.
+        score = 1 / (1 + math.exp(-(num_pests - num_killers)))
+        return (ActionCandidate(FollowField(self._seeder), score, self.name, None),)
