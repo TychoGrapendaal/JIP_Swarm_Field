@@ -115,14 +115,6 @@ uv run --with matplotlib python examples/robot_decision_demo.py --frames 200 --s
 
 This demo is specifically intended to make the event-driven behavior added in issue #4 visible; it is separate from the higher-level swarm behavior demonstrations.
 
-### Treat-infestation demonstration
-
-```bash
-uv run python examples/treat_infestation_demo.py
-```
-
-A killer robot that already knows of three pests follows the TREAT field around a wall to each of them, treats it once, and then idles.
-
 ### Renderer demonstration (C.1)
 
 ```bash
@@ -277,3 +269,9 @@ tests/             # pytest suite
 examples/          # executable demonstrations
 docs/              # design documents, research notes and source material
 ```
+
+### Decision arbitration
+
+Each `ComposedAgent` uses its own `UtilityArbiter` by default. The arbiter selects from behaviour bids, supports high-priority overrides, and applies hysteresis so robots do not switch objectives or targets too readily. Pass an explicit arbiter to `ComposedAgent` to customize its configuration.
+
+Peer-target announcements are shared as typed `AgentObjective` values and stored in local memory. This change records and communicates intent; target-discounting remains an objective-level policy and is not applied generically inside the brain.

@@ -19,6 +19,7 @@ from swarm_field.contracts.command import (
     TimedCommand,
 )
 from swarm_field.contracts.ids import (
+    AgentObjective,
     BodyType,
     CellId,
     CropType,
@@ -38,6 +39,7 @@ from swarm_field.contracts.observations import (
     Observation,
     ObservationBase,
     PeerObservation,
+    PeerTargetObservation,
     TerrainObservation,
 )
 from swarm_field.contracts.scenario import (
@@ -56,6 +58,7 @@ from swarm_field.contracts.world import CellState, FieldGeometry
 __all__ = [
     "Action",
     "AgentInspection",
+    "AgentObjective",
     "BodyType",
     "CellId",
     "CellState",
@@ -81,6 +84,7 @@ __all__ = [
     "ObservationBase",
     "Pause",
     "PeerObservation",
+    "PeerTargetObservation",
     "Perception",
     "PestDynamicsSpec",
     "PestType",

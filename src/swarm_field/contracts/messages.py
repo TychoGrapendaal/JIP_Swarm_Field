@@ -19,7 +19,6 @@ class MessageKind(Enum):
 
     HELLO = auto()
     KNOWLEDGE = auto()
-    STATUS = auto()
 
 
 @dataclass(frozen=True)
