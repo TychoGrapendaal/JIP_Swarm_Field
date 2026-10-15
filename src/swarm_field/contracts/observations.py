@@ -1,12 +1,21 @@
 """Observations — a tagged union of beliefs about cells.
 
-An observation is a *belief*, not a truth. Variants share ``ObservationBase`` (which cell,
-how reliable, when, by whom) and are matched with ``match``/``case``, like ``Action``.
+An observation is a *belief*, not a truth. Cell observations share ``ObservationBase`` (which cell,
+how reliable, when, by whom); peer-target announcements are intent facts without a sensed cell.
 """
 
 from dataclasses import dataclass
 
-from swarm_field.contracts.ids import BodyType, CellId, CropType, PestType, RobotId, Terrain, Time
+from swarm_field.contracts.ids import (
+    AgentObjective,
+    BodyType,
+    CellId,
+    CropType,
+    PestType,
+    RobotId,
+    Terrain,
+    Time,
+)
 
 
 @dataclass(frozen=True)
@@ -70,13 +79,34 @@ class PeerObservation(ObservationBase):
     Attributes:
         peer: The peer's identity if resolvable, else ``None`` for an anonymous sighting.
         body: The peer's body type.
-        target: The cell the peer says it is heading for, or ``None`` if it has none or the
-            sighting does not tell.
     """
 
     peer: RobotId | None
     body: BodyType
-    target: CellId | None = None
 
 
-Observation = CropObservation | InfestationObservation | TerrainObservation | PeerObservation
+@dataclass(frozen=True)
+class PeerTargetObservation:
+    """A peer's most recently announced target and objective.
+
+    Unlike ``PeerObservation``, this is a report about intent, not physical location.
+    ``source`` identifies the robot whose intent is being reported; ``target=None`` and
+    ``objective=None`` explicitly mean that it currently has no target. Objectives use
+    :class:`AgentObjective`, not behaviour-specific free-form strings. The original source
+    and timestamp are retained when other robots forward the fact through knowledge sharing.
+    """
+
+    source: RobotId
+    target: CellId | None
+    objective: AgentObjective | None
+    confidence: float
+    observed_at: Time
+
+
+Observation = (
+    CropObservation
+    | InfestationObservation
+    | TerrainObservation
+    | PeerObservation
+    | PeerTargetObservation
+)

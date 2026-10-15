@@ -56,7 +56,7 @@ def _drive(fields: FieldProvider, start: CellId) -> list[Move | Idle]:
     for _ in range(200):
         seeded = fields.field_for(_FixedSeeder.name, position, 0)
         assert seeded is not None
-        action, _ = navigator.step_towards(seeded, position)
+        action = navigator.step_towards(seeded, position)
         actions.append(action)
         if isinstance(action, Idle):
             break
