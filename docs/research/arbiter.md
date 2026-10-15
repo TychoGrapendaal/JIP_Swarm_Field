@@ -1,6 +1,6 @@
 # The arbiter
 
-This covers how a robot decides what it is currently trying to do (#13, #39): the score scale every behaviour bids on, and the `UtilityArbiter` that picks one bid per decision point and decides when the robot may change its mind. Navigation works out how to get somewhere; this works out where. The code is in `swarm/arbiter.py`, and the scale with its helpers in `swarm/scoring.py`.
+This covers how a robot decides what it is currently trying to do (#13, #39): the score scale every behaviour bids on, and the `UtilityArbiter` that picks one bid per decision point and decides when the robot may change its mind. Navigation works out how to get somewhere; this works out where. The code is in `swarm/arbiter.py`.
 
 ## What it has to solve
 
@@ -16,45 +16,21 @@ The arbiter only sees the bids, so it can only compare them if they share one sc
 
 | Score | Meaning |
 |---|---|
-| 0 | nothing to gain, such as an unreachable target |
-| 0.5 | a target worth exactly the trip to it |
-| about 0.73 | the best a field can offer: standing on a target of value 1 |
-| 0.9 and up | a need that overrides everything else, such as a battery about to strand the robot |
+| 0 | nothing to gain |
+| 0.5 | an even need, such as one known pest per known killer for `TreatInfestation` |
+| 0.9 and up | a need that overrides everything else, such as a battery about to strand the robot, or treating the pest the robot stands on (0.99) |
 
-**Behaviours with a field** turn the potential at the robot's cell into their score with `score_from_potential`:
+Every behaviour computes its score directly from memory and the robot's state, never from a potential field: building a field is the expensive part, so only the winner's field is built, and it then picks the target (see [`robot-memory-and-navigation.md`](../robot-memory-and-navigation.md)). Distance to a target therefore does not enter a score.
 
-```
-score = 1 / (1 + exp(potential / 10 cells))
-```
-
-The potential is already in cells, since a seed starts at $-\beta v$ and the wave adds the route: a target of value 1 is worth β cells of driving. That is the shared currency, and the logistic only maps it into `[0, 1]`. It keeps the order of the bids, so the field's exchange rate between value and distance survives untouched. The scale, `SCORE_SCALE_CELLS`, is one constant for every behaviour; set to β = 10, a potential of −10 (on a target of value 1) scores 0.73, of 0 scores 0.5, and of +30 scores 0.05.
-
-**Behaviours without a field** compute a value in `[0, 1]` directly from memory and the robot's state. A recharge behaviour reads the battery and scores high when it is low, crossing 0.9 when the robot must go now.
+`TreatInfestation` bids 0.99 to treat the pest it stands on, so that only a more urgent need, such as the battery, interrupts a treatment. Otherwise it bids to follow the TREAT field with `1 / (1 + exp(-(pests - killers)))`, counting the pests and the killers it knows of: 0.5 with one pest per killer, more as pests outnumber killers. A recharge behaviour would read the battery and score high when it is low, crossing 0.9 when the robot must go now.
 
 A bid is a plain `ActionCandidate`: action, score, source and target. The arbiter needs nothing else.
-
-`TreatInfestation` on main still bids the negated potential, so the arbiter would clamp its scores to 0 with a warning. Its seeder has no targets yet, so it never bids; the treat behaviour of #40 bids on this scale.
-
-### Hand check: TREAT against EXPLORE
-
-Robot at the corner of an open field. TREAT seeds a pest at $-10 \times$ severity (confidence 1), as in [`robot-memory-and-navigation.md`](./robot-memory-and-navigation.md); EXPLORE seeds unknown cells at value 0, as the explore behaviour's tests do. Scores computed on real fields:
-
-| Situation | TREAT route, potential | TREAT score | EXPLORE route, potential | EXPLORE score | Winner |
-|---|---|---|---|---|---|
-| Severe pest (0.8) close, frontier close | 5 cells, −3 | 0.57 | 2 cells, +2 | 0.45 | TREAT |
-| Severe pest (0.8) far, frontier close | 25 cells, +17 | 0.15 | 2 cells, +2 | 0.45 | EXPLORE |
-| Mild pest (0.3) close, frontier close | 5 cells, +2 | 0.45 | 2 cells, +2 | 0.45 | tie |
-| Severe pest (0.8) far, frontier far | 25 cells, +17 | 0.15 | 15 cells, +15 | 0.18 | EXPLORE |
-| Robot on a severe pest (0.8) | 0 cells, −8 | 0.69 | 2 cells, +2 | 0.45 | TREAT |
-| Severe pest (0.8) worth exactly its trip | 8 cells, 0 | 0.50 | 8 cells, +8 | 0.31 | TREAT |
-
-Equal net cells give equal scores whoever bids them, so 0.45 means the same from TREAT and from EXPLORE (third row). What decides between them is the value each seeder puts on its targets. With unknown cells worth nothing beyond their trip, a killer near a frontier keeps exploring rather than drive 25 cells to a severe pest (second row). If that is not what we want, the fix is in the seeders (a higher β for pests, or a value for unexplored cells), not in the arbiter.
 
 ## The rules
 
 The arbiter applies five rules in order. It knows nothing about specific behaviours: a bid's `source` names its objective and its `target` the cell it commits to, and both are compared for equality only.
 
-**Overrides skip everything.** A bid scoring at least `override_threshold` (0.9) wins outright, whatever the other scores, the dwell timer or the robot's commitment. This is for the handful of situations that must not be traded off at all. A battery low enough that the robot would strand itself is the main one: stranding costs the robot and the pest, and then somebody has to walk out into the field and carry it back. A penalty could always be outweighed by a good enough target; an override cannot. Field-based scores stay below 0.73, so the band from 0.9 up belongs to behaviours that score directly. Among several overrides the highest wins.
+**Overrides skip everything.** A bid scoring at least `override_threshold` (0.9) wins outright, whatever the other scores, the dwell timer or the robot's commitment. This is for the handful of situations that must not be traded off at all. A battery low enough that the robot would strand itself is the main one: stranding costs the robot and the pest, and then somebody has to walk out into the field and carry it back. A penalty could always be outweighed by a good enough target; an override cannot. Ordinary bids stay below 0.9. Among several overrides the highest wins.
 
 **A finished objective frees the robot.** If no bid is for the committed objective any more, because the last pest is treated or the field is explored, the highest score wins at once.
 
@@ -83,15 +59,17 @@ Counting effort means letting a sunk cost influence a decision, which is not rat
 
 ## There are two kinds of thrashing, not one
 
-Flip-flopping between objectives is the obvious failure. The field structure creates a second one quietly. Because the potential takes the minimum over all targets, the winning target can change without the objective changing: a killer heading for P1 meets a drone, hears about a slightly better P4, and turns around. It is still treating the whole time, and still thrashing.
+Flip-flopping between objectives is the obvious failure. The field structure creates a second one quietly. Because the potential takes the minimum over all targets, the target can change without the objective changing: a killer heading for P1 meets a drone, hears about a slightly better P4, and turns around. It is still treating the whole time, and still thrashing.
 
 So a commitment is the pair (source, target) rather than the source alone, and a rival from the same source uses the smaller `target_floor`. Swapping one pest for another is a smaller decision than giving up treatment for exploration, so it should be easier, but not free.
 
 That puts one requirement on the behaviours: keep bidding for the committed target while it is still valid. A behaviour that only ever bids its current best leaves the arbiter nothing to compare against, so the arbiter finds no match for its commitment, decides it has vanished, and adopts the newcomer with no margin at all. A behaviour that knows many targets should bid its best few and always include the committed one.
 
+Since a behaviour never reads a field, a `FollowField` bid carries no target (`None`): the field picks the target only once the bid has won. The commitment of such a bid is to the objective alone, so this defence covers only bids that know their target from memory, such as `Treat` on the spot. Within one field, a target switch is left to the field (see "Still open").
+
 ## Parameters
 
-The margins of the first arbiter were in cells: 5 to change objective, 2.5 to change target, and 15 more near the end of a journey. On the score scale they are converted at the steepest point of the logistic, where one cell is worth $1 / (4 \times 10) = 0.025$:
+The margins of the first arbiter were in cells: 5 to change objective, 2.5 to change target, and 15 more near the end of a journey. On the score scale they are converted at the steepest point of the logistic that turned a field's potential into a score in the first design, where one cell is worth $1 / (4 \times 10) = 0.025$:
 
 | Parameter | Default | In cells, mid-scale | Meaning |
 |---|---|---|---|
@@ -102,7 +80,7 @@ The margins of the first arbiter were in cells: 5 to change objective, 2.5 to ch
 | `effort_horizon` | 5 min | | time on a target after which its effort counts in full |
 | `min_dwell` | 30 s | | how long a new objective is held before reconsidering |
 
-Towards either end of the scale the logistic flattens, so the same score margin stands for more cells: far-away targets, all scoring near 0, rarely displace each other. That is the price of a bounded scale, and it errs on the side of stability. A robot that has spent five minutes or more on its target needs a rival 0.5 better to be pulled away, which from any field-based commitment above 0.25 takes an override.
+A robot that has spent five minutes or more on its target needs a rival 0.5 better to be pulled away, which from any commitment above 0.4 takes an override.
 
 These are guesses. The number that will tell us whether they are right is switches per completed job (`ArbiterChoice.switched` marks each abandoned commitment; moving on from a finished target or objective does not count): above roughly 0.5 the margins are too low.
 
@@ -113,16 +91,17 @@ arbiter = UtilityArbiter()
 agent = ComposedAgent(robot_id, behaviors, memory, fields, Navigator(fields.quadtree), arbiter)
 ```
 
-One arbiter per robot, since it holds that robot's commitment. Without one, `ComposedAgent` takes the highest score outright, with no overrides or hysteresis.
+One arbiter per robot, since it holds that robot's commitment. `ComposedAgent` requires one.
 
 ## What it deliberately does not do
 
-It does not compute potentials, which is navigation's job, it does not pick targets, which each behaviour does from its own field, and it does not read memory or the robot's state: a behaviour that cares about the battery or the tank reads them and says so in its score. It does not know which objectives suit which body either: a drone never bids TREAT because it was never assembled with that behaviour.
+It does not compute potentials, which is navigation's job, it does not pick targets, which the winner's field does, and it does not read memory or the robot's state: a behaviour that cares about the battery or the tank reads them and says so in its score. It does not know which objectives suit which body either: a drone never bids TREAT because it was never assembled with that behaviour.
 
 It has no idea other robots exist. Nothing here stops two killers converging on the same pest, because they read roughly the same shared map and bid identically. That is the crowding problem, and claims solve it by removing a target from everyone else's set (#42).
 
 ## Still open
 
-- **Exchange rates between seeders.** The hand check shows exploring beating a far pest when unknown cells carry no value. The β of each seeder and the value of an unexplored cell set this, and need tuning once both behaviours run together.
+- **Exchange rates between behaviours.** Each behaviour's heuristic sets how much it wants the robot, and the heuristics need tuning against each other once TREAT and EXPLORE run together.
+- **Committing to a target within a field.** A `FollowField` bid carries no target, so the arbiter's target margin does not hold the robot to the cell its field leads to. If target switches within a field turn out to thrash, the field provider could keep the committed target's seed unless a rival beats it by a margin.
 - **Standby and composition.** How many killers should be active rather than parked at a dock is an arbitration question, since STANDBY would bid like anything else, but its score is not designed yet.
 - **Where the energy feasibility gate lives.** Dropping targets the robot cannot reach and still get back from belongs inside each behaviour, where the targets and the dock distance are known; the RECHARGE score ramp is the recharge behaviour's.

@@ -1,7 +1,7 @@
 """Observations — a tagged union of beliefs about cells.
 
-An observation is a *belief*, not a truth. Cell observations share ``ObservationBase`` (which cell,
-how reliable, when, by whom); peer-target announcements are intent facts without a sensed cell.
+An observation is a *belief*, not a truth. Variants share ``ObservationBase`` (which cell,
+how reliable, when, by whom) and are matched with ``match``/``case``, like ``Action``.
 """
 
 from dataclasses import dataclass
@@ -74,39 +74,21 @@ class TerrainObservation(ObservationBase):
 
 @dataclass(frozen=True)
 class PeerObservation(ObservationBase):
-    """A sighting of another robot at ``cell``.
+    """A sighting of another robot at ``cell``, or a robot's report of itself.
 
     Attributes:
         peer: The peer's identity if resolvable, else ``None`` for an anonymous sighting.
         body: The peer's body type.
+        target: The cell the peer is heading for, if it reported one. Only a robot's report
+            of itself carries it; a sighting cannot tell.
+        objective: The objective the peer is pursuing, if it reported one, so that a seeder
+            can tell a peer treating a cell from one exploring it.
     """
 
     peer: RobotId | None
     body: BodyType
+    target: CellId | None = None
+    objective: AgentObjective | None = None
 
 
-@dataclass(frozen=True)
-class PeerTargetObservation:
-    """A peer's most recently announced target and objective.
-
-    Unlike ``PeerObservation``, this is a report about intent, not physical location.
-    ``source`` identifies the robot whose intent is being reported; ``target=None`` and
-    ``objective=None`` explicitly mean that it currently has no target. Objectives use
-    :class:`AgentObjective`, not behaviour-specific free-form strings. The original source
-    and timestamp are retained when other robots forward the fact through knowledge sharing.
-    """
-
-    source: RobotId
-    target: CellId | None
-    objective: AgentObjective | None
-    confidence: float
-    observed_at: Time
-
-
-Observation = (
-    CropObservation
-    | InfestationObservation
-    | TerrainObservation
-    | PeerObservation
-    | PeerTargetObservation
-)
+Observation = CropObservation | InfestationObservation | TerrainObservation | PeerObservation

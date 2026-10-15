@@ -81,11 +81,10 @@ class BodyType(Enum):
 
 
 class AgentObjective(Enum):
-    """High-level objective a robot is currently pursuing.
+    """The high-level objective a robot is pursuing, as it reports it to its peers.
 
-    This is deliberately separate from a behaviour's implementation name: several behaviours
-    may serve the same objective, and peers should compare stable values rather than free-form
-    strings.
+    Separate from a behaviour's name: several behaviours may serve one objective, and peers
+    compare these stable values rather than free-form strings.
     """
 
     TREAT = auto()

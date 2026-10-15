@@ -24,11 +24,12 @@ class _FixedSeeder:
     """A seeder with fixed seeds and a constant key."""
 
     name: str = "fixed"
+    window_blocks: int = 2
 
     def __init__(self, seeds: tuple[Seed, ...]) -> None:
         self._seeds: tuple[Seed, ...] = seeds
 
-    def field_key(self, memory: MemoryView, now: Time) -> Hashable:
+    def field_key(self, memory: MemoryView, robot: CellId, now: Time) -> Hashable:
         return None
 
     def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
@@ -56,7 +57,7 @@ def _drive(fields: FieldProvider, start: CellId) -> list[Move | Idle]:
     for _ in range(200):
         seeded = fields.field_for(_FixedSeeder.name, position, 0)
         assert seeded is not None
-        action = navigator.step_towards(seeded, position)
+        action, _ = navigator.step_towards(seeded, position)
         actions.append(action)
         if isinstance(action, Idle):
             break

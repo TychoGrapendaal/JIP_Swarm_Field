@@ -21,6 +21,7 @@ A decentralized swarm of robots that monitor and cultivate a crop field. Each ro
 - `simulation/` (B) — the environment simulation: `SimulationLoop` processes timestamped events from an `EventQueue`, and owns ground truth.
 - `visualization/` (C) — the visualization adapter: `Renderer`s draw read-only `WorldSnapshot`s.
 - `runner.py` — the composition root: resolves brain parts from registries, assembles one run, and holds the sweep logic. The only module that knows every concrete class.
+- `experiments/` — hand-built scenarios (exploration, pests) described as `ExperimentConfig`s for the runner, and `LiveRun` to step one for a viewer.
 - `console.py` — the interactive console: advances one run frame by frame, turns key presses and clicks into `Command`s, and records and replays runs. It sits at the package root next to `runner.py` because it combines the simulation and the visualization, which must not import each other.
 
 ## Architecture rules
@@ -28,6 +29,7 @@ A decentralized swarm of robots that monitor and cultivate a crop field. Each ro
 - `contracts` is the only cross-component dependency; `swarm`, `simulation` and `visualization` never import each other's internals.
 - The simulation owns all ground truth. The algorithm sees only `Perception` (perceived, partial, noisy). Visualization is read-only, via `WorldSnapshot`.
 - The `SwarmAgent` protocol is the single boundary between algorithm and simulation.
+- A `Behavior` never reads a potential field. It scores its bid from the robot's own state and memory, so `DecisionContext` deliberately has no access to the fields. A field only picks the target and guides the robot, and only the winning candidate's field is built.
 - Time is discrete-event: an integer `Time` timestamp (no fixed timestep); events are processed in time order.
 - The brain and the loop are each assembled from small, single-purpose parts (`Behavior`s / event handlers), built programmatically.
 

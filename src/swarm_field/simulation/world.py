@@ -249,39 +249,44 @@ class WorldState:
         )
 
     def observe_for(self, robot_id: RobotId, time: Time) -> list[Observation]:
-        """Generate local observations from the robot's current cell and neighbours."""
+        """Generate what the robot senses: its own cell, and the terrain around it.
+
+        A cell is a patch of field the robot monitors as a whole, so its crop, its infestation
+        and the peers sharing it come from the robot's own cell only. Obstacles are large, such
+        as a river, so the robot also sees the terrain of its neighbouring cells.
+        """
         robot = self._robot(robot_id)
-        visible_cells = [robot.position, *self.neighbours(robot.position)]
         observations: list[Observation] = []
 
-        for cell in visible_cells:
-            state = self.cells[cell]
-            observations.append(
-                CropObservation(
-                    cell=cell,
-                    confidence=1.0,
-                    observed_at=time,
-                    source=robot_id,
-                    crop=state.crop,
-                    growth_stage=state.growth_stage,
-                )
+        cell = robot.position
+        state = self.cells[cell]
+        observations.append(
+            CropObservation(
+                cell=cell,
+                confidence=1.0,
+                observed_at=time,
+                source=robot_id,
+                crop=state.crop,
+                growth_stage=state.growth_stage,
             )
-            observations.append(
-                InfestationObservation(
-                    cell=cell,
-                    confidence=1.0,
-                    observed_at=time,
-                    source=robot_id,
-                    severity=state.infestation,
-                    pest=None,
-                )
+        )
+        observations.append(
+            InfestationObservation(
+                cell=cell,
+                confidence=1.0,
+                observed_at=time,
+                source=robot_id,
+                severity=state.infestation,
+                pest=None,
             )
+        )
+        for seen in [cell, *self.neighbours(cell)]:
             terrain = Terrain.FREE
-            if state.obstacle:
+            if self.cells[seen].obstacle:
                 terrain = Terrain.OBSTACLE
             observations.append(
                 TerrainObservation(
-                    cell=cell,
+                    cell=seen,
                     confidence=1.0,
                     observed_at=time,
                     source=robot_id,
@@ -289,18 +294,18 @@ class WorldState:
                 )
             )
 
-            for peer in self.robots_at(cell):
-                if peer != robot_id:
-                    observations.append(
-                        PeerObservation(
-                            cell=cell,
-                            confidence=1.0,
-                            observed_at=time,
-                            source=robot_id,
-                            peer=peer,
-                            body=self._robot(peer).body,
-                        )
+        for peer in self.robots_at(cell):
+            if peer != robot_id:
+                observations.append(
+                    PeerObservation(
+                        cell=cell,
+                        confidence=1.0,
+                        observed_at=time,
+                        source=robot_id,
+                        peer=peer,
+                        body=self._robot(peer).body,
                     )
+                )
 
         return observations
 

@@ -30,6 +30,14 @@ class MetricsSample:
         coverage: Fraction of the crop cells that at least one robot has sensed, 0..1.
         active_robots: Robots still taking part in the run. This drops when a robot fails, so a
             robustness sweep can read the swarm's remaining capacity off the series.
+        mean_idleness_ms: The age of a crop cell, the time since a robot last sensed it,
+            averaged over the cells and the samples so far (from ``MetricsConfig.measure_from``).
+            For pests appearing at uniformly random times and cells it is the expected time
+            until the next visit, i.e. the mean detection latency. A cell never sensed is as old
+            as the run.
+        worst_idleness_ms: The largest age of a crop cell in those samples.
+        redundancy: The share of the robots' visits to a crop cell sensed less than
+            ``MetricsConfig.fresh_age`` before, 0..1.
     """
 
     time: Time
@@ -40,6 +48,9 @@ class MetricsSample:
     messages_received: int
     coverage: float
     active_robots: int
+    mean_idleness_ms: float = 0.0
+    worst_idleness_ms: float = 0.0
+    redundancy: float = 0.0
 
     def to_row(self) -> dict[str, Any]:
         """This sample as a flat ``dict`` of field name to value, for CSV and JSON export."""

@@ -50,9 +50,9 @@ class Arbiter(Protocol):
 class ArbiterConfig:
     """Overrides and hysteresis, in units of the shared score scale.
 
-    A bid scoring at least ``override_threshold`` skips every comparison. Field-based scores
-    stay below it (a target of value 1 under the robot scores about 0.73), so the band above is
-    left to needs a behaviour scores directly, such as a battery about to run out.
+    A bid scoring at least ``override_threshold`` skips every comparison. Ordinary bids stay
+    below it, so the band above is left to needs that must not be traded off, such as a battery
+    about to run out.
 
     Otherwise a rival must beat the current commitment by ``floor + effort_weight * effort``.
     Effort is the time spent on the current target, as a fraction of ``effort_horizon``: it is
@@ -63,8 +63,8 @@ class ArbiterConfig:
     within an objective is cheaper than switching objectives, so its floor is smaller.
 
     The floors and the weight are the cell margins of the first arbiter (5, 2.5 and 15 cells)
-    converted at the steepest point of the logistic, where one cell is worth
-    ``1 / (4 * 10)`` = 0.025.
+    converted at the steepest point of the logistic that once turned a field's potential into a
+    score, where one cell is worth ``1 / (4 * 10)`` = 0.025.
 
     Attributes:
         override_threshold: Score from which a bid overrides everything else.

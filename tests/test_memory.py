@@ -3,7 +3,6 @@
 from math import exp, isclose
 
 from swarm_field.contracts import (
-    AgentObjective,
     BodyType,
     CellId,
     CropObservation,
@@ -11,7 +10,6 @@ from swarm_field.contracts import (
     InfestationObservation,
     Observation,
     PeerObservation,
-    PeerTargetObservation,
     Perception,
     RobotId,
     RobotSelfState,
@@ -141,53 +139,23 @@ def test_confidence_decays_per_kind() -> None:
     assert memory.confidence(terrain, now=10 * decay.infestation) == 1.0
 
 
-def _peer_target(
-    source: RobotId,
-    target: CellId | None,
-    at: Time,
-    objective: AgentObjective | None = AgentObjective.TREAT,
-    confidence: float = 1.0,
-) -> PeerTargetObservation:
-    return PeerTargetObservation(
-        source=source,
-        target=target,
-        objective=objective if target is not None else None,
-        confidence=confidence,
-        observed_at=at,
-    )
-
-
-def test_peer_target_memory_keeps_only_the_newest_announcement_per_peer() -> None:
+def test_last_observed_times_keep_the_newest_observation_per_cell() -> None:
     memory = _memory()
-    older = _peer_target(source=2, target=(3, 3), at=10)
-    newest = _peer_target(source=2, target=(6, 6), at=20)
-    own = _peer_target(source=_SELF, target=(9, 9), at=30)
 
-    memory.merge([older, newest, _peer_target(source=2, target=(1, 1), at=5), own])
+    memory.merge([_pest((3, 3), 0.0, at=20), _pest((3, 3), 0.4, at=10), _pest((5, 1), 0.0, at=7)])
 
-    assert list(memory.peer_targets()) == [newest]
-    assert newest in tuple(memory.records())
+    times = memory.last_observed_times()
+    assert times[3, 3] == 20
+    assert times[5, 1] == 7
+    assert times[0, 0] == float("-inf")
 
 
-def test_a_peer_can_clear_its_current_target_with_a_newer_announcement() -> None:
+def test_known_obstacles_are_not_monitorable() -> None:
     memory = _memory()
-    old_target = _peer_target(source=2, target=(3, 3), at=10)
-    cleared_target = _peer_target(source=2, target=None, at=20, objective=None)
 
-    memory.merge([old_target, cleared_target])
+    memory.merge([_terrain((2, 2), Terrain.OBSTACLE, at=1), _terrain((4, 4), Terrain.FREE, at=1)])
 
-    assert list(memory.peer_targets()) == [cleared_target]
-    assert memory.peer_target_confidence((3, 3), AgentObjective.TREAT, now=20) == 0.0
-
-
-def test_peer_target_confidence_decays_like_other_peer_facts() -> None:
-    memory = _memory()
-    target = _peer_target(source=2, target=(3, 3), at=0, confidence=0.8)
-    memory.merge([target])
-
-    assert isclose(memory.peer_target_confidence((3, 3), AgentObjective.TREAT, now=0), 0.8)
-    assert isclose(
-        memory.peer_target_confidence((3, 3), AgentObjective.TREAT, now=DecayConfig().peer),
-        0.8 * exp(-1),
-    )
-    assert memory.peer_target_confidence((3, 3), AgentObjective.EXPLORE, now=0) == 0.0
+    monitorable = memory.monitorable_cells()
+    assert not monitorable[2, 2]
+    assert monitorable[4, 4]
+    assert monitorable[0, 0]

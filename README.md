@@ -13,9 +13,8 @@ See [`docs/high-level-world-model.md`](docs/high-level-world-model.md) for the c
 - Each robot has its own movement speed in metres per second.
 - Movement time is calculated from the distance between cells, cell size, and robot speed.
 - Infestation is represented as a per-cell severity value, providing a coarse-grained basis for later dynamic pest-spread models.
-- Robots receive local obstacle and infestation observations and can use this information to calculate potential-field attraction and repulsion.
-- A robot does not currently know about obstacles or infestations outside its local observation range.
-- Robot-to-robot communication is delivered peer-to-peer through the `Channel` (inbox and broadcast within radio range), but no behavior encodes or decodes anything yet, so no information actually propagates through the swarm.
+- A robot senses the crop, the infestation and the peers of the cell it stands on, and the terrain of that cell and its neighbours. A cell is a patch of field (about 10 × 10 m) that the robot monitors as a whole, while obstacles such as a river are large enough to see from the next cell.
+- A robot does not know about obstacles or infestations elsewhere unless it starts with a map or learns them from peers.
 - Runs are reproducible: one seeded random source drives the world, a second drives fault injection, and `runner.py` builds every run from a `BrainSpec` so algorithms can be compared as configuration.
 - The B.3 range-based communication channel is implemented; higher-level belief sharing is still the algorithm’s responsibility, so distant infestation information only propagates when agents choose to send messages.
 
@@ -49,6 +48,12 @@ Time the quadtree potential field against a plain Dijkstra over every cell, and 
 
 ```bash
 uv run python -m tests.benchmark_field --sizes 100 250 500
+```
+
+Compare variants and parameters of the EXPLORE seeder: five robots exploring a 32 × 32 field for three simulated hours, four seeds per variant, spread over processes (takes about ten minutes on 20 cores; not part of `pytest`). The results are in [`docs/explore.md`](docs/explore.md):
+
+```bash
+uv run python -m tests.benchmark_explore --size 32 --hours 3 --seeds 4 --jobs 20
 ```
 
 ## Demonstrations
@@ -91,6 +96,28 @@ For an even larger test:
 uv run --with matplotlib python examples/mass_swarm_visualization.py --robots 1000 --seed 7
 ```
 
+### Exploration demonstration (#41)
+
+```bash
+uv run python examples/explore_demo.py
+```
+
+Five scouts explore and keep monitoring a field with the EXPLORE seeder, drawn by the general-purpose `SimulationViewer`. The overlay shades how stale each cell is in ground truth, trails show where the robots went, dashed lines the target each robot is heading for, and a panel the coverage measures (coverage, idleness, redundancy). `--no-discount` turns off the peer discount, `--block-side 16` uses 16 × 16 blocks, and `--obstacles` adds a river with one bridge. Record a video instead of opening a window:
+
+```bash
+uv run python examples/explore_demo.py --obstacles --save explore.mp4
+```
+
+`SimulationViewer` (in `swarm_field.visualization`) works for any run: give it a function from a time to a `WorldSnapshot` (e.g. `LiveRun.snapshot_at` in `swarm_field.experiments`), and optionally a per-cell overlay, the robots' goals and the lines of the panel.
+
+### Pest demonstration
+
+```bash
+uv run python examples/pest_demo.py
+```
+
+Five scouts explore and three killers explore and treat a field with a river and two rocks, while pests appear at random free cells over time. Every robot is a real `ComposedAgent` with a `UtilityArbiter`: scouts follow the EXPLORE field with a mock behaviour that always bids 0.5, and killers weigh it against `TreatInfestation` on the TREAT field. Robots share their memory and status only within radio range. The panel shows what each killer is doing and how many pests it knows of. `--killers-treat-only` leaves the explore behaviour out of the killers, so they wait until they hear of a pest. The panel also shows the measures of `MetricsCollector`: infested cells, detection latency, coverage, idleness and redundancy. `--radio`, `--pests-per-hour`, `--spread`, `--scouts` and `--killers` change the setup, and `--save videos/pests.mp4` records a video. `PestScenario` in `swarm_field.experiments` describes the run, and `swarm_field.runner` assembles and runs it.
+
 ### Wall-following steering demonstration
 
 ```bash
@@ -114,6 +141,14 @@ uv run --with matplotlib python examples/robot_decision_demo.py --frames 200 --s
 ```
 
 This demo is specifically intended to make the event-driven behavior added in issue #4 visible; it is separate from the higher-level swarm behavior demonstrations.
+
+### Treat-infestation demonstration
+
+```bash
+uv run python examples/treat_infestation_demo.py
+```
+
+A killer robot that already knows of three pests follows the TREAT field around a wall to each of them, treats it once, and then idles.
 
 ### Renderer demonstration (C.1)
 
@@ -247,18 +282,15 @@ uv run python examples/robustness_demo.py --scenario S5 --hours 3
 uv run python examples/robustness_demo.py --out runs/robustness
 ```
 
-**What this currently shows:** `active_robots` and `energy/m²` respond to the faults as intended, and the pest dynamics are provably unaffected. The outcome metrics (`coverage`, `targets_remaining`, `detection_latency`) are flat, because the swarm's behaviors are still stubs — `TreatSeeder.seeds()` returns no targets, so every robot commits `Idle` from the first decision and the swarm never moves. [`docs/research/robustness.md`](docs/research/robustness.md) explains what has to land before the sweep measures resilience rather than capacity.
+**What this currently shows:** `active_robots` and `energy/m²` respond to the faults as intended, and the pest dynamics are provably unaffected. The outcome metrics (`coverage`, `targets_remaining`, `detection_latency`) are flat, because the default brain only treats: `TreatInfestation` bids only on pests the robot knows of, a robot senses only its own cell, and nothing explores, so robots that start away from a pest idle from the first decision. [`docs/research/robustness.md`](docs/research/robustness.md) explains what has to land before the sweep measures resilience rather than capacity.
 
 ## Current demonstration limitations
 
-- The exploration behavior is currently a simple baseline and is not yet a dedicated coverage/exploration algorithm.
-- Goal-directed navigation uses a potential field over the robot's believed terrain, with a reactive wall-follow as its fallback. Exploration is being rebuilt on the same fields (#41).
-- `TreatSeeder` is a stub that returns no target cells, so every robot commits `Idle` and the swarm does not move. Coverage and detection-latency metrics are therefore flat in the sweeps; see [`docs/research/robustness.md`](docs/research/robustness.md).
+- Goal-directed navigation and exploration use potential fields over the robot's believed terrain, with a reactive wall-follow as their fallback. Exploration (`ExploreSeeder`, see [`docs/explore.md`](docs/explore.md)) has no behaviour of its own yet; the demo and the benchmark follow its field with a stand-in.
 - Navigation is planned over what the robot believes, so a wrong obstacle belief is followed exactly; there is no observation-based recovery from it yet.
-- Robot-to-robot communication carries messages but nothing encodes or decodes them yet, so `messages_sent` is zero and the utility robot cannot follow a pest found by another robot.
 - Coarse-grained infestation dynamics are implemented as a scheduled `WorldTick`; the current model supports severity growth, neighbour spread, and stochastic spawning.
+- Sensing covers the robot's own cell, and the terrain of its neighbours; obstacles further away are unknown unless the robot starts with the terrain map, and infestations elsewhere unless peers share them.
 - Robot batteries are drained by a coarse cost model (per metre, per decision, per treat) and robot failure and position error can be injected for robustness runs, but there is no charging station, no consumable replenishment and no recovery from a failure.
-- Sensing is currently local; distant obstacles and infestations are unknown unless information is later propagated through communication.
 - The visualization adapter renders read-only snapshots; interactive time control, infestation injection, robot inspection, and recording and replaying a run live in `swarm_field.console`, with `examples/interactive_demo.py` and `examples/scenario_viewer.py` as its command lines (C.1).
 
 ## Project layout
@@ -269,9 +301,3 @@ tests/             # pytest suite
 examples/          # executable demonstrations
 docs/              # design documents, research notes and source material
 ```
-
-### Decision arbitration
-
-Each `ComposedAgent` uses its own `UtilityArbiter` by default. The arbiter selects from behaviour bids, supports high-priority overrides, and applies hysteresis so robots do not switch objectives or targets too readily. Pass an explicit arbiter to `ComposedAgent` to customize its configuration.
-
-Peer-target announcements are shared as typed `AgentObjective` values and stored in local memory. This change records and communicates intent; target-discounting remains an objective-level policy and is not applied generically inside the brain.

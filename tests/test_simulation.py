@@ -15,6 +15,7 @@ from swarm_field.contracts import (
     Decision,
     FieldGeometry,
     Idle,
+    InfestationObservation,
     InjectInfestation,
     Move,
     Pause,
@@ -39,6 +40,7 @@ from swarm_field.swarm import (
     MemoryView,
     Navigator,
     TreatInfestation,
+    UtilityArbiter,
 )
 from swarm_field.swarm.field import Seed
 
@@ -65,11 +67,12 @@ class _FixedTargetSeeder:
     """One fixed target, so a behaviour has a field to follow without any pest logic."""
 
     name: str = "fixed-target"
+    window_blocks: int = 2
 
     def __init__(self, target: CellId) -> None:
         self._target: CellId = target
 
-    def field_key(self, memory: MemoryView, now: Time) -> Hashable:
+    def field_key(self, memory: MemoryView, robot: CellId, now: Time) -> Hashable:
         return None
 
     def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
@@ -307,6 +310,8 @@ def test_robot_decision_drives_a_real_brain() -> None:
     )
     robot = RobotState(robot_id=0, position=(2, 2), body=BodyType.SCOUT, speed_mps=2.0)
     memory = AgentMemory(0, field)
+    # TreatInfestation bids only while memory knows a pest.
+    memory.merge([InfestationObservation((2, 3), 1.0, 0, 1, severity=0.5, pest=None)])
     seeder = _FixedTargetSeeder((2, 3))
     fields = FieldProvider(memory, flies=False, seeders=[seeder])
     ctx = SimulationContext(
@@ -319,6 +324,7 @@ def test_robot_decision_drives_a_real_brain() -> None:
                 memory=memory,
                 fields=fields,
                 navigator=Navigator(fields.quadtree),
+                arbiter=UtilityArbiter(),
             )
         },
         world=WorldState(field, robots=[robot]),

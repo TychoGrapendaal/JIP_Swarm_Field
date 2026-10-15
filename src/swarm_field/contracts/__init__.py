@@ -39,7 +39,6 @@ from swarm_field.contracts.observations import (
     Observation,
     ObservationBase,
     PeerObservation,
-    PeerTargetObservation,
     TerrainObservation,
 )
 from swarm_field.contracts.scenario import (
@@ -84,7 +83,6 @@ __all__ = [
     "ObservationBase",
     "Pause",
     "PeerObservation",
-    "PeerTargetObservation",
     "Perception",
     "PestDynamicsSpec",
     "PestType",

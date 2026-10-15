@@ -15,13 +15,14 @@ from __future__ import annotations
 
 import csv
 import json
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from random import Random
 from typing import Any, TypeVar
 
 from swarm_field.contracts import (
+    BodyType,
     FailureMode,
     FailureSpec,
     FieldGeometry,
@@ -32,6 +33,8 @@ from swarm_field.contracts import (
     ScenarioConfig,
     ScenarioId,
     SwarmAgent,
+    Terrain,
+    TerrainObservation,
     Time,
     TimeUnit,
 )
@@ -45,6 +48,7 @@ from swarm_field.simulation import (
     RobotDecision,
     SimulationContext,
     SimulationLoop,
+    WorldState,
     WorldTick,
     build_scenario,
     build_world,
@@ -53,13 +57,18 @@ from swarm_field.simulation import (
 )
 from swarm_field.swarm import (
     AgentMemory,
+    ArbiterConfig,
     Behavior,
     ComposedAgent,
+    ExploreConfig,
+    ExploreSeeder,
     FieldProvider,
     FieldSeeder,
+    FollowSeederField,
     Navigator,
     TreatInfestation,
     TreatSeeder,
+    UtilityArbiter,
 )
 
 T = TypeVar("T")
@@ -119,14 +128,26 @@ def _build_treat_seeder(params: dict[str, Any], rng: Random) -> TreatSeeder:
     return TreatSeeder()
 
 
+@BEHAVIORS.register("explore")
+def _build_explore(params: dict[str, Any], rng: Random) -> FollowSeederField:
+    """Build the mock explore behaviour: an even bid to follow the EXPLORE seeder's field."""
+    return FollowSeederField(ExploreSeeder.name)
+
+
+@SEEDERS.register("explore")
+def _build_explore_seeder(params: dict[str, Any], rng: Random) -> ExploreSeeder:
+    """Build the EXPLORE seeder from the ``ExploreConfig`` under ``"explore"``, if given."""
+    config: ExploreConfig | None = params.get("explore")
+    return ExploreSeeder(config)
+
+
 @dataclass(frozen=True)
 class BrainSpec:
     """How to assemble one robot's brain, by name.
 
-    This is the data-driven assembly of architecture §A.4. The arbiter and communication
-    strategy have no registry entries because ``ComposedAgent`` does not accept them yet, and
-    ``explore`` has none because there is no EXPLORE seeder yet: ``TreatSeeder`` is the only
-    seeder that exists. Each is added when the part behind it exists.
+    This is the data-driven assembly of architecture §A.4. Every brain gets a
+    ``UtilityArbiter`` with ``arbiter``; the communication strategy is fixed in
+    ``ComposedAgent``, so it has no registry entry.
 
     Attributes:
         behaviors: Registry names of the behaviors, combined at every decision point. Order
@@ -135,13 +156,16 @@ class BrainSpec:
             behaviour reaches a field: it names one of them. A behaviour that follows a single
             seeder takes the first name.
         navigator: Registry name of the movement layer. Only ``"potential-field"`` exists.
-        params: Per-part parameters, passed through to the named factory.
+        params: Per-part parameters, passed through to the named factory, e.g. an
+            ``ExploreConfig`` under ``"explore"`` for the EXPLORE seeder.
+        arbiter: The overrides and hysteresis of the robot's ``UtilityArbiter``.
     """
 
     behaviors: tuple[str, ...] = ("treat-infestation",)
     seeders: tuple[str, ...] = ("treat",)
     navigator: str = "potential-field"
     params: dict[str, Any] = field(default_factory=dict)
+    arbiter: ArbiterConfig = field(default_factory=ArbiterConfig)
 
 
 @dataclass(frozen=True)
@@ -154,6 +178,14 @@ class ExperimentConfig:
         scenario_name: Which preset ``scenario`` came from, for the summary's provenance. Empty
             for a scenario assembled by hand rather than by ``build_experiment``.
         brain: How to assemble each robot's brain.
+        brains_by_body: A different brain for the robots of some body types; the others get
+            ``brain``.
+        robots_know_terrain: Whether every robot starts with the field's terrain map in its
+            memory. Otherwise it learns an obstacle only once it stands next to it.
+        stagger_decisions: Whether each robot decides first at a random time within one
+            ``decision_interval``, drawn from the seed, instead of all robots at time zero. Runs
+            with different seeds then interleave the robots' decisions differently, also when
+            nothing else in the run is random.
         until: How far to run, in simulation time.
         metrics: Sampling cadence and target threshold.
         decision_interval: Time between every robot's consecutive decisions.
@@ -163,6 +195,9 @@ class ExperimentConfig:
     scenario: ScenarioConfig
     scenario_name: str = ""
     brain: BrainSpec = field(default_factory=BrainSpec)
+    brains_by_body: Mapping[BodyType, BrainSpec] = field(default_factory=dict)
+    robots_know_terrain: bool = False
+    stagger_decisions: bool = False
     until: Time = TimeUnit.HOUR
     metrics: MetricsConfig = field(default_factory=MetricsConfig)
     decision_interval: Time = 5_000
@@ -457,10 +492,13 @@ def build_run(
     scenario = config.scenario
     rng = Random(scenario.seed)
     world = build_world(scenario)
-    agents: dict[RobotId, SwarmAgent] = {
-        spec.robot_id: build_agent(config.brain, spec.robot_id, scenario.field, rng)
-        for spec in scenario.robots
-    }
+    terrain: list[TerrainObservation] = []
+    if config.robots_know_terrain:
+        terrain = terrain_map(world)
+    agents: dict[RobotId, SwarmAgent] = {}
+    for spec in scenario.robots:
+        brain = config.brains_by_body.get(spec.body, config.brain)
+        agents[spec.robot_id] = build_agent(brain, spec.robot_id, scenario.field, rng, terrain)
 
     collector = MetricsCollector(config=config.metrics)
     collector.bind(world)
@@ -496,8 +534,11 @@ def seed_initial_events(ctx: SimulationContext, config: ExperimentConfig) -> Non
     order, so this is what makes a run with several events at time zero reproducible.
     """
     for robot_id in sorted(ctx.agents):
+        first: Time = 0
+        if config.stagger_decisions:
+            first = ctx.rng.randrange(config.decision_interval)
         ctx.schedule(
-            RobotDecision(time=0, robot=robot_id, decision_interval=config.decision_interval)
+            RobotDecision(time=first, robot=robot_id, decision_interval=config.decision_interval)
         )
     ctx.schedule(
         WorldTick(time=0, config=PestDynamicsConfig.from_spec(config.scenario.pest_dynamics))
@@ -512,14 +553,16 @@ def build_agent(
     robot_id: RobotId,
     field: FieldGeometry,
     rng: Random,
+    terrain: Sequence[TerrainObservation] = (),
 ) -> ComposedAgent:
     """Resolve a ``BrainSpec`` into one assembled brain for one robot.
 
-    The robot's ``BodyType`` is not a parameter yet: ``ComposedAgent`` has no capability gate
-    to apply it in, so every v1 body builds the same brain. It is added when the gate does
-    (architecture §A.3).
+    The robot's ``BodyType`` is not a parameter: ``ComposedAgent`` has no capability gate to
+    apply it in, so a body gets its own brain through ``ExperimentConfig.brains_by_body``
+    instead (architecture §A.3). The robot's memory starts with ``terrain``.
     """
     memory = AgentMemory(robot_id, field)
+    memory.merge(terrain)
     behaviors: list[Behavior] = [
         BEHAVIORS.build(name, _params_for(spec), rng) for name in spec.behaviors
     ]
@@ -530,7 +573,21 @@ def build_agent(
         memory=memory,
         fields=fields,
         navigator=Navigator(fields.quadtree),
+        arbiter=UtilityArbiter(spec.arbiter),
     )
+
+
+def terrain_map(world: WorldState) -> list[TerrainObservation]:
+    """The terrain of every cell, as facts observed at time 0."""
+    facts: list[TerrainObservation] = []
+    for cell, state in world.cells.items():
+        terrain = Terrain.FREE
+        if state.obstacle:
+            terrain = Terrain.OBSTACLE
+        facts.append(
+            TerrainObservation(cell=cell, confidence=1.0, observed_at=0, source=0, terrain=terrain)
+        )
+    return facts
 
 
 def _params_for(spec: BrainSpec) -> dict[str, Any]:

@@ -9,6 +9,7 @@ from swarm_field.contracts import (
     Idle,
     Move,
     PeerObservation,
+    TerrainObservation,
     Treat,
 )
 from swarm_field.simulation import EnergyConfig, RobotState, WorldState
@@ -145,11 +146,12 @@ def test_treat_changes_field_patch_and_consumable() -> None:
     assert world.robots[1].consumable == 0.8
 
 
-def test_observe_for_reports_multiple_visible_peers() -> None:
+def test_observe_for_reports_the_own_cell_and_the_terrain_around_it() -> None:
     robots = [
         _robot(1, position=(1, 1)),
-        _robot(2, position=(2, 1)),
-        _robot(3, position=(2, 1)),
+        _robot(2, position=(1, 1)),
+        _robot(3, position=(1, 1)),
+        _robot(4, position=(2, 1)),
     ]
     world = WorldState(_field(), robots=robots)
 
@@ -158,6 +160,19 @@ def test_observe_for_reports_multiple_visible_peers() -> None:
         observation for observation in observations if isinstance(observation, PeerObservation)
     ]
 
+    terrain_cells = {
+        observation.cell
+        for observation in observations
+        if isinstance(observation, TerrainObservation)
+    }
+    other_cells = {
+        observation.cell
+        for observation in observations
+        if not isinstance(observation, TerrainObservation)
+    }
+
+    assert terrain_cells == {(1, 1), *world.neighbours((1, 1))}
+    assert other_cells == {(1, 1)}
     assert {peer.peer for peer in peers} == {2, 3}
 
 
