@@ -1,0 +1,570 @@
+"""The composition root: the one place that knows every concrete class (architecture §I.2).
+
+Everything else depends on ports. This module depends on the implementations: it resolves
+named brain parts from registries, builds one brain per robot, seeds the run's first events
+and drives ``SimulationLoop``. Because it is the only such place, comparing algorithms is a
+change to a ``BrainSpec`` rather than to any component.
+
+A run is reproducible by construction. One ``Random``, seeded from ``ScenarioConfig.seed``, is
+created here and threaded into the context, and every part that needs randomness takes its
+draw from it at assembly time in a fixed order. The context's ``rng`` is then left to the pest
+dynamics, which draw from it in event order.
+"""
+
+from __future__ import annotations
+
+import csv
+import json
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field
+from pathlib import Path
+from random import Random
+from typing import Any, TypeVar
+
+from swarm_field.contracts import (
+    FailureMode,
+    FailureSpec,
+    FieldGeometry,
+    MetricsSample,
+    PositionErrorSpec,
+    RobotId,
+    ScenarioConfig,
+    ScenarioId,
+    SwarmAgent,
+    Time,
+    TimeUnit,
+)
+from swarm_field.simulation import (
+    FailureCheck,
+    FailureConfig,
+    MetricSample,
+    MetricsCollector,
+    MetricsConfig,
+    PestDynamicsConfig,
+    RobotDecision,
+    SimulationContext,
+    SimulationLoop,
+    WorldTick,
+    build_scenario,
+    build_world,
+    write_metrics_csv,
+    write_metrics_json,
+)
+from swarm_field.swarm import (
+    AgentMemory,
+    Behavior,
+    ComposedAgent,
+    FieldProvider,
+    FieldSeeder,
+    Navigator,
+    TreatInfestation,
+    TreatSeeder,
+)
+
+T = TypeVar("T")
+"""What a ``Registry`` holds: a swappable brain part."""
+
+PartFactory = Callable[[dict[str, Any], Random], T]
+"""Builds one brain part from its parameters and the run's random source."""
+
+
+class Registry[T]:
+    """Named factories for swappable brain parts, so a spec can be data rather than code."""
+
+    def __init__(self) -> None:
+        self._factories: dict[str, PartFactory[T]] = {}
+
+    def register(self, name: str) -> Callable[[PartFactory[T]], PartFactory[T]]:
+        """Return a decorator that files a part factory under ``name``."""
+
+        def add(factory: PartFactory[T]) -> PartFactory[T]:
+            self._factories[name] = factory
+            return factory
+
+        return add
+
+    def build(self, name: str, params: dict[str, Any], rng: Random) -> T:
+        """Build the part registered under ``name``."""
+        return self._factories[name](params, rng)
+
+    def names(self) -> tuple[str, ...]:
+        """Every registered name, sorted, for error messages and documentation."""
+        return tuple(sorted(self._factories))
+
+
+BEHAVIORS: Registry[Behavior] = Registry()
+SEEDERS: Registry[FieldSeeder] = Registry()
+
+_NOISE_SEED_OFFSET = 0x5EED
+"""Keeps the fault-injection random stream distinct from the world's for a given seed."""
+
+
+@BEHAVIORS.register("treat-infestation")
+def _build_treat_infestation(params: dict[str, Any], rng: Random) -> TreatInfestation:
+    """Build the pest-response behaviour, following the TREAT seeder the spec names first.
+
+    Raises:
+        ValueError: If the spec names no seeder, so there is no field to follow.
+    """
+    seeders: tuple[str, ...] = tuple(params.get("seeders", (TreatSeeder.name,)))
+    if not seeders:
+        raise ValueError("treat-infestation needs a seeder to follow")
+    return TreatInfestation(seeders[0])
+
+
+@SEEDERS.register("treat")
+def _build_treat_seeder(params: dict[str, Any], rng: Random) -> TreatSeeder:
+    """Build the TREAT seeder. It has no parameters yet, so it takes none."""
+    return TreatSeeder()
+
+
+@dataclass(frozen=True)
+class BrainSpec:
+    """How to assemble one robot's brain, by name.
+
+    This is the data-driven assembly of architecture §A.4. The arbiter and communication
+    strategy have no registry entries because ``ComposedAgent`` does not accept them yet, and
+    ``explore`` has none because there is no EXPLORE seeder yet: ``TreatSeeder`` is the only
+    seeder that exists. Each is added when the part behind it exists.
+
+    Attributes:
+        behaviors: Registry names of the behaviors, combined at every decision point. Order
+            does not matter, the orchestrator scores them all.
+        seeders: Registry names of the seeders to register in the navigator, which is how a
+            behaviour reaches a field: it names one of them. A behaviour that follows a single
+            seeder takes the first name.
+        navigator: Registry name of the movement layer. Only ``"potential-field"`` exists.
+        params: Per-part parameters, passed through to the named factory.
+    """
+
+    behaviors: tuple[str, ...] = ("treat-infestation",)
+    seeders: tuple[str, ...] = ("treat",)
+    navigator: str = "potential-field"
+    params: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class ExperimentConfig:
+    """One point of a sweep: a scenario, a brain, and how long to run it.
+
+    Attributes:
+        label: Name recorded on the resulting summary, so a sweep's results are traceable.
+        scenario: The scenario to run, carrying its own seed.
+        scenario_name: Which preset ``scenario`` came from, for the summary's provenance. Empty
+            for a scenario assembled by hand rather than by ``build_experiment``.
+        brain: How to assemble each robot's brain.
+        until: How far to run, in simulation time.
+        metrics: Sampling cadence and target threshold.
+        decision_interval: Time between every robot's consecutive decisions.
+    """
+
+    label: str
+    scenario: ScenarioConfig
+    scenario_name: str = ""
+    brain: BrainSpec = field(default_factory=BrainSpec)
+    until: Time = TimeUnit.HOUR
+    metrics: MetricsConfig = field(default_factory=MetricsConfig)
+    decision_interval: Time = 5_000
+
+
+@dataclass(frozen=True)
+class RunSummary:
+    """What one run produced: its full metrics series and the figures read off it.
+
+    Attributes:
+        label: Name of the configuration this run used.
+        scenario: Name of the scenario preset this run used.
+        seed: The scenario seed the run was reproducible from.
+        series: Every metrics sample, oldest first.
+        targets_remaining: Active targets left at the end of the run.
+        coverage: Fraction of the crop cells sensed by the end of the run.
+        mean_detection_latency_ms: Mean delay from infestation to first sighting, averaged over the
+            run's samples, or ``None`` if nothing was detected.
+        energy_per_area: Battery fraction spent per square metre over the run.
+        messages_sent: Messages handed to the channel over the run.
+        messages_received: Times a message reached a robot in range over the run.
+        active_robots: Robots still taking part when the run ended.
+    """
+
+    label: str
+    scenario: str
+    seed: int
+    series: tuple[MetricsSample, ...]
+    targets_remaining: int
+    coverage: float
+    mean_detection_latency_ms: float | None
+    energy_per_area: float
+    messages_sent: int
+    messages_received: int
+    active_robots: int
+
+    @classmethod
+    def from_series(
+        cls,
+        label: str,
+        scenario: str,
+        seed: int,
+        series: Iterable[MetricsSample],
+    ) -> RunSummary:
+        """Summarise a metrics series, taking the last sample for the whole-run figures."""
+        taken = tuple(series)
+        if not taken:
+            raise ValueError("a run summary needs at least one metrics sample")
+        final = taken[-1]
+        return cls(
+            label=label,
+            scenario=scenario,
+            seed=seed,
+            series=taken,
+            targets_remaining=final.targets_remaining,
+            coverage=final.coverage,
+            mean_detection_latency_ms=_mean(sample.detection_latency_ms for sample in taken),
+            energy_per_area=final.energy_per_area,
+            messages_sent=final.messages_sent,
+            messages_received=final.messages_received,
+            active_robots=final.active_robots,
+        )
+
+    def to_row(self) -> dict[str, int | float | str | None]:
+        """This summary as one flat record, the shape a sweep's table is written in."""
+        return {
+            "label": self.label,
+            "scenario": self.scenario,
+            "seed": self.seed,
+            "samples": len(self.series),
+            "targets_remaining": self.targets_remaining,
+            "coverage": self.coverage,
+            "mean_detection_latency_ms": self.mean_detection_latency_ms,
+            "energy_per_area": self.energy_per_area,
+            "messages_sent": self.messages_sent,
+            "messages_received": self.messages_received,
+            "active_robots": self.active_robots,
+        }
+
+    def export(self, directory: Path) -> tuple[Path, Path]:
+        """Write this run's series as CSV and JSON under ``directory``, and return both paths.
+
+        The label is turned into a single file name: a sweep labels runs ``SCENARIO/SEED``, and
+        a label is display data, so it must not be allowed to become a directory path.
+        """
+        stem = _file_stem(self.label)
+        csv_path = directory / f"{stem}.csv"
+        json_path = directory / f"{stem}.json"
+        write_metrics_csv(self.series, csv_path)
+        write_metrics_json(self.series, json_path)
+        return csv_path, json_path
+
+
+def run_experiment(config: ExperimentConfig) -> RunSummary:
+    """Assemble, run and summarise one seeded experiment.
+
+    Args:
+        config: The scenario, brain and duration to run.
+    """
+    ctx, collector = build_run(config)
+    SimulationLoop().run(ctx, config.until)
+    return RunSummary.from_series(
+        config.label, config.scenario_name, config.scenario.seed, collector.series()
+    )
+
+
+def sweep(configs: Iterable[ExperimentConfig]) -> tuple[RunSummary, ...]:
+    """Run several configurations in order and return one summary per configuration.
+
+    Each configuration carries its own seed, so a sweep is reproducible end to end and its
+    results can be compared row by row.
+    """
+    return tuple(run_experiment(config) for config in configs)
+
+
+def sweep_scenarios(
+    scenarios: Iterable[ScenarioId],
+    seeds: Iterable[int],
+    brain: BrainSpec | None = None,
+    until: Time = TimeUnit.HOUR,
+    metrics: MetricsConfig | None = None,
+) -> tuple[RunSummary, ...]:
+    """Run the cross product of ``scenarios`` and ``seeds``, labelling each run ``SCENARIO/SEED``.
+
+    The label is derived rather than passed in, so a sweep's rows stay in the same order as the
+    configuration that produced them and cannot be mislabelled by hand.
+    """
+    configs: list[ExperimentConfig] = []
+    for scenario in scenarios:
+        for seed in seeds:
+            label = f"{scenario.name}/{seed}"
+            configs.append(
+                build_experiment(label, scenario, seed, brain=brain, until=until, metrics=metrics)
+            )
+    return sweep(configs)
+
+
+@dataclass(frozen=True)
+class RobustnessCase:
+    """One condition a robustness sweep runs a scenario under.
+
+    A case is a label plus the two robustness knobs, so a sweep row can be traced back to the
+    condition that produced it. A case with both probabilities at zero is the baseline.
+
+    Attributes:
+        label: Name of the condition, used to label the run.
+        failures: How often robots fail, and how.
+        position_error: How often robots mislocate themselves.
+    """
+
+    label: str
+    failures: FailureSpec = field(default_factory=FailureSpec)
+    position_error: PositionErrorSpec = field(default_factory=PositionErrorSpec)
+
+
+def robustness_sweep(
+    scenario: ScenarioId,
+    cases: Iterable[RobustnessCase],
+    seed: int,
+    until: Time = TimeUnit.HOUR,
+    metrics: MetricsConfig | None = None,
+) -> tuple[RunSummary, ...]:
+    """Run one scenario under each robustness condition, from the same seed.
+
+    Every case is run against the same seed, so a run and its baseline differ only in the
+    faults: the pest dynamics see the same random stream either way. That is what makes a
+    difference in the metrics attributable to the condition rather than to the weather.
+
+    Args:
+        scenario: Which built-in scenario preset to run under every condition.
+        cases: The conditions to run, including the baseline.
+        seed: The seed shared by every case, which is what makes them comparable.
+        until: How far to run each case, in simulation time.
+        metrics: Sampling cadence and target threshold.
+    """
+    runs: list[RunSummary] = []
+    for case in cases:
+        config = build_experiment(
+            f"{scenario.name}/{case.label}",
+            scenario,
+            seed,
+            until=until,
+            metrics=metrics,
+        )
+        config.scenario.failures = case.failures
+        config.scenario.position_error = case.position_error
+        runs.append(run_experiment(config))
+    return tuple(runs)
+
+
+def default_robustness_cases(
+    failure_probabilities: Iterable[float] = (0.001, 0.005),
+    position_error_probabilities: Iterable[float] = (0.1, 0.3),
+    mode: FailureMode = FailureMode.DEAD_BATTERY,
+) -> tuple[RobustnessCase, ...]:
+    """The conditions the robustness note reports: a baseline, then one axis at a time.
+
+    Only one axis is perturbed at a time, so each row answers one question. The modes are swept
+    separately, since a battery death and a radio loss cost the swarm different things.
+    """
+    cases = [RobustnessCase(label="baseline")]
+    for probability in failure_probabilities:
+        cases.append(
+            RobustnessCase(
+                label=f"failure-{mode.name.lower()}-{probability:g}",
+                failures=FailureSpec(probability=probability, mode=mode),
+            )
+        )
+    for probability in position_error_probabilities:
+        cases.append(
+            RobustnessCase(
+                label=f"position-error-{probability:g}",
+                position_error=PositionErrorSpec(probability=probability),
+            )
+        )
+    return tuple(cases)
+
+
+def export_summary_csv(runs: Iterable[RunSummary], path: Path) -> Path:
+    """Write one row per run to ``path``, so a sweep can be compared in a table."""
+    rows = [run.to_row() for run in runs]
+    if not rows:
+        raise ValueError("there is nothing to export")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+    return path
+
+
+def export_summary_json(runs: Iterable[RunSummary], path: Path) -> Path:
+    """Write one record per run to ``path`` as JSON."""
+    rows = [run.to_row() for run in runs]
+    if not rows:
+        raise ValueError("there is nothing to export")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(rows, indent=2), encoding="utf-8")
+    return path
+
+
+def build_run(config: ExperimentConfig) -> tuple[SimulationContext, MetricsCollector]:
+    """Assemble one run's object graph and seed its first events.
+
+    Every random draw happens here, in a fixed order, so the run is a function of the seed and
+    the configuration. The context's ``rng`` is then left to the pest dynamics, which draw from
+    it in event order; the metrics collector holds no random source of its own, so recording
+    metrics cannot change the world a run produces.
+
+    Args:
+        config: The experiment to assemble.
+    """
+    scenario = config.scenario
+    rng = Random(scenario.seed)
+    world = build_world(scenario)
+    agents: dict[RobotId, SwarmAgent] = {
+        spec.robot_id: build_agent(config.brain, spec.robot_id, scenario.field, rng)
+        for spec in scenario.robots
+    }
+
+    collector = MetricsCollector(config=config.metrics)
+    collector.bind(world)
+
+    ctx = SimulationContext(
+        now=0,
+        rng=rng,
+        agents=agents,
+        world=world,
+        metrics=collector,
+        position_error=scenario.position_error,
+        noise=_noise_source(scenario.seed),
+    )
+    seed_initial_events(ctx, config)
+    return ctx, collector
+
+
+def _noise_source(seed: int) -> Random:
+    """The fault-injection random source, seeded apart from the world's.
+
+    A robustness run has to be comparable with its baseline: the pests must evolve exactly as
+    they would have without the faults. Deriving the seed from the scenario seed keeps the pair
+    reproducible, while keeping the streams apart keeps the comparison honest.
+    """
+    return Random(seed ^ _NOISE_SEED_OFFSET)
+
+
+def seed_initial_events(ctx: SimulationContext, config: ExperimentConfig) -> None:
+    """Schedule a run's first events.
+
+    The order is fixed and load-bearing: ``EventQueue`` breaks equal timestamps by insertion
+    order, so this is what makes a run with several events at time zero reproducible.
+    """
+    for robot_id in sorted(ctx.agents):
+        ctx.schedule(
+            RobotDecision(time=0, robot=robot_id, decision_interval=config.decision_interval)
+        )
+    ctx.schedule(
+        WorldTick(time=0, config=PestDynamicsConfig.from_spec(config.scenario.pest_dynamics))
+    )
+    if config.scenario.failures.probability > 0.0:
+        ctx.schedule(FailureCheck(time=0, config=FailureConfig.from_spec(config.scenario.failures)))
+    ctx.schedule(MetricSample(time=0, config=config.metrics))
+
+
+def build_agent(
+    spec: BrainSpec,
+    robot_id: RobotId,
+    field: FieldGeometry,
+    rng: Random,
+) -> ComposedAgent:
+    """Resolve a ``BrainSpec`` into one assembled brain for one robot.
+
+    The robot's ``BodyType`` is not a parameter yet: ``ComposedAgent`` has no capability gate
+    to apply it in, so every v1 body builds the same brain. It is added when the gate does
+    (architecture §A.3).
+    """
+    memory = AgentMemory(robot_id, field)
+    behaviors: list[Behavior] = [
+        BEHAVIORS.build(name, _params_for(spec), rng) for name in spec.behaviors
+    ]
+    fields = build_field_provider(spec, memory, rng)
+    return ComposedAgent(
+        robot_id=robot_id,
+        behaviors=behaviors,
+        memory=memory,
+        fields=fields,
+        navigator=Navigator(fields.quadtree),
+    )
+
+
+def _params_for(spec: BrainSpec) -> dict[str, Any]:
+    """The spec's shared parameters, with the seeders the spec names folded in.
+
+    The seeders are a field of their own rather than parameters so that swapping one does not
+    mean restating it, and so that ``BrainSpec.seeders`` is the only place the names are given.
+    """
+    return {**spec.params, "seeders": spec.seeders}
+
+
+def build_field_provider(spec: BrainSpec, memory: AgentMemory, rng: Random) -> FieldProvider:
+    """Build the potential fields of the navigator named by a spec, over the seeders it names.
+
+    Every v1 body is a ground robot, so the potential field is planned over land the robot
+    believes it can enter. An aerial body would pass ``flies=True`` and ignore crop cells.
+
+    Raises:
+        ValueError: If the spec names a navigator that is not registered yet.
+        KeyError: If the spec names a seeder that is not registered.
+    """
+    if spec.navigator != "potential-field":
+        raise ValueError(f"unknown navigator: {spec.navigator}")
+    params = _params_for(spec)
+    seeders: list[FieldSeeder] = [SEEDERS.build(name, params, rng) for name in spec.seeders]
+    return FieldProvider(memory, flies=False, seeders=seeders)
+
+
+def build_experiment(
+    label: str,
+    scenario: ScenarioId,
+    seed: int,
+    brain: BrainSpec | None = None,
+    until: Time = TimeUnit.HOUR,
+    metrics: MetricsConfig | None = None,
+    decision_interval: Time = 5_000,
+) -> ExperimentConfig:
+    """Assemble one experiment from a scenario preset, for callers that do not build configs.
+
+    Args:
+        label: Name recorded on the resulting summary.
+        scenario: Which built-in scenario preset to run.
+        seed: The seed making the run reproducible.
+        brain: How to assemble each robot's brain; the default spec when omitted.
+        until: How far to run, in simulation time.
+        metrics: Sampling cadence and target threshold.
+        decision_interval: Time between every robot's consecutive decisions.
+    """
+    return ExperimentConfig(
+        label=label,
+        scenario=build_scenario(scenario, seed=seed),
+        scenario_name=scenario.name,
+        brain=brain if brain is not None else BrainSpec(),
+        until=until,
+        metrics=metrics if metrics is not None else MetricsConfig(),
+        decision_interval=decision_interval,
+    )
+
+
+def _mean(values: Iterable[float | None]) -> float | None:
+    """Mean of the values that are present, or ``None`` if none of them are."""
+    present = [value for value in values if value is not None]
+    if not present:
+        return None
+    return sum(present) / len(present)
+
+
+def _file_stem(label: str) -> str:
+    """Turn a run label into one safe file name, collapsing separators and odd characters.
+
+    Sweep labels read best as ``SCENARIO/SEED``, so the slash is what needs handling most; the
+    rest is there so a hand-written label cannot produce a path that escapes the directory.
+    """
+    cleaned = "".join(
+        character if character.isalnum() or character in "-_." else "_" for character in label
+    )
+    return cleaned.strip("_") or "run"
