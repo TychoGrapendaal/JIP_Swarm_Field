@@ -30,6 +30,7 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 
 from swarm_field.contracts import (
+    AgentObjective,
     BodyType,
     CellId,
     FieldGeometry,
@@ -116,7 +117,8 @@ class ExploreUnseen:
         if unseen == 0:
             return ()
         score = 0.5 * unseen / (FIELD_WIDTH * FIELD_HEIGHT)
-        return (ActionCandidate(FollowField(UnseenCells.name), score, self.name, None),)
+        explore = FollowField(UnseenCells.name)
+        return (ActionCandidate(explore, score, self.name, None, AgentObjective.EXPLORE),)
 
 
 class CountingArbiter(UtilityArbiter):

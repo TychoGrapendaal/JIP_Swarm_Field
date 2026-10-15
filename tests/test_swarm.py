@@ -3,7 +3,10 @@
 from collections.abc import Hashable, Sequence
 from dataclasses import replace
 
+import pytest
+
 from swarm_field.contracts import (
+    AgentObjective,
     BodyType,
     CellId,
     FieldGeometry,
@@ -164,12 +167,14 @@ class _CountingSeeder:
 class _FieldFollower:
     """Bids a fixed score to follow its seeder's field."""
 
-    def __init__(self, seeder: str, score: float) -> None:
+    def __init__(self, seeder: str, score: float, objective: AgentObjective | None = None) -> None:
         self.name: str = seeder
         self._score: float = score
+        self._objective: AgentObjective | None = objective
 
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
-        return (ActionCandidate(FollowField(self.name), self._score, self.name, target=None),)
+        follow = FollowField(self.name)
+        return (ActionCandidate(follow, self._score, self.name, None, self._objective),)
 
 
 def test_agent_picks_highest_scoring_candidate() -> None:
@@ -315,8 +320,9 @@ def test_only_the_winners_field_is_built_and_it_is_not_rebuilt() -> None:
     assert loser.seeds_asked == 0
 
 
-def test_the_agent_broadcasts_its_cell_and_the_winners_target() -> None:
-    agent = _agent([_FieldFollower(_FixedTargetSeeder.name, 0.5)], [_FixedTargetSeeder()])
+def test_the_agent_broadcasts_its_cell_and_the_winners_target_and_objective() -> None:
+    explore = _FieldFollower(_FixedTargetSeeder.name, 0.5, AgentObjective.EXPLORE)
+    agent = _agent([explore], [_FixedTargetSeeder()])
 
     decision = agent.decide(_perception(sensed=[]))
 
@@ -325,6 +331,7 @@ def test_the_agent_broadcasts_its_cell_and_the_winners_target() -> None:
     assert isinstance(message.payload, PeerObservation)
     assert (message.payload.peer, message.payload.cell) == (1, (0, 0))
     assert message.payload.target == (5, 5)
+    assert message.payload.objective is AgentObjective.EXPLORE
     assert agent.inspect().current_target == (5, 5)
 
 
@@ -344,3 +351,27 @@ def test_a_peers_status_is_stored_as_a_peer_fact() -> None:
     agent.decide(replace(_perception(sensed=[]), inbox=[message]))
 
     assert list(agent.memory.peers()) == [status]
+
+
+def test_treat_seeder_discounts_only_a_pest_a_peer_is_heading_for_to_treat() -> None:
+    def pest_seed_value(peer_objective: AgentObjective) -> float:
+        memory = AgentMemory(1, _FIELD)
+        pest = InfestationObservation(
+            cell=(5, 5), confidence=1.0, observed_at=0, source=1, severity=1.0, pest=None
+        )
+        peer = PeerObservation(
+            cell=(0, 9),
+            confidence=1.0,
+            observed_at=0,
+            source=2,
+            peer=2,
+            body=BodyType.KILLER,
+            target=(5, 5),
+            objective=peer_objective,
+        )
+        memory.merge([pest, peer])
+        (seed,) = TreatSeeder().seeds(memory, (0, 0), 0)
+        return seed.value
+
+    assert pest_seed_value(AgentObjective.TREAT) == pytest.approx(-0.2)
+    assert pest_seed_value(AgentObjective.EXPLORE) == pytest.approx(-1.0)

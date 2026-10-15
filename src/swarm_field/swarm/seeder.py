@@ -13,7 +13,7 @@ from typing import Protocol
 import numpy as np
 from scipy.spatial import KDTree
 
-from swarm_field.contracts import CellId, Time, TimeUnit
+from swarm_field.contracts import AgentObjective, CellId, Time, TimeUnit
 from swarm_field.swarm.field import GridPotentialField, Seed
 from swarm_field.swarm.memory import MemoryView
 
@@ -70,8 +70,8 @@ class TreatSeeder:
 
     Each infested cell attracts by its severity times the memory's confidence in it, and
     clustered infestations attract more than isolated ones. A cell that a peer is already
-    heading for attracts less. Rebuilt once a minute, and whenever the infested cells or the
-    peers' targets change.
+    heading for, to treat it, attracts less. Rebuilt once a minute, and whenever the infested
+    cells or the peers' targets change.
 
     Attributes:
         reduction_rate: What is left of a cell's attraction when a peer is heading for it, 0..1.
@@ -146,9 +146,9 @@ class TreatSeeder:
 
 
 def _cells_targeted_by_peers(memory: MemoryView) -> frozenset[CellId]:
-    """The cells the remembered peers say they are heading for."""
+    """The cells the remembered peers say they are heading for, to treat them."""
     targeted: set[CellId] = set()
     for peer in memory.peers():
-        if peer.target is not None:
+        if peer.target is not None and peer.objective is AgentObjective.TREAT:
             targeted.add(peer.target)
     return frozenset(targeted)

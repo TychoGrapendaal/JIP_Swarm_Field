@@ -5,8 +5,8 @@ decision point it merges what the robot sensed and received into its memory, kee
 provider's quadtree in sync with new terrain facts, gathers the scored candidates of its
 behaviors, lets its arbiter pick one and turns its intent into one action: the navigator steps
 along the field a ``FollowField`` names, and any other intent passes through. It broadcasts its
-status (its cell and the winner's target) and its memory, and merges what its peers broadcast.
-Capability gating is added once it is built.
+status (its cell, and the winner's target and objective) and its memory, and merges what its
+peers broadcast. Capability gating is added once it is built.
 """
 
 import logging
@@ -15,6 +15,7 @@ from typing import cast
 from swarm_field.contracts import (
     Action,
     AgentInspection,
+    AgentObjective,
     CellId,
     Decision,
     Idle,
@@ -74,6 +75,7 @@ class ComposedAgent:
         self.arbiter: Arbiter = arbiter
         self._current_goal: str | None = None
         self._current_target: CellId | None = None
+        self._current_objective: AgentObjective | None = None
 
     def decide(self, perception: Perception) -> Decision:
         received = self._facts_received(perception.inbox)
@@ -101,10 +103,12 @@ class ComposedAgent:
         if choice is None:
             self._current_goal = None
             self._current_target = None
+            self._current_objective = None
             return Decision(action=Idle(), outbox=self._messages_to_send(perception))
 
         best = choice.candidate
         self._current_goal = best.source
+        self._current_objective = best.objective
         action, field_target = self._action_for(
             best.action, perception.self_state.position, perception.time
         )
@@ -159,9 +163,9 @@ class ComposedAgent:
     def _messages_to_send(self, perception: Perception) -> list[Message]:
         """The messages to broadcast at this decision point: the robot's status and its memory.
 
-        The status tells peers where the robot is and which target it is heading for, the
-        target of the winner's field, or else the winning candidate's ``target``, so that they
-        can avoid the same region.
+        The status tells peers where the robot is, which target it is heading for (the target
+        of the winner's field, or else the winning candidate's ``target``) and for which
+        objective, so that they can avoid the same region.
         """
         status = PeerObservation(
             cell=perception.self_state.position,
@@ -171,6 +175,7 @@ class ComposedAgent:
             peer=self.robot_id,
             body=perception.self_state.body,
             target=self._current_target,
+            objective=self._current_objective,
         )
         status_message = Message(
             sender=self.robot_id,

@@ -141,6 +141,7 @@ class PeerObservation(ObservationBase):
     peer: RobotId | None        # identity if resolvable, else an anonymous sighting
     body: BodyType
     target: CellId | None = None   # the cell the peer says it is heading for
+    objective: AgentObjective | None = None   # what the peer is heading there for
 
 Observation = (
     CropObservation | InfestationObservation | TerrainObservation | PeerObservation

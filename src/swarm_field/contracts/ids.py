@@ -80,6 +80,19 @@ class BodyType(Enum):
     BATTERY = auto()
 
 
+class AgentObjective(Enum):
+    """The high-level objective a robot is pursuing, as it reports it to its peers.
+
+    Separate from a behaviour's name: several behaviours may serve one objective, and peers
+    compare these stable values rather than free-form strings.
+    """
+
+    TREAT = auto()
+    EXPLORE = auto()
+    VERIFY = auto()
+    RECHARGE = auto()
+
+
 class Terrain(Enum):
     """What a cell is made of, as far as moving through it is concerned.
 

@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from swarm_field.contracts import (
+    AgentObjective,
     BodyType,
     CellId,
     Charge,
@@ -53,12 +54,15 @@ class ActionCandidate:
             memory (such as a known pest's cell), or ``None``. The arbiter uses it to tell a new
             target from the one the robot is already heading for. For a winning ``FollowField``
             the brain reports the field's target instead.
+        objective: The objective this candidate serves, reported to peers with the target, or
+            ``None`` if it serves none of them.
     """
 
     action: Intent
     score: float
     source: str
     target: CellId | None
+    objective: AgentObjective | None = None
 
 
 @dataclass(frozen=True)
@@ -101,6 +105,8 @@ class Behavior(Protocol):
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]: ...
 
 
+_TREAT = AgentObjective.TREAT
+
 _TREAT_SCORE = 0.99
 """The score of treating the pest the robot stands on.
 
@@ -120,7 +126,8 @@ class TreatInfestation:
         position = ctx.self_state.position
         here = ctx.memory.infestation_at(position)
         if here is not None and here.severity > 0:
-            return (ActionCandidate(Treat(position), _TREAT_SCORE, self.name, position),)
+            treat = Treat(position)
+            return (ActionCandidate(treat, _TREAT_SCORE, self.name, position, _TREAT),)
 
         num_pests = 0
         for pest in ctx.memory.infestations():
@@ -134,4 +141,4 @@ class TreatInfestation:
                 num_killers += 1
         # The more pests are left per killer already known, the more this robot is needed.
         score = 1 / (1 + math.exp(-(num_pests - num_killers)))
-        return (ActionCandidate(FollowField(self._seeder), score, self.name, None),)
+        return (ActionCandidate(FollowField(self._seeder), score, self.name, None, _TREAT),)
