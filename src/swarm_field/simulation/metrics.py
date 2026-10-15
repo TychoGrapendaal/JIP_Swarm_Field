@@ -23,7 +23,14 @@ from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from swarm_field.contracts import CellId, MetricsSample, Observation, Time, TimeUnit
+from swarm_field.contracts import (
+    CellId,
+    MetricsSample,
+    Observation,
+    PeerTargetObservation,
+    Time,
+    TimeUnit,
+)
 from swarm_field.simulation.world import WorldState
 
 _METRIC_FIELDS = tuple(MetricsSample.__dataclass_fields__)
@@ -85,9 +92,12 @@ class MetricsCollector:
         """Record what a robot sensed at ``now``.
 
         Sensing a cell for the first time settles both the coverage figure and, for a cell
-        that was already infested, its detection latency.
+        that was already infested, its detection latency. A ``PeerTargetObservation`` reports a
+        peer's intent rather than a sensed cell, so it does not count.
         """
         for observation in observations:
+            if isinstance(observation, PeerTargetObservation):
+                continue
             cell = observation.cell
             if cell in self._observed:
                 continue

@@ -35,10 +35,10 @@ Two body types from `contracts` (SCOUT and KILLER) exist at project start, and t
 | Sensory/movement medium | Flies; no cell-level obstacles | Drives on the ground |
 | Movement constraints | Field border only | Field border **and** cannot enter crop cells |
 | Has a goal to navigate to | Never — always in exploration mode | Yes, whenever an objective hands over targets |
-| Attitude to other explorers | Spreads by discounting targets peers are heading to (#42) | Indifferent |
+| Attitude to other explorers | Peer targets are shared for a future field-level spreading policy (#42) | Indifferent |
 | Attitude to utility robots | Indifferent | Indifferent |
 
-The explorer's role in navigation is minimal: exploration is being rebuilt on the grid potential fields (#41), and explorers spread by discounting targets peers are heading to (#42), not by a separation impulse (Section 9). Everything below this point concerns the utility robot unless the section says otherwise.
+The explorer's role in navigation is minimal: exploration is being rebuilt on the grid potential fields (#41). Issue #42 shares and remembers peer target announcements, but does not yet change target attractiveness; any later discounting policy belongs in the relevant field seeder, not in the brain. This is distinct from a separation impulse (Section 9). Everything below this point concerns the utility robot unless the section says otherwise.
 
 ---
 
@@ -199,7 +199,7 @@ Both paths are the same seam: targets in, one action out. Neither keeps a waypoi
 
 ## 9. Explorer aversion (removed)
 
-The separation impulse that used to be designed here, a short-range repulsion between explorers, was dropped together with the force-based potential field (#37). Robots spread instead by discounting targets that peers are heading to (#42), which the grid potential fields can express: a seed can only attract, so a target a peer already covers simply attracts less.
+The separation impulse that used to be designed here, a short-range repulsion between explorers, was dropped together with the force-based potential field (#37). Sharing peer targets (#42) gives the swarm information that a future field-seeder policy can use to spread work. This PR only transports and stores the announcements; it does not yet discount target attractiveness.
 
 ---
 

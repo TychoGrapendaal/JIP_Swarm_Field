@@ -14,6 +14,7 @@ from typing import cast
 from swarm_field.contracts import (
     Action,
     AgentInspection,
+    AgentObjective,
     CellId,
     Decision,
     Idle,
@@ -21,11 +22,13 @@ from swarm_field.contracts import (
     MessageKind,
     Observation,
     ObservationBase,
+    PeerTargetObservation,
     Perception,
     RobotId,
     TerrainObservation,
     Time,
 )
+from swarm_field.swarm.arbiter import Arbiter, UtilityArbiter
 from swarm_field.swarm.behavior import (
     ActionCandidate,
     Behavior,
@@ -50,6 +53,7 @@ class ComposedAgent:
         fields: The robot's quadtree, and the grid potential fields of its seeders, shared by
             the behaviors (to score) and the navigator (to move).
         navigator: Moves the robot along the winning candidate's field.
+        arbiter: Selects candidates and maintains this robot's current commitment.
     """
 
     def __init__(
@@ -59,12 +63,15 @@ class ComposedAgent:
         memory: AgentMemory,
         fields: FieldProvider,
         navigator: Navigator,
+        arbiter: Arbiter | None = None,
     ) -> None:
         self.robot_id: RobotId = robot_id
         self.behaviors: list[Behavior] = behaviors
         self.memory: AgentMemory = memory
         self.fields: FieldProvider = fields
         self.navigator: Navigator = navigator
+        # Each robot gets its own arbiter because its commitment is stateful.
+        self.arbiter: Arbiter = arbiter if arbiter is not None else UtilityArbiter()
         self._current_goal: str | None = None
 
     def decide(self, perception: Perception) -> Decision:
@@ -90,10 +97,10 @@ class ComposedAgent:
         for behavior in self.behaviors:
             candidates.extend(behavior.propose(ctx))
 
-        # TODO: an arbiter (fixed-priority overrides such as low battery, hysteresis against
-        # switching objectives back and forth) instead of simply taking the highest score.
-        best = max(candidates, key=lambda c: c.score, default=None)
-        outbox = self._messages_to_send(perception.time)
+        # The arbiter handles overrides and hysteresis between candidates.
+        choice = self.arbiter.choose(candidates, perception.time)
+        best = choice.candidate if choice is not None else None
+        outbox = self._messages_to_send(perception.time, best)
         if best is None:
             self._current_goal = None
             return Decision(action=Idle(), outbox=outbox)
@@ -119,6 +126,13 @@ class ComposedAgent:
             return Idle()
         return self.navigator.step_towards(field, robot)
 
+    @staticmethod
+    def _objective_for(candidate: ActionCandidate) -> AgentObjective | None:
+        """Return the stable objective associated with a candidate target, if any."""
+        if candidate.target is None:
+            return None
+        return candidate.objective
+
     def _facts_received(self, inbox: list[Message]) -> list[Observation]:
         """The facts carried by the received messages."""
         facts: list[Observation] = []
@@ -128,17 +142,30 @@ class ComposedAgent:
             if not isinstance(message.payload, (tuple, list)):
                 continue
             for fact in message.payload:
-                if isinstance(fact, ObservationBase):
+                if isinstance(fact, (ObservationBase, PeerTargetObservation)):
                     facts.append(cast(Observation, fact))
         return facts
 
-    def _messages_to_send(self, now: Time) -> list[Message]:
-        """The messages to broadcast at this decision point."""
+    def _messages_to_send(self, now: Time, best: ActionCandidate | None) -> list[Message]:
+        """Broadcast remembered facts plus this robot's current target announcement."""
+        objective = self._objective_for(best) if best is not None else None
+        # A target is only meaningful when paired with a stable, typed objective. If a custom
+        # behaviour omits its objective, do not publish an ambiguous target claim.
+        target = best.target if best is not None and objective is not None else None
+        # Explicitly announcing a cleared target prevents a previous target from blocking a
+        # region until its confidence happens to decay.
+        current_target = PeerTargetObservation(
+            source=self.robot_id,
+            target=target,
+            objective=objective if target is not None else None,
+            confidence=1.0,
+            observed_at=now,
+        )
         return [
             Message(
                 sender=self.robot_id,
                 sent_at=now,
                 kind=MessageKind.KNOWLEDGE,
-                payload=tuple(self.memory.records()),
+                payload=(*tuple(self.memory.records()), current_target),
             )
         ]

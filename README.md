@@ -178,3 +178,9 @@ tests/             # pytest suite
 examples/          # executable demonstrations
 docs/              # design documents, research notes and source material
 ```
+
+### Decision arbitration
+
+Each `ComposedAgent` uses its own `UtilityArbiter` by default. The arbiter selects from behaviour bids, supports high-priority overrides, and applies hysteresis so robots do not switch objectives or targets too readily. Pass an explicit arbiter to `ComposedAgent` to customize its configuration.
+
+Peer-target announcements are shared as typed `AgentObjective` values and stored in local memory. This change records and communicates intent; target-discounting remains an objective-level policy and is not applied generically inside the brain.

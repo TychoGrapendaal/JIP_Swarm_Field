@@ -100,6 +100,7 @@ The pluggable ports inside the brain:
 | `Memory` | hold + decay the local belief map and self‑state | grid‑cell map, continuous markers, bounded LRU map |
 | `Behavior` | bid for what the robot does next: scored candidates carrying an intent, from a read‑only context | scout‑coverage, treat‑nearest‑pest, return‑to‑charge |
 | `FieldSeeder` | turn memory into the targets (`Seed`s) of one potential field, and say when they change | TREAT pests, EXPLORE stale cells, RECHARGE docks |
+| `AgentObjective` | stable typed objective used when announcing a robot's current target to peers | `TREAT`, `EXPLORE`, `VERIFY`, `RECHARGE` |
 | `Arbiter` | fuse candidates into one chosen action | max‑utility, weighted sum, priority with hysteresis |
 | `FieldProvider` | build the seeders' fields and cache one per seeder, for behaviors and the navigator | quadtree potential field, uniform grid |
 | `Navigator` | turn the winner's field into a concrete `Move` | potential‑field, coverage‑control, greedy‑grid |

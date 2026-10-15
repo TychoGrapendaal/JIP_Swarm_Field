@@ -9,6 +9,13 @@ back on.
 """
 
 from swarm_field.contracts import Vector2
+from swarm_field.swarm.arbiter import (
+    Arbiter,
+    ArbiterChoice,
+    ArbiterConfig,
+    Commitment,
+    UtilityArbiter,
+)
 from swarm_field.swarm.behavior import (
     ActionCandidate,
     Behavior,
@@ -32,7 +39,11 @@ from swarm_field.swarm.steering import (
 __all__ = [
     "ActionCandidate",
     "AgentMemory",
+    "Arbiter",
+    "ArbiterChoice",
+    "ArbiterConfig",
     "Behavior",
+    "Commitment",
     "ComposedAgent",
     "DecayConfig",
     "DecisionContext",
@@ -49,5 +60,6 @@ __all__ = [
     "SteeringConfig",
     "TreatInfestation",
     "TreatSeeder",
+    "UtilityArbiter",
     "Vector2",
 ]

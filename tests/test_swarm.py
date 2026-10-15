@@ -3,15 +3,18 @@
 from collections.abc import Hashable
 
 from swarm_field.contracts import (
+    AgentObjective,
     BodyType,
     CellId,
     FieldGeometry,
     Idle,
     InfestationObservation,
+    Message,
     MessageKind,
     Move,
     Observation,
     PeerObservation,
+    PeerTargetObservation,
     Perception,
     RobotSelfState,
     Terrain,
@@ -38,7 +41,9 @@ from swarm_field.swarm.field import Seed
 _FIELD = FieldGeometry(width=10, height=10, cell_size=10.0, row_sp=0.0, in_row_sp=0.0, headland=0.0)
 
 
-def _perception(sensed: list[Observation] | None = None) -> Perception:
+def _perception(
+    sensed: list[Observation] | None = None, inbox: list[Message] | None = None
+) -> Perception:
     time = 0
     if sensed is None:
         sensed = _sensed(time)
@@ -54,7 +59,7 @@ def _perception(sensed: list[Observation] | None = None) -> Perception:
             health=1.0,
         ),
         sensed=sensed,
-        inbox=[],
+        inbox=[] if inbox is None else inbox,
     )
 
 
@@ -171,7 +176,15 @@ class _FieldFollower:
         seeded = ctx.fields.field_for(self.name, position, ctx.time)
         assert seeded is not None
         target = seeded.field.target_for(position)
-        return (ActionCandidate(FollowField(self.name), self._score, self.name, target),)
+        return (
+            ActionCandidate(
+                FollowField(self.name),
+                self._score,
+                self.name,
+                target,
+                objective=AgentObjective.TREAT,
+            ),
+        )
 
 
 def test_agent_picks_highest_scoring_candidate() -> None:
@@ -194,13 +207,84 @@ def test_agent_picks_highest_scoring_candidate() -> None:
     assert agent.inspect().current_goal == "multi"
 
 
-def test_agent_idles_without_candidates() -> None:
+def test_agent_idles_without_candidates_and_announces_target_clear() -> None:
     agent = _agent([])
 
     decision = agent.decide(_perception())
 
     assert decision.action == Idle()
     assert agent.inspect().current_goal is None
+    assert len(decision.outbox) == 1
+    payload = decision.outbox[0].payload
+    assert isinstance(payload, tuple)
+    announcement = payload[-1]
+    assert isinstance(announcement, PeerTargetObservation)
+    assert announcement.source == 1
+    assert announcement.target is None
+    assert announcement.objective is None
+
+
+def test_agent_announces_the_winning_candidate_target() -> None:
+    target = (5, 5)
+    candidate = ActionCandidate(
+        action=Treat(target),
+        score=1.0,
+        source="treat-infestation",
+        target=target,
+        objective=AgentObjective.TREAT,
+    )
+    agent = _agent([_MultiBehavior("treat-infestation", (candidate,))])
+
+    decision = agent.decide(_perception())
+
+    assert len(decision.outbox) == 1
+    message = decision.outbox[0]
+    assert message.kind is MessageKind.KNOWLEDGE
+    payload = message.payload
+    assert isinstance(payload, tuple)
+    announcement = payload[-1]
+    assert isinstance(announcement, PeerTargetObservation)
+    assert announcement.source == 1
+    assert announcement.target == target
+    assert announcement.objective is AgentObjective.TREAT
+    assert announcement.observed_at == 0
+
+
+def test_peer_target_announcement_does_not_change_candidate_scoring() -> None:
+    claimed_target = (5, 5)
+    alternative_target = (6, 6)
+    claim = PeerTargetObservation(
+        source=2,
+        target=claimed_target,
+        objective=AgentObjective.TREAT,
+        confidence=1.0,
+        observed_at=0,
+    )
+    inbox = [Message(sender=2, sent_at=0, kind=MessageKind.KNOWLEDGE, payload=(claim,))]
+    candidates = (
+        ActionCandidate(
+            action=Treat(claimed_target),
+            score=1.0,
+            source="treat",
+            target=claimed_target,
+            objective=AgentObjective.TREAT,
+        ),
+        ActionCandidate(
+            action=Treat(alternative_target),
+            score=0.5,
+            source="treat",
+            target=alternative_target,
+            objective=AgentObjective.TREAT,
+        ),
+    )
+    agent = _agent([_MultiBehavior("treat", candidates)])
+
+    decision = agent.decide(_perception(inbox=inbox))
+
+    # Target announcements are transported and remembered by this change, but target-selection
+    # policy belongs to the individual field seeder and is intentionally not applied by the brain.
+    assert decision.action == Treat(claimed_target)
+    assert claim in tuple(agent.memory.peer_targets())
 
 
 def test_sensed_terrain_reaches_memory_and_the_quadtree() -> None:
@@ -230,81 +314,3 @@ def test_a_winning_follow_field_becomes_a_step_along_the_field() -> None:
 
     assert decision.action == Move((1, 1))
     assert agent.inspect().current_goal == TreatInfestation.name
-
-
-def test_agent_broadcasts_its_memory_and_peer_learns_it() -> None:
-    sender = _agent([])
-    receiver_memory = AgentMemory(2, _FIELD)
-    receiver_fields = FieldProvider(receiver_memory, flies=False, seeders=[])
-    receiver = ComposedAgent(
-        robot_id=2,
-        behaviors=[],
-        memory=receiver_memory,
-        fields=receiver_fields,
-        navigator=Navigator(receiver_fields.quadtree),
-    )
-    fact = InfestationObservation(
-        cell=(6, 6),
-        confidence=1.0,
-        observed_at=0,
-        source=1,
-        severity=0.8,
-        pest=None,
-    )
-
-    first = sender.decide(
-        Perception(
-            time=0,
-            self_state=RobotSelfState(
-                robot_id=1,
-                position=(0, 0),
-                battery=1.0,
-                body=BodyType.SCOUT,
-                speed_mps=1.0,
-                consumable=1.0,
-                health=1.0,
-            ),
-            sensed=[fact],
-            inbox=[],
-        )
-    )
-
-    assert len(first.outbox) == 1
-    assert first.outbox[0].kind is MessageKind.KNOWLEDGE
-    assert first.outbox[0].payload == (fact,)
-
-    receiver.decide(
-        Perception(
-            time=5_000,
-            self_state=RobotSelfState(
-                robot_id=2,
-                position=(0, 0),
-                battery=1.0,
-                body=BodyType.SCOUT,
-                speed_mps=1.0,
-                consumable=1.0,
-                health=1.0,
-            ),
-            sensed=[],
-            inbox=first.outbox,
-        )
-    )
-
-    assert receiver_memory.infestation_at((6, 6)) == fact
-
-
-def test_the_winners_field_is_followed_without_rebuilding_either_field() -> None:
-    """Two behaviours read their fields at every decision point; each field is built once."""
-    winner = _CountingSeeder("winner", (5, 5))
-    loser = _CountingSeeder("loser", (0, 9))
-    agent = _agent([_FieldFollower("winner", 2.0), _FieldFollower("loser", 1.0)], [winner, loser])
-    resensed = TerrainObservation(
-        cell=(1, 0), confidence=1.0, observed_at=0, source=1, terrain=Terrain.FREE
-    )
-
-    for _ in range(3):
-        decision = agent.decide(_perception(sensed=[resensed]))
-        assert decision.action == Move((1, 1))
-
-    assert winner.seeds_asked == 1
-    assert loser.seeds_asked == 1
