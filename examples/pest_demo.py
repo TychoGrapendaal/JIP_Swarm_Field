@@ -37,17 +37,26 @@ GOAL_LABELS: dict[str | None, str] = {
 
 
 def parse_args() -> argparse.Namespace:
+    """The command line; the scenario's settings default to those of ``PestScenario``."""
+    defaults = PestScenario()
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--scouts", type=int, default=5)
-    parser.add_argument("--killers", type=int, default=3)
+    parser.add_argument("--scouts", type=int, default=defaults.scouts)
+    parser.add_argument("--killers", type=int, default=defaults.killers)
     parser.add_argument("--killers-treat-only", action="store_true", help="killers do not explore")
-    parser.add_argument("--radio", type=float, default=50.0, help="radio range in metres")
-    parser.add_argument("--pests-per-hour", type=float, default=6.0)
-    parser.add_argument("--spread", type=float, default=0.0, help="pest spread probability")
+    parser.add_argument(
+        "--radio", type=float, default=defaults.radio_range_m, help="radio range in metres"
+    )
+    parser.add_argument("--pests-per-hour", type=float, default=defaults.pests_per_hour)
+    parser.add_argument(
+        "--spread",
+        type=float,
+        default=defaults.spread_probability,
+        help="pest spread probability",
+    )
     parser.add_argument("--hours", type=float, default=3.0, help="simulated time")
     parser.add_argument("--frame-seconds", type=float, default=20.0, help="simulated per frame")
     parser.add_argument("--fps", type=int, default=20)
-    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--seed", type=int, default=defaults.seed)
     parser.add_argument("--save", type=Path, help="write a .mp4 or .gif instead of a window")
     return parser.parse_args()
 
