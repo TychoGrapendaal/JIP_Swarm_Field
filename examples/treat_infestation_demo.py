@@ -9,14 +9,7 @@ Run from the repository root with:
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 
-from swarm_field.contracts import (
-    BodyType,
-    FieldGeometry,
-    InfestationObservation,
-    Perception,
-    Terrain,
-    TerrainObservation,
-)
+from swarm_field.contracts import BodyType, FieldGeometry, InfestationObservation, Perception
 from swarm_field.simulation import RobotState, WorldState
 from swarm_field.swarm import (
     AgentMemory,
@@ -31,7 +24,6 @@ from swarm_field.visualization import MatplotlibRenderer
 
 ROBOT_ID = 1
 PESTS = {(3, 6): 0.5, (9, 6): 1.0, (10, 1): 0.7}
-WALL = tuple((6, y) for y in range(0, 6))
 TICK_MS = 200
 
 
@@ -47,8 +39,8 @@ def make_world() -> WorldState:
     )
     world = WorldState(field, robots=[RobotState(ROBOT_ID, (1, 1), BodyType.KILLER, speed_mps=2.0)])
 
-    for cell in WALL:
-        world.cell(cell).obstacle = True
+    for y in range(0, 6):
+        world.cell((6, y)).obstacle = True
     for cell, severity in PESTS.items():
         world.cell(cell).infestation = severity
 
@@ -60,9 +52,6 @@ def make_agent(field: FieldGeometry) -> ComposedAgent:
     # The robot already knows about the pests, as if a scout had reported them.
     for cell, severity in PESTS.items():
         memory.merge([InfestationObservation(cell, 1.0, 0, 2, severity=severity, pest=None)])
-    # A ground robot never observes an obstacle, so it starts with the wall in memory.
-    for cell in WALL:
-        memory.merge([TerrainObservation(cell, 1.0, 0, ROBOT_ID, terrain=Terrain.OBSTACLE)])
     fields = FieldProvider(memory, flies=False, seeders=[TreatSeeder()])
     return ComposedAgent(
         robot_id=ROBOT_ID,

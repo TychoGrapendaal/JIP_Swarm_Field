@@ -11,6 +11,7 @@ from swarm_field.contracts import MetricsSample, TimeUnit
 from swarm_field.experiments import ExploreScenario
 from swarm_field.runner import run_experiment
 from swarm_field.swarm import ExploreConfig
+from tests.baselines import RANDOM_WAYPOINT_BRAIN
 
 _SCENARIO = ExploreScenario(
     width=24,
@@ -27,8 +28,11 @@ _PLAIN = ExploreConfig(spread_peers=False)
 @cache
 def _final(explore: ExploreConfig | None) -> MetricsSample:
     """Run the scenario and return its last metrics; ``None`` runs the random-waypoint baseline."""
-    summary = run_experiment(replace(_SCENARIO, explore=explore).into_experiment())
-    return summary.series[-1]
+    if explore is None:
+        experiment = replace(_SCENARIO.into_experiment(), brain=RANDOM_WAYPOINT_BRAIN)
+    else:
+        experiment = replace(_SCENARIO, explore=explore).into_experiment()
+    return run_experiment(experiment).series[-1]
 
 
 def test_explorers_cover_the_field_and_keep_it_fresher_than_random_waypoints() -> None:
