@@ -18,13 +18,6 @@ from swarm_field.simulation.event import (
 )
 from swarm_field.simulation.loop import SimulationLoop
 from swarm_field.simulation.metrics import (
-    ClearedPest,
-    CoverageSample,
-    CoverageSummary,
-    CoverageTracker,
-    InfestationSample,
-    InfestationSummary,
-    InfestationTracker,
     MetricsCollector,
     MetricsConfig,
     write_metrics_csv,
@@ -36,19 +29,12 @@ from swarm_field.simulation.world import EnergyConfig, RobotState, WorldState
 
 __all__ = [
     "Channel",
-    "ClearedPest",
     "CommandReplay",
-    "CoverageSample",
-    "CoverageSummary",
-    "CoverageTracker",
     "EnergyConfig",
     "Event",
     "EventQueue",
     "FailureCheck",
     "FailureConfig",
-    "InfestationSample",
-    "InfestationSummary",
-    "InfestationTracker",
     "MetricSample",
     "MetricsCollector",
     "MetricsConfig",

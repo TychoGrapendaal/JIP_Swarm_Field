@@ -5,11 +5,12 @@ river and two rocks. Each is a real ``ComposedAgent`` with a ``UtilityArbiter`` 
 simulation loop: scouts follow the EXPLORE field, killers weigh it against ``TreatInfestation``
 on the TREAT field. With ``--killers-treat-only`` killers do not explore and wait until they hear
 of a pest. Pests spawn at random free cells over time, and robots share what they know only
-within radio range. See ``swarm_field.experiments.pests`` for how the run is assembled.
+within radio range. ``PestScenario`` describes the run, and ``swarm_field.runner`` assembles and
+runs it.
 
 Red cells are the pests in ground truth, trails show where the robots went, and dashed lines the
-target each robot is heading for. The panel shows the pest measures of ``InfestationTracker``,
-how the killers spent their time, what each killer does and knows, and the last pests cleared.
+target each robot is heading for. The panel shows the measures of ``MetricsCollector``, how the
+killers spent their time, and what each killer does and knows.
 
 Run from the repository root with:
     uv run python examples/pest_demo.py
@@ -25,7 +26,7 @@ from collections import Counter
 from pathlib import Path
 
 from swarm_field.contracts import BodyType, TimeUnit, WorldSnapshot
-from swarm_field.experiments import PestRun, PestScenario, build_pest_run
+from swarm_field.experiments import LiveRun, PestScenario
 from swarm_field.visualization import SimulationViewer
 
 GOAL_LABELS: dict[str | None, str] = {
@@ -62,11 +63,11 @@ def main() -> None:
         spread_probability=args.spread,
         seed=args.seed,
     )
-    run = build_pest_run(scenario)
+    run = LiveRun.from_config(scenario.into_experiment())
     killer_goals: Counter[str] = Counter()
 
     def panel(snapshot: WorldSnapshot) -> list[str]:
-        return panel_lines(run, snapshot, killer_goals)
+        return panel_lines(run, scenario, snapshot, killer_goals)
 
     viewer = SimulationViewer(run.snapshot_at, goals=run.targets, panel=panel)
     step = int(args.frame_seconds * TimeUnit.SECOND)
@@ -74,15 +75,14 @@ def main() -> None:
     viewer.animate(frames, fps=args.fps, save=args.save)
 
 
-def panel_lines(run: PestRun, snapshot: WorldSnapshot, killer_goals: Counter[str]) -> list[str]:
-    """The run's settings, its pest and coverage measures, and what the killers do and know.
+def panel_lines(
+    run: LiveRun, scenario: PestScenario, snapshot: WorldSnapshot, killer_goals: Counter[str]
+) -> list[str]:
+    """The run's settings, its measures, and what the killers do and know.
 
     ``killer_goals`` counts the killers' goals over the frames drawn so far; frames are evenly
     spaced in time, so it says how the killers spent their time.
     """
-    scenario = run.scenario
-    pests = run.pests.summary()
-    coverage = run.tracker.summary()
     killers = "explore + treat"
     if not scenario.killers_explore:
         killers = "treat only"
@@ -93,20 +93,25 @@ def panel_lines(run: PestRun, snapshot: WorldSnapshot, killer_goals: Counter[str
         f"radio range   {scenario.radio_range_m:.0f} m",
         f"pest rate     {scenario.pests_per_hour:.1f} per hour",
         "",
-        f"pests         {pests.spawned} spawned",
-        f"              {pests.cleared} cleared, {pests.open} open",
-        f"response      {_minutes(pests.mean_response)} (mean)",
-        f"              {_minutes(pests.worst_response)} (worst)",
-        f"infested      {pests.mean_infested:5.2f} cells (mean)",
-        f"covered       {coverage.covered:6.1%}",
-        f"idleness      {coverage.mean_idleness / TimeUnit.MINUTE:5.1f} min (mean)",
-        "",
     ]
+    latest = run.metrics.latest()
+    if latest is not None:
+        lines.extend(
+            [
+                f"infested      {latest.targets_remaining} cells",
+                f"detection     {_minutes(latest.detection_latency_ms)} (mean)",
+                f"covered       {latest.coverage:6.1%}",
+                f"idleness      {latest.mean_idleness_ms / TimeUnit.MINUTE:5.1f} min (mean)",
+                f"redundancy    {latest.redundancy:6.1%}",
+                "",
+            ]
+        )
+    agents = run.agents()
     rows: list[str] = []
     for robot in snapshot.robots:
         if robot.body is not BodyType.KILLER:
             continue
-        agent = run.agents[robot.robot_id]
+        agent = agents[robot.robot_id]
         goal = GOAL_LABELS.get(agent.inspect().current_goal, "other")
         killer_goals[goal] += 1
         known = 0
@@ -120,13 +125,6 @@ def panel_lines(run: PestRun, snapshot: WorldSnapshot, killer_goals: Counter[str
     lines.append("")
     lines.append("killer  goal     known pests")
     lines.extend(rows)
-    lines.append("")
-    lines.append("last cleared")
-    for cleared in run.pests.cleared[-8:]:
-        cell = f"({cleared.cell[0]}, {cleared.cell[1]})"
-        lines.append(
-            f"{_clock(cleared.cleared_at)}  {cell:8s} after {_minutes(cleared.response_time)}"
-        )
     return lines
 
 

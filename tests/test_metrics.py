@@ -124,6 +124,20 @@ def test_coverage_is_monotone_and_capped_by_the_cropped_cells() -> None:
     assert collector.sample(world, now=20, messages_sent=0).coverage == 1.0
 
 
+def test_a_return_visit_is_redundant_and_unsensed_cells_age_with_the_run() -> None:
+    world = _cropped_world()
+    collector = _collector(world)
+
+    collector.observe([_terrain((0, 0), 0)], now=0)
+    collector.observe([_terrain((1, 0), 10)], now=10)
+    collector.observe([_terrain((0, 0), 20)], now=20)
+    taken = collector.sample(world, now=100, messages_sent=0)
+
+    assert taken.redundancy == pytest.approx(1 / 3)
+    assert taken.mean_idleness_ms == pytest.approx((80 + 90 + 14 * 100) / 16)
+    assert taken.worst_idleness_ms == 100
+
+
 def test_detection_latency_is_the_delay_from_infestation_to_first_sighting() -> None:
     world = _cropped_world()
     collector = _collector(world)

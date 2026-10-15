@@ -108,7 +108,7 @@ Five scouts explore and keep monitoring a field with the EXPLORE seeder, drawn b
 uv run python examples/explore_demo.py --obstacles --save explore.mp4
 ```
 
-`SimulationViewer` (in `swarm_field.visualization`) works for any run: give it a function from a time to a `WorldSnapshot` (e.g. `ExploreRun.snapshot_at`), and optionally a per-cell overlay, the robots' goals and the lines of the panel.
+`SimulationViewer` (in `swarm_field.visualization`) works for any run: give it a function from a time to a `WorldSnapshot` (e.g. `LiveRun.snapshot_at` in `swarm_field.experiments`), and optionally a per-cell overlay, the robots' goals and the lines of the panel.
 
 ### Pest demonstration
 
@@ -116,7 +116,7 @@ uv run python examples/explore_demo.py --obstacles --save explore.mp4
 uv run python examples/pest_demo.py
 ```
 
-Five scouts explore and three killers explore and treat a field with a river and two rocks, while pests appear at random free cells over time. Every robot is a real `ComposedAgent` with a `UtilityArbiter`: scouts follow the EXPLORE field with a mock behaviour that always bids 0.5, and killers weigh it against `TreatInfestation` on the TREAT field. Robots share their memory and status only within radio range. The panel shows what each killer is doing and how many pests it knows of. `--killers-treat-only` leaves the explore behaviour out of the killers, so they wait until they hear of a pest. The panel also shows the pest measures of `InfestationTracker` (pests spawned, cleared and open, response times) and the last pests cleared. `--radio`, `--pests-per-hour`, `--spread`, `--scouts` and `--killers` change the setup, and `--save videos/pests.mp4` records a video. The run is assembled by `build_pest_run` in `swarm_field.experiments`.
+Five scouts explore and three killers explore and treat a field with a river and two rocks, while pests appear at random free cells over time. Every robot is a real `ComposedAgent` with a `UtilityArbiter`: scouts follow the EXPLORE field with a mock behaviour that always bids 0.5, and killers weigh it against `TreatInfestation` on the TREAT field. Robots share their memory and status only within radio range. The panel shows what each killer is doing and how many pests it knows of. `--killers-treat-only` leaves the explore behaviour out of the killers, so they wait until they hear of a pest. The panel also shows the measures of `MetricsCollector`: infested cells, detection latency, coverage, idleness and redundancy. `--radio`, `--pests-per-hour`, `--spread`, `--scouts` and `--killers` change the setup, and `--save videos/pests.mp4` records a video. `PestScenario` in `swarm_field.experiments` describes the run, and `swarm_field.runner` assembles and runs it.
 
 ### Wall-following steering demonstration
 

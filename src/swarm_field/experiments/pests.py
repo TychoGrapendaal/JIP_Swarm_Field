@@ -1,65 +1,38 @@
-"""A runnable pest experiment: scouts explore, killers explore and treat, pests keep appearing.
+"""A pest experiment: scouts explore, killers explore and treat, pests keep appearing.
 
-Every robot is a real ``ComposedAgent`` with a ``UtilityArbiter``. Scouts carry one behaviour,
-``FollowSeederField`` on the EXPLORE field (``ExploreSeeder``), the mock explore behaviour that
-always bids 0.5. Killers carry ``TreatInfestation`` on the TREAT field (``TreatSeeder``) and, with
-``killers_explore``, the same explore behaviour, so their arbiter weighs exploring against
-treating. Without it a killer waits until it hears of a pest.
+``PestScenario.into_experiment`` describes the run as an ``ExperimentConfig`` for
+``swarm_field.runner``, which assembles and runs it. Every robot is a ``ComposedAgent`` with a
+``UtilityArbiter``. Scouts carry the mock explore behaviour on the EXPLORE field
+(``ExploreSeeder``), which always bids 0.5. Killers carry ``TreatInfestation`` on the TREAT field
+(``TreatSeeder``) and, with ``killers_explore``, the same explore behaviour, so their arbiter
+weighs exploring against treating. Without it a killer waits until it hears of a pest.
 
-The simulation is the real discrete-event loop. ``WorldTick`` spawns pests on random free cells
-at ``pests_per_hour``, and grows and spreads them as ``PestDynamicsConfig`` says. Robots share
-their memory and status only through the real channel, within ``radio_range_m``, so a killer
-learns of a pest when a robot that knows of it comes in range. From ground truth, a
-``CoverageTracker`` measures the swarm's visits and an ``InfestationTracker`` its response to the
-pests.
-
-Robots start with the field's terrain map, since they only sense the cell they stand on and
-would never see an obstacle they cannot enter.
+``WorldTick`` spawns pests on random free cells at ``pests_per_hour``, and grows and spreads
+them as ``PestDynamicsSpec`` says. Robots share their memory and status only through the
+channel, within ``radio_range_m``, so a killer learns of a pest when a robot that knows of it
+comes in range. Robots start with the field's terrain map, since they only sense the cell they
+stand on and would never see an obstacle they cannot enter. ``MetricsCollector`` measures the
+run.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from random import Random
 
 from swarm_field.contracts import (
     BodyType,
     CellId,
     FieldGeometry,
-    RobotId,
-    TerrainObservation,
+    PestDynamicsSpec,
+    RobotSpec,
+    ScenarioConfig,
     Time,
     TimeUnit,
-    WorldSnapshot,
 )
-from swarm_field.experiments.explore import FollowSeederField, river_and_rocks, terrain_map
-from swarm_field.simulation import (
-    CoverageSample,
-    CoverageTracker,
-    InfestationSample,
-    InfestationTracker,
-    PestDynamicsConfig,
-    RobotDecision,
-    RobotState,
-    SimulationContext,
-    SimulationLoop,
-    WorldState,
-    WorldTick,
-)
-from swarm_field.swarm import (
-    AgentMemory,
-    ArbiterConfig,
-    Behavior,
-    ComposedAgent,
-    ExploreConfig,
-    ExploreSeeder,
-    FieldProvider,
-    FieldSeeder,
-    Navigator,
-    TreatInfestation,
-    TreatSeeder,
-    UtilityArbiter,
-)
+from swarm_field.experiments.explore import cropped_cells, river_and_rocks
+from swarm_field.runner import BrainSpec, ExperimentConfig
+from swarm_field.simulation import MetricsConfig
+from swarm_field.swarm import ArbiterConfig, ExploreConfig
 
 
 @dataclass(frozen=True)
@@ -74,7 +47,8 @@ class PestScenario:
         killers: How many killers start, along the bottom row after the scouts.
         killers_explore: Whether killers also carry the explore behaviour.
         cell_size: The side of a cell in metres.
-        speed_mps: The robots' speed; a straight move takes ``cell_size / speed_mps`` seconds.
+        speed_mps_drone: The scouts' speed; a straight move takes ``cell_size / speed`` seconds.
+        speed_mps_ground: The killers' speed.
         decision_interval: The time between two decisions of a robot.
         radio_range_m: How far a robot's broadcasts reach.
         pests_per_hour: How many pests spawn per hour, on average, on the free healthy cells.
@@ -85,7 +59,8 @@ class PestScenario:
         spawn_severity: The severity of a new pest.
         explore: The parameters of every robot's EXPLORE field.
         arbiter: The overrides and hysteresis of every robot's ``UtilityArbiter``.
-        sample_period: The time between two coverage and pest samples; shorter than any move.
+        sample_period: The time between two metrics samples.
+        until: How long the run lasts.
         seed: Seeds the pests and when each robot decides first.
     """
 
@@ -107,6 +82,7 @@ class PestScenario:
     explore: ExploreConfig = field(default_factory=ExploreConfig)
     arbiter: ArbiterConfig = field(default_factory=ArbiterConfig)
     sample_period: Time = TimeUnit.SECOND
+    until: Time = 3 * TimeUnit.HOUR
     seed: int = 0
 
     def field_geometry(self) -> FieldGeometry:
@@ -130,7 +106,9 @@ class PestScenario:
         return [BodyType.SCOUT] * self.scouts + [BodyType.KILLER] * self.killers
 
     def body_speed(self, body: BodyType) -> float:
-        return self.speed_mps_drone if body == BodyType.SCOUT else self.speed_mps_ground
+        if body is BodyType.SCOUT:
+            return self.speed_mps_drone
+        return self.speed_mps_ground
 
     def starts(self) -> list[CellId]:
         """The robots' starting cells, side by side from ``(0, 0)``, skipping obstacles."""
@@ -141,11 +119,11 @@ class PestScenario:
             raise ValueError(f"the bottom row has room for {len(free)} robots, not {robots}")
         return free[:robots]
 
-    def pest_dynamics(self) -> PestDynamicsConfig:
+    def pest_dynamics(self) -> PestDynamicsSpec:
         """``pests_per_hour`` as the chance per free cell and pest update that a pest spawns."""
         free_cells = self.size * self.size - len(set(self.blocked_cells()))
         updates_per_hour = TimeUnit.HOUR / self.pest_period
-        return PestDynamicsConfig(
+        return PestDynamicsSpec(
             period=self.pest_period,
             spawn_probability=self.pests_per_hour / updates_per_hour / free_cells,
             growth_rate=self.growth_rate,
@@ -153,119 +131,55 @@ class PestScenario:
             spawn_severity=self.spawn_severity,
         )
 
+    def into_experiment(self, label: str = "pests") -> ExperimentConfig:
+        """The run as an experiment for ``swarm_field.runner``.
 
-@dataclass
-class PestRun:
-    """One assembled pest run, advanced in time by the caller.
-
-    Attributes:
-        scenario: What was assembled.
-        context: The simulation's state; its world is the ground truth.
-        agents: The robots' brains, by id.
-        tracker: The coverage measures, sampled from the world.
-        pests: The pest measures, sampled from the world.
-        loop: The event loop that advances the run.
-    """
-
-    scenario: PestScenario
-    context: SimulationContext
-    agents: dict[RobotId, ComposedAgent]
-    tracker: CoverageTracker
-    pests: InfestationTracker
-    loop: SimulationLoop = field(default_factory=SimulationLoop)
-
-    def advance_to(self, time: Time) -> None:
-        """Process every event up to ``time``."""
-        self.loop.run(self.context, until=time)
-
-    def snapshot_at(self, time: Time) -> WorldSnapshot:
-        """Advance to ``time`` and return the ground truth then, for rendering."""
-        self.advance_to(time)
-        return self.context.world.snapshot(time)
-
-    def targets(self) -> dict[RobotId, CellId]:
-        """The cell each robot is heading for, from its last decision."""
-        found: dict[RobotId, CellId] = {}
-        for robot_id, agent in self.agents.items():
-            target = agent.inspect().current_target
-            if target is not None:
-                found[robot_id] = target
-        return found
-
-    def infested_cells(self) -> list[CellId]:
-        """The cells infested in ground truth."""
-        cells: list[CellId] = []
-        for cell, state in self.context.world.cells.items():
-            if state.infestation > 0:
-                cells.append(cell)
-        return cells
-
-
-def build_pest_run(scenario: PestScenario) -> PestRun:
-    """Assemble the world, the robots' brains, their decisions, the pests and the samples."""
-    geometry = scenario.field_geometry()
-    world = WorldState(geometry)
-    for cell in scenario.blocked_cells():
-        world.cell(cell).obstacle = True
-    terrain = terrain_map(world)
-
-    agents: dict[RobotId, ComposedAgent] = {}
-    rng = Random(scenario.seed)
-    context = SimulationContext(now=0, rng=rng, agents={}, world=world)
-    for index, (body, start) in enumerate(zip(scenario.bodies(), scenario.starts(), strict=True)):
-        robot_id = index + 1
-        world.add_robot(
-            RobotState(
-                robot_id=robot_id,
-                position=start,
-                body=body,
-                speed_mps=scenario.body_speed(body),
-                radio_range_m=scenario.radio_range_m,
+        Scouts get the explore brain, killers the treat brain, with the explore behaviour too
+        when ``killers_explore``.
+        """
+        robots: list[RobotSpec] = []
+        for index, (body, start) in enumerate(zip(self.bodies(), self.starts(), strict=True)):
+            robots.append(
+                RobotSpec(
+                    robot_id=index + 1,
+                    body=body,
+                    start=start,
+                    v_max=self.body_speed(body),
+                    battery=1.0,
+                    radio_range=self.radio_range_m,
+                )
             )
+        obstacles = self.blocked_cells()
+        scenario = ScenarioConfig(
+            field=self.field_geometry(),
+            crops=cropped_cells(self.field_geometry(), obstacles),
+            robots=robots,
+            seed=self.seed,
+            obstacles=obstacles,
+            pest_dynamics=self.pest_dynamics(),
         )
-        agent = _build_agent(robot_id, body, geometry, terrain, scenario)
-        agents[robot_id] = agent
-        context.agents[robot_id] = agent
-        first = rng.randrange(scenario.decision_interval)
-        context.schedule(RobotDecision(first, robot_id, scenario.decision_interval))
-
-    dynamics = scenario.pest_dynamics()
-    context.schedule(WorldTick(dynamics.period, dynamics))
-    tracker = CoverageTracker(world, fresh_age=scenario.explore.revisit_age)
-    context.schedule(CoverageSample(0, scenario.sample_period, tracker))
-    pests = InfestationTracker()
-    context.schedule(InfestationSample(0, scenario.sample_period, pests))
-    return PestRun(scenario, context, agents, tracker, pests)
-
-
-def _build_agent(
-    robot_id: RobotId,
-    body: BodyType,
-    geometry: FieldGeometry,
-    terrain: list[TerrainObservation],
-    scenario: PestScenario,
-) -> ComposedAgent:
-    """A scout explores; a killer treats and, with ``killers_explore``, also explores.
-
-    The robot starts with ``terrain`` in its memory.
-    """
-    memory = AgentMemory(robot_id, geometry)
-    memory.merge(terrain)
-    explore_seeder = ExploreSeeder(scenario.explore)
-    seeders: list[FieldSeeder] = []
-    behaviors: list[Behavior] = []
-    if body is BodyType.KILLER:
-        seeders.append(TreatSeeder())
-        behaviors.append(TreatInfestation())
-    if body is not BodyType.KILLER or scenario.killers_explore:
-        seeders.append(explore_seeder)
-        behaviors.append(FollowSeederField(explore_seeder.name))
-    fields = FieldProvider(memory, flies=False, seeders=seeders)
-    return ComposedAgent(
-        robot_id,
-        behaviors,
-        memory,
-        fields,
-        Navigator(fields.quadtree),
-        UtilityArbiter(scenario.arbiter),
-    )
+        params = {"explore": self.explore}
+        explore = BrainSpec(
+            behaviors=("explore",), seeders=("explore",), params=params, arbiter=self.arbiter
+        )
+        treat = BrainSpec(
+            behaviors=("treat-infestation",), seeders=("treat",), params={}, arbiter=self.arbiter
+        )
+        if self.killers_explore:
+            treat = BrainSpec(
+                behaviors=("treat-infestation", "explore"),
+                seeders=("treat", "explore"),
+                params=params,
+                arbiter=self.arbiter,
+            )
+        return ExperimentConfig(
+            label=label,
+            scenario=scenario,
+            brain=explore,
+            brains_by_body={BodyType.KILLER: treat},
+            robots_know_terrain=True,
+            stagger_decisions=True,
+            until=self.until,
+            metrics=MetricsConfig(period=self.sample_period, fresh_age=self.explore.revisit_age),
+            decision_interval=self.decision_interval,
+        )

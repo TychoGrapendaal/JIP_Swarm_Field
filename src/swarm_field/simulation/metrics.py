@@ -2,7 +2,8 @@
 
 ``MetricsCollector`` watches the ground truth the simulation already owns and turns it into a
 series of ``MetricsSample`` rows: targets remaining over time, detection latency, energy per
-unit area, messages sent, and coverage. It decides nothing and asks the algorithm nothing, so
+unit area, messages sent, coverage, and how fresh the swarm keeps the field (idleness and
+redundancy). It decides nothing and asks the algorithm nothing, so
 attaching it cannot change how the swarm behaves.
 
 The collector never draws from the simulation's random source. It holds no random source at
@@ -27,6 +28,7 @@ from swarm_field.contracts import (
     CellId,
     MetricsSample,
     Observation,
+    RobotId,
     Time,
     TimeUnit,
 )
@@ -43,10 +45,16 @@ class MetricsConfig:
         period: Time between samples in simulation time units.
         target_threshold: Infestation severity at or below which a crop cell no longer counts
             as an active target.
+        fresh_age: A robot arriving in a crop cell sensed less than this before makes a
+            redundant visit.
+        measure_from: Idleness is averaged over the samples from this time on, e.g. after a
+            warm-up in which the swarm explores the field for the first time.
     """
 
     period: Time = TimeUnit.HOUR
     target_threshold: float = 0.0
+    fresh_age: Time = 30 * TimeUnit.MINUTE
+    measure_from: Time = 0
 
     def __post_init__(self) -> None:
         """Validate the sampling cadence and the target threshold."""
@@ -71,6 +79,14 @@ class MetricsCollector:
     _observed: set[CellId] = field(default_factory=set)
     _infested_at: dict[CellId, Time] = field(default_factory=dict)
     _detected_at: dict[CellId, Time] = field(default_factory=dict)
+    _start: Time = 0
+    _last_sensed: dict[CellId, Time] = field(default_factory=dict)
+    _robot_cells: dict[RobotId, CellId] = field(default_factory=dict)
+    _visits: int = 0
+    _redundant: int = 0
+    _idleness_sum: float = 0.0
+    _idleness_samples: int = 0
+    _worst_idleness: float = 0.0
 
     def bind(self, world: WorldState, now: Time = 0) -> None:
         """Record which cells count as crop and when they were already infested.
@@ -80,6 +96,7 @@ class MetricsCollector:
         infestation at ``now`` are dated ``now`` rather than at the first sample, so a target the
         swarm starts on top of is still attributed a detection latency.
         """
+        self._start = now
         self._crop_cells = frozenset(
             cell for cell, state in world.cells.items() if state.crop is not None
         )
@@ -91,10 +108,15 @@ class MetricsCollector:
         """Record what a robot sensed at ``now``.
 
         Sensing a cell for the first time settles both the coverage figure and, for a cell
-        that was already infested, its detection latency.
+        that was already infested, its detection latency. Every sensing keeps the cell fresh for
+        the idleness, and a robot arriving in a cell is a visit, redundant if the cell was
+        sensed less than ``fresh_age`` before.
         """
         for observation in observations:
             cell = observation.cell
+            if cell in self._crop_cells:
+                self._record_visit(observation.source, cell, now)
+                self._last_sensed[cell] = now
             if cell in self._observed:
                 continue
             self._observed.add(cell)
@@ -110,6 +132,7 @@ class MetricsCollector:
         """Read the world at ``now``, record one row of the series, and return it."""
         world.advance_to(now)
         self._track_infestation(world, now)
+        self._track_idleness(now)
 
         taken = MetricsSample(
             time=now,
@@ -120,6 +143,9 @@ class MetricsCollector:
             messages_received=messages_received,
             coverage=self._coverage(),
             active_robots=len(world.live_robots()),
+            mean_idleness_ms=self._mean_idleness(),
+            worst_idleness_ms=self._worst_idleness,
+            redundancy=self._redundancy(),
         )
         self.samples.append(taken)
         return taken
@@ -131,6 +157,44 @@ class MetricsCollector:
     def latest(self) -> MetricsSample | None:
         """The most recent sample, or ``None`` before the first one is taken."""
         return self.samples[-1] if self.samples else None
+
+    def last_sensed_times(self) -> dict[CellId, Time]:
+        """When each crop cell was last sensed; a cell never sensed is left out."""
+        return dict(self._last_sensed)
+
+    def _record_visit(self, robot: RobotId, cell: CellId, now: Time) -> None:
+        """Count a visit when ``robot`` senses a cell other than the one it sensed last."""
+        if self._robot_cells.get(robot) == cell:
+            return
+        self._robot_cells[robot] = cell
+        self._visits += 1
+        last = self._last_sensed.get(cell)
+        if last is not None and now - last < self.config.fresh_age:
+            self._redundant += 1
+
+    def _track_idleness(self, now: Time) -> None:
+        """Add the crop cells' ages at ``now`` to the idleness, from ``measure_from`` on."""
+        if now < self.config.measure_from or not self._crop_cells:
+            return
+        total = 0
+        for cell in self._crop_cells:
+            age = now - self._last_sensed.get(cell, self._start)
+            total += age
+            self._worst_idleness = max(self._worst_idleness, float(age))
+        self._idleness_sum += total / len(self._crop_cells)
+        self._idleness_samples += 1
+
+    def _mean_idleness(self) -> float:
+        """The crop cells' mean age, averaged over the samples since ``measure_from``."""
+        if self._idleness_samples == 0:
+            return 0.0
+        return self._idleness_sum / self._idleness_samples
+
+    def _redundancy(self) -> float:
+        """The share of visits to a cell sensed less than ``fresh_age`` before."""
+        if self._visits == 0:
+            return 0.0
+        return self._redundant / self._visits
 
     def _track_infestation(self, world: WorldState, now: Time) -> None:
         """Remember when each crop cell first became an active target."""
