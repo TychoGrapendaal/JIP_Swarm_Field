@@ -25,6 +25,7 @@ import argparse
 from collections.abc import Hashable, Sequence
 from pathlib import Path
 from random import Random
+from typing import override
 
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
@@ -128,6 +129,7 @@ class CountingArbiter(UtilityArbiter):
         super().__init__()
         self.switches: int = 0
 
+    @override
     def choose(self, candidates: Sequence[ActionCandidate], now: Time) -> ArbiterChoice | None:
         choice = super().choose(candidates, now)
         if choice is not None and choice.switched:

@@ -60,6 +60,7 @@ from swarm_field.swarm import (
     FollowField,
     MemoryView,
     Navigator,
+    UtilityArbiter,
 )
 from swarm_field.swarm.field import Seed
 from swarm_field.visualization import MatplotlibRenderer
@@ -92,12 +93,13 @@ class _WanderSeeder:
     """
 
     name: str = "wander"
+    window_blocks: int = 1
 
     def __init__(self, field: FieldGeometry, rng: Random) -> None:
         self._field: FieldGeometry = field
         self._rng: Random = rng
 
-    def field_key(self, memory: MemoryView, now: Time) -> Hashable:
+    def field_key(self, memory: MemoryView, robot: CellId, now: Time) -> Hashable:
         return now
 
     def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
@@ -177,6 +179,7 @@ def build_context(seed: int) -> SimulationContext:
             memory=memory,
             fields=fields,
             navigator=Navigator(fields.quadtree),
+            arbiter=UtilityArbiter(),
         )
     ctx = SimulationContext(
         now=0,
