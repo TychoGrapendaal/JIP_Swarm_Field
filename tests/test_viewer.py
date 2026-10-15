@@ -1,6 +1,8 @@
-"""Tests for the simulation viewer: overlays, trails, goals and the panel on top of a snapshot."""
+"""A smoke test of the simulation viewer: one frame with an overlay, trails, a goal and the panel.
 
-from pathlib import Path
+Saving goes through ``save_frames``, tested with the renderer. The viewer is to be merged into
+the interactive console (``swarm_field.console``), so it is kept to this one test.
+"""
 
 import numpy as np
 import pytest
@@ -52,12 +54,3 @@ def test_a_frame_draws_the_trails_goals_and_panel() -> None:
     # A trail per robot, and one goal line.
     assert len(viewer.renderer.axes.lines) == 3
     assert "overlay: half" in viewer.renderer.axes.get_title()
-
-
-def test_frames_are_saved_as_a_gif(tmp_path: Path) -> None:
-    viewer = _viewer(_world())
-    path = tmp_path / "run.gif"
-
-    viewer.animate([0, 10], fps=5, save=path)
-
-    assert path.stat().st_size > 0
