@@ -9,7 +9,15 @@ from dataclasses import dataclass, field
 from random import Random
 from typing import TYPE_CHECKING
 
-from swarm_field.contracts import PositionErrorSpec, RobotId, SwarmAgent, Time
+from swarm_field.contracts import (
+    Command,
+    InjectInfestation,
+    PositionErrorSpec,
+    Renderer,
+    RobotId,
+    SwarmAgent,
+    Time,
+)
 from swarm_field.simulation.channel import Channel
 from swarm_field.simulation.event import Event, EventQueue
 from swarm_field.simulation.world import WorldState
@@ -22,19 +30,21 @@ if TYPE_CHECKING:
 class SimulationContext:
     """Mutable state shared across a run.
 
-    Attributes:
-        now: The current simulation time (advanced to each event as it is processed).
-        rng: The world's single seeded random source; events draw from it in event order.
-        agents: The robot brains, keyed by id (the boundary with the algorithm).
-        world: Ground-truth field state owned by the simulation.
-        queue: Pending events; schedule follow-ups with ``schedule``.
-        channel: The radio; hand a robot's outbox to it to reach the robots in range.
-    metrics: The run's metrics collector, or ``None`` for a run that records none.
-    position_error: How often a robot mislocates itself when it builds its self-perception.
-    noise: A second seeded random source, for the simulation's own hardware faults and
-        sensor error. It is kept apart from ``rng`` on purpose: a robustness run must differ
-        from its baseline only in the robots' behaviour, not in the pest dynamics, so
-        enabling failures or position error cannot shift the world's random stream.
+        Attributes:
+            now: The current simulation time (advanced to each event as it is processed).
+            rng: The world's single seeded random source; events draw from it in event order.
+            agents: The robot brains, keyed by id (the boundary with the algorithm).
+            world: Ground-truth field state owned by the simulation.
+            queue: Pending events; schedule follow-ups with ``schedule``.
+    channel: The radio; hand a robot's outbox to it to reach the robots in range.
+            metrics: The run's metrics collector, or ``None`` for a run that records none.
+            renderer: Draws the world on every metric tick, or ``None`` for a headless run. The
+                simulation hands out snapshots and never chooses a rendering technology.
+            position_error: How often a robot mislocates itself when it builds its self-perception.
+        noise: A second seeded random source, for the simulation's own hardware faults and
+            sensor error. It is kept apart from ``rng`` on purpose: a robustness run must differ
+            from its baseline only in the robots' behaviour, not in the pest dynamics, so
+            enabling failures or position error cannot shift the world's random stream.
     """
 
     now: Time
@@ -44,9 +54,20 @@ class SimulationContext:
     queue: EventQueue = field(default_factory=EventQueue)
     channel: Channel = field(default_factory=Channel)
     metrics: MetricsCollector | None = None
+    renderer: Renderer | None = None
     position_error: PositionErrorSpec = field(default_factory=PositionErrorSpec)
     noise: Random = field(default_factory=Random)
 
     def schedule(self, event: Event) -> None:
         """Schedule a future event."""
         self.queue.schedule(event)
+
+    def apply_command(self, command: Command) -> None:
+        """Apply one visualization command (C → B port).
+
+        World-affecting commands mutate ground truth. Time-pacing commands (``Pause``,
+        ``StepOnce``, ``SetTimeScale``) carry no simulation state to change here: the render
+        loop of the frontend interprets them and decides how far to advance the clock.
+        """
+        if isinstance(command, InjectInfestation):
+            self.world.cell(command.cell).infestation = command.severity

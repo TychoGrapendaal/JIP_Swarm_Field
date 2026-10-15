@@ -57,6 +57,7 @@ There are exactly four inter‑module ports, all typed in `contracts`:
 - **`SwarmAgent`** — B drives A. B holds agents behind this port and never sees a concrete algorithm class.
 - **`ScenarioConfig`** — the input port. B is constructed from a scenario, never hard‑coded.
 - **`WorldSnapshot`** — B → C, read‑only. C renders whatever it is handed.
+- **`Renderer`** — the C side of that port, so B can offer render ticks without importing an implementation. It sits in `contracts` for the same reason `SwarmAgent` does: a run is handed a renderer exactly as it is handed an agent, and neither side names the other's class.
 - **`Command`** — C → B, the only way C influences a run.
 
 Because A and C both depend only on `contracts` and on these ports, either can be replaced wholesale (a different algorithm, a different renderer) with no change to the other or to B.
@@ -75,12 +76,17 @@ def run_experiment(config: ExperimentConfig) -> RunSummary:
 
 Every random draw a run makes happens inside `build_run`, in a fixed order, so a run is a function of its seed and configuration. The context's `rng` is then left to the pest dynamics; the metrics collector holds no random source of its own, so recording metrics cannot change the world a run produces.
 
-The runner is also the natural home for the batch / sweep logic that runs many configurations for benchmarking: `sweep_scenarios` runs the cross product of scenarios and seeds, and `robustness_sweep` runs one scenario under each fault condition from a shared seed, so a condition and its baseline see identical pest dynamics. Visualization attaches to the same run through the snapshot port, or consumes a recorded event log offline.
+The runner is also the natural home for the batch / sweep logic that runs many configurations for benchmarking: `sweep_scenarios` runs the cross product of scenarios and seeds, and `robustness_sweep` runs one scenario under each fault condition from a shared seed, so a condition and its baseline see identical pest dynamics.
+
+`run_experiment`, `sweep` and `robustness_sweep` each take an optional `Renderer`. Handing one in makes the run draw its world on every metric tick, so a sweep can be watched without a second driver. Because a render only reads ground truth, a run with a renderer measures exactly what the same run without one would — `test_a_run_with_a_renderer_measures_exactly_the_same_as_one_without` pins that. One renderer shared across a sweep sees all the conditions and cannot tell them apart, so to attribute frames to a condition, rebuild that one condition with `robustness_case_config` and pass the renderer to a single `run_experiment`: a run is a function of its seed, so the drawn run is the tabled one.
+
+Visualization also attaches to a run the other way round, through `Command`, or consumes a recorded event log offline.
 
 ## I.3 Threads of control (who calls whom)
 
 - The **loop drives everything**: it is the active object. A and C are passive with respect to it — A is *called* (`decide`), C *pulls* snapshots and *pushes* commands.
 - **Visualization runs on its own clock.** Rendering is decoupled from simulation time: C samples the world at its own render clock (interpolating robot positions between events for smooth motion), independent of how fast the loop advances simulation time. Nothing in B blocks on C.
+- **Rendering during a batch run happens on the metrics cadence, not a render clock.** `MetricSample` is the tick: the loop hands the world to `SimulationContext.renderer` and carries on. That keeps a sweep and a live view on one cadence, at the cost that frames are coarse — an interactive frontend that wants its own clock drives the loop in steps instead, as the interactive console does.
 - **No component calls A except B**, and only through `SwarmAgent`. This is what keeps algorithms swappable and independently testable.
 
 ---
@@ -315,7 +321,7 @@ flowchart LR
 | `RobotDecision` | build the robot's `Perception`, call `SwarmAgent.decide`, apply the action, hand `outbox` to the channel | the robot's next fixed decision interval |
 | *CellArrival* (to add) | update the robot's cell / occupancy | usually a `RobotDecision` on arrival |
 | `WorldTick` | advance infestation dynamics one step | itself, at the next coarse cadence |
-| `MetricSample` | record a metrics sample | itself, periodically |
+| `MetricSample` | record a metrics sample, and hand the world to the run's `Renderer` if it has one | itself, periodically |
 | `FailureCheck` | fail each live robot that draws a fault from `ctx.noise` | itself, at the next coarse cadence |
 
 ### B.4 Keeping handlers uncoupled

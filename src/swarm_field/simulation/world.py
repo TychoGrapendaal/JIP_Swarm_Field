@@ -17,6 +17,7 @@ from swarm_field.contracts import (
     FieldGeometry,
     Idle,
     InfestationObservation,
+    MetricsSample,
     Move,
     Observation,
     PeerObservation,
@@ -389,12 +390,19 @@ class WorldState:
                 health=robot.health,
                 target=robot.move_target,
                 current_action=robot.current_action,
+                failed=robot.failed,
             )
             for robot in sorted(self.robots.values(), key=lambda item: item.robot_id)
         ]
 
-    def snapshot(self, time: Time) -> WorldSnapshot:
-        """Return a read-only-style snapshot of current ground truth."""
+    def snapshot(self, time: Time, metrics: MetricsSample | None = None) -> WorldSnapshot:
+        """Return a read-only-style snapshot of current ground truth.
+
+        Args:
+            time: The simulation time to advance to and report.
+            metrics: The metrics sample taken at ``time``, passed through so a renderer can show
+                the run's figures on the same frame. The world does not measure anything itself.
+        """
         self.advance_to(time)
         cells = {cell: replace(state) for cell, state in self.cells.items()}
         return WorldSnapshot(
@@ -402,6 +410,7 @@ class WorldState:
             field=self.field,
             cells=cells,
             robots=self.public_states(),
+            metrics=metrics,
         )
 
     def _start_move(self, robot: RobotState, target: CellId, time: Time) -> Time | None:

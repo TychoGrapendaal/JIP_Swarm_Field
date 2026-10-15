@@ -5,6 +5,10 @@ Run from the repository root with:
 
 Sweep every failure mode and write the table to a directory:
     uv run python examples/robustness_demo.py --out runs/robustness
+
+Watch one condition as PNG frames, one per metric tick, with lost robots drawn hollow:
+    uv run --with matplotlib python examples/robustness_demo.py \
+        --render failure-offline-0.005
 """
 
 from __future__ import annotations
@@ -12,15 +16,23 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from swarm_field.contracts import FailureMode, FailureSpec, PositionErrorSpec, ScenarioId
+from swarm_field.contracts import (
+    FailureMode,
+    FailureSpec,
+    PositionErrorSpec,
+    ScenarioId,
+)
 from swarm_field.runner import (
     RobustnessCase,
     RunSummary,
     export_summary_csv,
     export_summary_json,
+    robustness_case_config,
     robustness_sweep,
+    run_experiment,
 )
 from swarm_field.simulation import MetricsConfig
+from swarm_field.visualization import FrameWriter, MatplotlibRenderer
 
 HOUR = 3_600_000
 FAILURE_RATES = (0.001, 0.005)
@@ -43,6 +55,22 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--hours", type=float, default=6.0, help="how many simulation hours each run lasts"
+    )
+    parser.add_argument(
+        "--render",
+        type=str,
+        default=None,
+        metavar="CONDITION",
+        help=(
+            "write PNG frames of one condition to --render-out, one per metric tick. "
+            "Defaults to every condition when no name is given."
+        ),
+    )
+    parser.add_argument(
+        "--render-out",
+        type=Path,
+        default=Path("runs/frames"),
+        help="directory the rendered frames are written to",
     )
     return parser.parse_args()
 
@@ -93,13 +121,50 @@ def print_table(runs: tuple[RunSummary, ...]) -> None:
         )
 
 
+def select_case(cases: tuple[RobustnessCase, ...], label: str) -> RobustnessCase:
+    """Find one condition by name, listing the available ones if it does not exist."""
+    for case in cases:
+        if case.label == label:
+            return case
+    names = ", ".join(case.label for case in cases)
+    raise SystemExit(f"no condition named {label!r}; choose one of: {names}")
+
+
+def render_condition(
+    case: RobustnessCase,
+    scenario: ScenarioId,
+    seed: int,
+    until: int,
+    directory: Path,
+) -> int:
+    """Re-run one condition with a renderer and write its frames. Returns the frame count.
+
+    The sweep above already ran this exact case, and a run is a function of its seed, so drawing
+    it a second time reproduces the row in the table rather than a different experiment. That is
+    why the frames can be trusted against the numbers next to them.
+    """
+    config = robustness_case_config(
+        scenario,
+        case,
+        seed,
+        until=until,
+        metrics=MetricsConfig(period=HOUR),
+    )
+    writer = FrameWriter(MatplotlibRenderer(show_targets=False), directory, case.label)
+    run_experiment(config, writer)
+    return writer.frames_written
+
+
 def main() -> None:
     args = parse_args()
+    until = int(args.hours * HOUR)
+    cases = all_cases()
+
     runs = robustness_sweep(
         args.scenario,
-        all_cases(),
+        cases,
         seed=args.seed,
-        until=int(args.hours * HOUR),
+        until=until,
         metrics=MetricsConfig(period=HOUR),
     )
 
@@ -111,6 +176,11 @@ def main() -> None:
         for run in runs:
             run.export(args.out)
         print(f"\nWrote the table and {2 * len(runs)} series files to {args.out}")
+
+    if args.render is not None:
+        case = select_case(cases, args.render)
+        written = render_condition(case, args.scenario, args.seed, until, args.render_out)
+        print(f"Wrote {written} frames of {case.label} to {args.render_out}")
 
 
 if __name__ == "__main__":

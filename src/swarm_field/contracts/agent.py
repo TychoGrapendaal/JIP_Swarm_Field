@@ -63,6 +63,8 @@ class RobotPublicState:
         health: Condition, 0..1.
         target: Current direct movement target, if the robot is travelling.
         current_action: The currently executing action, if any.
+        failed: Whether the robot has stopped taking part in the run, so a renderer can tell a
+            lost robot from a live one.
     """
 
     robot_id: RobotId
@@ -73,6 +75,7 @@ class RobotPublicState:
     health: float
     target: CellId | None
     current_action: Action | None
+    failed: bool = False
 
 
 @dataclass

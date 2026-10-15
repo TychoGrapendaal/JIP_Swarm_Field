@@ -27,6 +27,7 @@ from swarm_field.contracts import (
     FieldGeometry,
     MetricsSample,
     PositionErrorSpec,
+    Renderer,
     RobotId,
     ScenarioConfig,
     ScenarioId,
@@ -255,26 +256,34 @@ class RunSummary:
         return csv_path, json_path
 
 
-def run_experiment(config: ExperimentConfig) -> RunSummary:
+def run_experiment(
+    config: ExperimentConfig,
+    renderer: Renderer | None = None,
+) -> RunSummary:
     """Assemble, run and summarise one seeded experiment.
 
     Args:
         config: The scenario, brain and duration to run.
+        renderer: Draws the world on every metric tick. Because a render only reads ground truth,
+            passing one changes nothing about the run or the summary it returns.
     """
-    ctx, collector = build_run(config)
+    ctx, collector = build_run(config, renderer)
     SimulationLoop().run(ctx, config.until)
     return RunSummary.from_series(
         config.label, config.scenario_name, config.scenario.seed, collector.series()
     )
 
 
-def sweep(configs: Iterable[ExperimentConfig]) -> tuple[RunSummary, ...]:
+def sweep(
+    configs: Iterable[ExperimentConfig],
+    renderer: Renderer | None = None,
+) -> tuple[RunSummary, ...]:
     """Run several configurations in order and return one summary per configuration.
 
     Each configuration carries its own seed, so a sweep is reproducible end to end and its
     results can be compared row by row.
     """
-    return tuple(run_experiment(config) for config in configs)
+    return tuple(run_experiment(config, renderer) for config in configs)
 
 
 def sweep_scenarios(
@@ -283,6 +292,7 @@ def sweep_scenarios(
     brain: BrainSpec | None = None,
     until: Time = TimeUnit.HOUR,
     metrics: MetricsConfig | None = None,
+    renderer: Renderer | None = None,
 ) -> tuple[RunSummary, ...]:
     """Run the cross product of ``scenarios`` and ``seeds``, labelling each run ``SCENARIO/SEED``.
 
@@ -296,7 +306,7 @@ def sweep_scenarios(
             configs.append(
                 build_experiment(label, scenario, seed, brain=brain, until=until, metrics=metrics)
             )
-    return sweep(configs)
+    return sweep(configs, renderer)
 
 
 @dataclass(frozen=True)
@@ -317,12 +327,38 @@ class RobustnessCase:
     position_error: PositionErrorSpec = field(default_factory=PositionErrorSpec)
 
 
+def robustness_case_config(
+    scenario: ScenarioId,
+    case: RobustnessCase,
+    seed: int,
+    until: Time = 3_600_000,
+    metrics: MetricsConfig | None = None,
+) -> ExperimentConfig:
+    """Assemble the configuration for one robustness condition.
+
+    Separated from ``robustness_sweep`` so a caller can reproduce a single condition exactly as
+    the sweep built it, which is what makes rendering that condition again trustworthy: the same
+    case, seed and duration produce the same run whether it was swept or drawn.
+    """
+    config = build_experiment(
+        f"{scenario.name}/{case.label}",
+        scenario,
+        seed,
+        until=until,
+        metrics=metrics,
+    )
+    config.scenario.failures = case.failures
+    config.scenario.position_error = case.position_error
+    return config
+
+
 def robustness_sweep(
     scenario: ScenarioId,
     cases: Iterable[RobustnessCase],
     seed: int,
     until: Time = TimeUnit.HOUR,
     metrics: MetricsConfig | None = None,
+    renderer: Renderer | None = None,
 ) -> tuple[RunSummary, ...]:
     """Run one scenario under each robustness condition, from the same seed.
 
@@ -336,19 +372,17 @@ def robustness_sweep(
         seed: The seed shared by every case, which is what makes them comparable.
         until: How far to run each case, in simulation time.
         metrics: Sampling cadence and target threshold.
+        renderer: Draws every case's world on every metric tick. One renderer sees all of them,
+            so it cannot tell the conditions apart; render a single condition through
+            ``robustness_case_config`` when the frames need to be attributable.
     """
-    runs: list[RunSummary] = []
-    for case in cases:
-        config = build_experiment(
-            f"{scenario.name}/{case.label}",
-            scenario,
-            seed,
-            until=until,
-            metrics=metrics,
+    runs = [
+        run_experiment(
+            robustness_case_config(scenario, case, seed, until=until, metrics=metrics),
+            renderer,
         )
-        config.scenario.failures = case.failures
-        config.scenario.position_error = case.position_error
-        runs.append(run_experiment(config))
+        for case in cases
+    ]
     return tuple(runs)
 
 
@@ -404,7 +438,10 @@ def export_summary_json(runs: Iterable[RunSummary], path: Path) -> Path:
     return path
 
 
-def build_run(config: ExperimentConfig) -> tuple[SimulationContext, MetricsCollector]:
+def build_run(
+    config: ExperimentConfig,
+    renderer: Renderer | None = None,
+) -> tuple[SimulationContext, MetricsCollector]:
     """Assemble one run's object graph and seed its first events.
 
     Every random draw happens here, in a fixed order, so the run is a function of the seed and
@@ -414,6 +451,8 @@ def build_run(config: ExperimentConfig) -> tuple[SimulationContext, MetricsColle
 
     Args:
         config: The experiment to assemble.
+        renderer: Draws the world on every metric tick. The run is unaffected either way, so a
+            sweep can be watched without changing what it measures.
     """
     scenario = config.scenario
     rng = Random(scenario.seed)
@@ -432,6 +471,7 @@ def build_run(config: ExperimentConfig) -> tuple[SimulationContext, MetricsColle
         agents=agents,
         world=world,
         metrics=collector,
+        renderer=renderer,
         position_error=scenario.position_error,
         noise=_noise_source(scenario.seed),
     )

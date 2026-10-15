@@ -9,6 +9,15 @@ from swarm_field.contracts.agent import (
     RobotSelfState,
     SwarmAgent,
 )
+from swarm_field.contracts.command import (
+    Command,
+    CommandLog,
+    InjectInfestation,
+    Pause,
+    SetTimeScale,
+    StepOnce,
+    TimedCommand,
+)
 from swarm_field.contracts.ids import (
     AgentObjective,
     BodyType,
@@ -43,7 +52,7 @@ from swarm_field.contracts.scenario import (
     ScenarioConfig,
     ScenarioId,
 )
-from swarm_field.contracts.snapshot import WorldSnapshot
+from swarm_field.contracts.snapshot import Renderer, WorldSnapshot
 from swarm_field.contracts.world import CellState, FieldGeometry
 
 __all__ = [
@@ -54,6 +63,8 @@ __all__ = [
     "CellId",
     "CellState",
     "Charge",
+    "Command",
+    "CommandLog",
     "CropObservation",
     "CropType",
     "Decision",
@@ -64,29 +75,35 @@ __all__ = [
     "FieldGeometry",
     "Idle",
     "InfestationObservation",
+    "InjectInfestation",
     "Message",
     "MessageKind",
     "MetricsSample",
     "Move",
     "Observation",
     "ObservationBase",
+    "Pause",
     "PeerObservation",
     "PeerTargetObservation",
     "Perception",
     "PestDynamicsSpec",
     "PestType",
     "PositionErrorSpec",
+    "Renderer",
     "RobotId",
     "RobotPublicState",
     "RobotSelfState",
     "RobotSpec",
     "ScenarioConfig",
     "ScenarioId",
+    "SetTimeScale",
+    "StepOnce",
     "SwarmAgent",
     "Terrain",
     "TerrainObservation",
     "Time",
     "TimeUnit",
+    "TimedCommand",
     "Treat",
     "Vector2",
     "WorldSnapshot",
