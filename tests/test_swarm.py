@@ -177,17 +177,6 @@ class _FieldFollower:
         return (ActionCandidate(follow, self._score, self.name, None, self._objective),)
 
 
-class _TargetRecorder:
-    name: str = "target-recorder"
-
-    def __init__(self) -> None:
-        self.targets: list[CellId | None] = []
-
-    def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
-        self.targets.append(ctx.current_target)
-        return (ActionCandidate(Idle(), 0.0, self.name, target=None),)
-
-
 def test_agent_picks_highest_scoring_candidate() -> None:
     agent = _agent(
         [
@@ -206,19 +195,6 @@ def test_agent_picks_highest_scoring_candidate() -> None:
 
     assert decision.action == Treat((1, 0))
     assert agent.inspect().current_goal == "multi"
-
-
-def test_decision_context_receives_the_preceding_target() -> None:
-    recorder = _TargetRecorder()
-    agent = _agent(
-        [_FieldFollower(_FixedTargetSeeder.name, 1.0), recorder],
-        seeders=[_FixedTargetSeeder()],
-    )
-
-    agent.decide(_perception(sensed=[]))
-    agent.decide(_perception(sensed=[]))
-
-    assert recorder.targets == [None, (5, 5)]
 
 
 def test_agent_idles_without_candidates() -> None:

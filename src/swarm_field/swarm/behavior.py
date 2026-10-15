@@ -14,7 +14,6 @@ from swarm_field.contracts import (
     Idle,
     Message,
     Observation,
-    PeerObservation,
     RobotSelfState,
     Time,
     Treat,
@@ -79,7 +78,6 @@ class DecisionContext:
         sensed: What the robot sensed at this decision point (already merged into memory).
         memory: The robot's facts about the field and its peers.
         inbox: The messages received at this decision point.
-        current_target: The target committed to by the preceding decision, if any.
     """
 
     time: Time
@@ -133,7 +131,7 @@ class TreatInfestation:
         if here is not None and here.severity > 0:
             treat = Treat(position)
             return (ActionCandidate(treat, _TREAT_SCORE, self.name, position, _TREAT),)
-        
+
         num_pests = 0
         for pest in ctx.memory.infestations():
             if pest.severity > 0:
@@ -170,7 +168,6 @@ class ExploreBehaviour:
         target cell, and the unexplored-cell fraction. If no usable field target exists, the
         scored candidate proposes ``Idle`` instead of following a field.
         """
-        _EXPLORE = AgentObjective.EXPLORE
         memory = ctx.memory
 
         criteria_scores = [
@@ -186,18 +183,26 @@ class ExploreBehaviour:
         self._previous_time = ctx.time
         score = sum(w * s for w, s in zip(weights, criteria_scores, strict=True))
         action = FollowField(self._seeder)
-        candidate = ActionCandidate(action=action, score=score, source=self.name, target=None, objective=_EXPLORE)
+        candidate = ActionCandidate(
+            action=action,
+            score=score,
+            source=self.name,
+            target=None,
+            objective=AgentObjective.EXPLORE,
+        )
         return (candidate,)
 
     def _body_type_criteria(self, memory: MemoryView) -> float:
         """Return the 1 - (fraction of nearby robots that are scouts)."""
         num_explore = 0
+        num_peers = 0
         for peer in memory.peers():
+            num_peers += 1
             if peer.body is BodyType.SCOUT:
                 num_explore += 1
         if num_explore == 0:
             return 0.99
-        return 1 - (num_explore / len(memory.peers()))
+        return 1 - (num_explore / num_peers)
 
     def _explore_score_criteria(
         self,
@@ -209,7 +214,7 @@ class ExploreBehaviour:
         last_seen = np.asarray([memory.last_observed_times()], dtype=np.float64)
         monitorable = np.asarray([memory.monitorable_cells()], dtype=np.bool_)
         worths = revisit_worths(last_seen, monitorable, time, revisit_age)
-        avg_worth = np.min(np.mean(worths), 0.99)
+        avg_worth = min(float(np.mean(worths)), 0.99)
         return avg_worth
 
     def _unexplore_criteria(self, memory: MemoryView) -> float:
@@ -255,6 +260,8 @@ class ExploreBehaviour:
             for nw, ow in zip(normalized_weights, old_weights, strict=True)
         ]
         return weights
+
+
 class FollowSeederField:
     """A mock behaviour: always bid 0.5 to follow one seeder's field, for the objective EXPLORE.
 
