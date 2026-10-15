@@ -1,6 +1,6 @@
 """Tests for the composed brain and high-level movement action."""
 
-from collections.abc import Hashable
+from collections.abc import Hashable, Sequence
 
 from swarm_field.contracts import (
     BodyType,
@@ -22,6 +22,7 @@ from swarm_field.contracts import (
 from swarm_field.swarm import (
     ActionCandidate,
     AgentMemory,
+    ArbiterChoice,
     Behavior,
     ComposedAgent,
     DecisionContext,
@@ -86,6 +87,15 @@ def _sensed(time: Time) -> list[Observation]:
     ]
 
 
+class _MaxArbiter:
+    """A mock arbiter: the highest score wins, without hysteresis."""
+
+    def choose(self, candidates: Sequence[ActionCandidate], now: Time) -> ArbiterChoice | None:
+        if not candidates:
+            return None
+        return ArbiterChoice(max(candidates, key=lambda c: c.score), switched=False)
+
+
 def _agent(behaviors: list[Behavior], seeders: list[FieldSeeder] | None = None) -> ComposedAgent:
     memory = AgentMemory(1, _FIELD)
     fields = FieldProvider(memory, flies=False, seeders=seeders or [])
@@ -95,6 +105,7 @@ def _agent(behaviors: list[Behavior], seeders: list[FieldSeeder] | None = None) 
         memory=memory,
         fields=fields,
         navigator=Navigator(fields.quadtree),
+        arbiter=_MaxArbiter(),
     )
 
 
@@ -220,7 +231,7 @@ def test_treat_infestation_bids_to_follow_its_seeders_field() -> None:
 
     candidates = behavior.propose(_context(sensed=[], seeders=[_FixedTargetSeeder()]))
 
-    assert [(c.action, c.target) for c in candidates] == [(FollowField("fixed-target"), (5, 5))]
+    assert [(c.action, c.target) for c in candidates] == [(FollowField("fixed-target"), None)]
 
 
 def test_a_winning_follow_field_becomes_a_step_along_the_field() -> None:
@@ -242,6 +253,7 @@ def test_agent_broadcasts_its_memory_and_peer_learns_it() -> None:
         memory=receiver_memory,
         fields=receiver_fields,
         navigator=Navigator(receiver_fields.quadtree),
+        arbiter=_MaxArbiter(),
     )
     fact = InfestationObservation(
         cell=(6, 6),
@@ -269,9 +281,10 @@ def test_agent_broadcasts_its_memory_and_peer_learns_it() -> None:
         )
     )
 
-    assert len(first.outbox) == 1
-    assert first.outbox[0].kind is MessageKind.KNOWLEDGE
-    assert first.outbox[0].payload == (fact,)
+    status, knowledge = first.outbox
+    assert status.kind is MessageKind.STATUS
+    assert knowledge.kind is MessageKind.KNOWLEDGE
+    assert knowledge.payload == (fact,)
 
     receiver.decide(
         Perception(

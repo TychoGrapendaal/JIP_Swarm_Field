@@ -115,6 +115,14 @@ uv run --with matplotlib python examples/robot_decision_demo.py --frames 200 --s
 
 This demo is specifically intended to make the event-driven behavior added in issue #4 visible; it is separate from the higher-level swarm behavior demonstrations.
 
+### Treat-infestation demonstration
+
+```bash
+uv run python examples/treat_infestation_demo.py
+```
+
+A killer robot that already knows of three pests follows the TREAT field around a wall to each of them, treats it once, and then idles.
+
 ### Renderer demonstration (C.1)
 
 ```bash
