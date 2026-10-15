@@ -117,9 +117,10 @@ class ExploreScenario:
 
 
 class FollowSeederField:
-    """Always bid a fixed score to follow one seeder's field.
+    """Always bid 0.5 to follow one seeder's field, for the objective EXPLORE.
 
-    As the only behaviour of a robot it always wins, so its score does not matter.
+    As the only behaviour of a robot it always wins. Next to other behaviours it is a mock
+    explore behaviour with an even bid on the arbiter's scale.
     """
 
     name: str = "follow-field"
@@ -234,7 +235,7 @@ def build_explore_run(scenario: ExploreScenario, seeder_for: SeederFactory) -> E
     world = WorldState(geometry)
     for cell in scenario.obstacles:
         world.cell(cell).obstacle = True
-    terrain_map = _terrain_map(world)
+    terrain = terrain_map(world)
 
     agents: dict[RobotId, ComposedAgent] = {}
     pool = SharedObservations()
@@ -252,7 +253,7 @@ def build_explore_run(scenario: ExploreScenario, seeder_for: SeederFactory) -> E
             )
         )
         memory = AgentMemory(robot_id, geometry)
-        memory.merge(terrain_map)
+        memory.merge(terrain)
         seeder = seeder_for(robot_id)
         fields = FieldProvider(memory, flies=False, seeders=[seeder])
         agent = ComposedAgent(
@@ -291,7 +292,7 @@ def river_and_rocks(size: int) -> tuple[CellId, ...]:
     return tuple(cells)
 
 
-def _terrain_map(world: WorldState) -> list[TerrainObservation]:
+def terrain_map(world: WorldState) -> list[TerrainObservation]:
     """The terrain of every cell, as facts observed at time 0."""
     facts: list[TerrainObservation] = []
     for cell, state in world.cells.items():

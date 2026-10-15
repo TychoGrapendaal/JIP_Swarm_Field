@@ -11,13 +11,19 @@ from swarm_field.experiments.explore import (
     RandomWaypointSeeder,
     build_explore_run,
     river_and_rocks,
+    terrain_map,
 )
+from swarm_field.experiments.pests import PestRun, PestScenario, build_pest_run
 
 __all__ = [
     "ExploreRun",
     "ExploreScenario",
     "FollowSeederField",
+    "PestRun",
+    "PestScenario",
     "RandomWaypointSeeder",
     "build_explore_run",
+    "build_pest_run",
     "river_and_rocks",
+    "terrain_map",
 ]

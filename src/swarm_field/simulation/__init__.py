@@ -6,7 +6,6 @@ order over a shared ``SimulationContext``.
 
 from swarm_field.simulation.channel import Channel, robots_in_range_of
 from swarm_field.simulation.context import SimulationContext
-from swarm_field.simulation.coverage import CoverageSample, CoverageSummary, CoverageTracker
 from swarm_field.simulation.event import (
     Event,
     EventQueue,
@@ -15,16 +14,29 @@ from swarm_field.simulation.event import (
     WorldTick,
 )
 from swarm_field.simulation.loop import SimulationLoop
+from swarm_field.simulation.metrics import (
+    ClearedPest,
+    CoverageSample,
+    CoverageSummary,
+    CoverageTracker,
+    InfestationSample,
+    InfestationSummary,
+    InfestationTracker,
+)
 from swarm_field.simulation.scenario import build_scenario, build_world
 from swarm_field.simulation.world import RobotState, WorldState
 
 __all__ = [
     "Channel",
+    "ClearedPest",
     "CoverageSample",
     "CoverageSummary",
     "CoverageTracker",
     "Event",
     "EventQueue",
+    "InfestationSample",
+    "InfestationSummary",
+    "InfestationTracker",
     "PestDynamicsConfig",
     "RobotDecision",
     "RobotState",

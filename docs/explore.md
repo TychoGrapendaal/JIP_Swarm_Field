@@ -1,6 +1,6 @@
 # EXPLORE: drawing robots to stale information (#41)
 
-This document describes the EXPLORE field seeder, how it is measured, and what the measurements say. The seeder is `ExploreSeeder` in `swarm/explore.py`; the measurements come from `CoverageTracker` (`simulation/coverage.py`), the runnable experiment in `swarm_field.experiments`, and `tests/benchmark_explore.py`. How a seeder fits into the brain is described in [`robot-memory-and-navigation.md`](./robot-memory-and-navigation.md) under "Writing a behaviour".
+This document describes the EXPLORE field seeder, how it is measured, and what the measurements say. The seeder is `ExploreSeeder` in `swarm/explore.py`; the measurements come from `CoverageTracker` (`simulation/metrics/coverage.py`), the runnable experiment in `swarm_field.experiments`, and `tests/benchmark_explore.py`. How a seeder fits into the brain is described in [`robot-memory-and-navigation.md`](./robot-memory-and-navigation.md) under "Writing a behaviour".
 
 Exploring a new field and monitoring a known one are one objective. A cell is worth visiting again by how long ago anyone observed it, and a never-seen cell is simply the oldest information there is. A robot observes only the cell it stands on, so visiting a cell is observing it.
 
