@@ -16,10 +16,13 @@ The measures:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from swarm_field.contracts import CellId, Time
-from swarm_field.simulation.context import SimulationContext
 from swarm_field.simulation.world import WorldState
+
+if TYPE_CHECKING:
+    from swarm_field.simulation.context import SimulationContext
 
 
 @dataclass(frozen=True)

@@ -10,6 +10,7 @@ A decentralized swarm of robots that monitor and cultivate a crop field. Each ro
 
 - [`docs/system-decomposition.md`](docs/system-decomposition.md) — the module boundaries and the interface contracts between them.
 - [`docs/architecture.md`](docs/architecture.md) — inter- and intra-module architecture: the composable brain (A) and the discrete-event simulation (B).
+- [`docs/research/`](docs/research/) — research notes: navigation design, and the robustness measurement (failure and position error).
 - `docs/*.pdf` — the problem statement and literature review (domain background on swarm robotics for crop fields).
 - Source lives under `src/swarm_field/<package>/`; tests mirror it under `tests/`.
 
@@ -19,6 +20,8 @@ A decentralized swarm of robots that monitor and cultivate a crop field. Each ro
 - `swarm/` (A) — the robot brain: `ComposedAgent` combines `Behavior`s that propose scored actions.
 - `simulation/` (B) — the environment simulation: `SimulationLoop` processes timestamped events from an `EventQueue`, and owns ground truth.
 - `visualization/` (C) — the visualization adapter: `Renderer`s draw read-only `WorldSnapshot`s.
+- `runner.py` — the composition root: resolves brain parts from registries, assembles one run, and holds the sweep logic. The only module that knows every concrete class.
+- `console.py` — the interactive console: advances one run frame by frame, turns key presses and clicks into `Command`s, and records and replays runs. It sits at the package root next to `runner.py` because it combines the simulation and the visualization, which must not import each other.
 
 ## Architecture rules
 

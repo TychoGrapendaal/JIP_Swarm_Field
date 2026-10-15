@@ -16,13 +16,16 @@ The measures, all over the cells that are not obstacles:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 from numpy.typing import NDArray
 
 from swarm_field.contracts import CellId, RobotId, Time
-from swarm_field.simulation.context import SimulationContext
 from swarm_field.simulation.world import WorldState
+
+if TYPE_CHECKING:
+    from swarm_field.simulation.context import SimulationContext
 
 
 @dataclass(frozen=True)

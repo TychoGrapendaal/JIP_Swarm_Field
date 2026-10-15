@@ -1,9 +1,16 @@
-"""Ground-truth measures of a run: trackers that read the world, and the events that sample it.
+"""Ground-truth measures of a run: they only read the world, and never change the run.
 
-Each measure has a tracker that accumulates it from the world, a sample event that records into
-the tracker at a fixed period, and a summary of the run so far. They only read the world.
+``MetricsCollector`` records the run's metrics series (B.5), sampled by ``MetricSample``, and
+exports it. ``CoverageTracker`` and ``InfestationTracker`` each accumulate one measure, sampled
+by their own event, and summarise the run so far.
 """
 
+from swarm_field.simulation.metrics.collector import (
+    MetricsCollector,
+    MetricsConfig,
+    write_metrics_csv,
+    write_metrics_json,
+)
 from swarm_field.simulation.metrics.coverage import (
     CoverageSample,
     CoverageSummary,
@@ -24,4 +31,8 @@ __all__ = [
     "InfestationSample",
     "InfestationSummary",
     "InfestationTracker",
+    "MetricsCollector",
+    "MetricsConfig",
+    "write_metrics_csv",
+    "write_metrics_json",
 ]

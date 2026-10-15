@@ -9,6 +9,15 @@ from swarm_field.contracts.agent import (
     RobotSelfState,
     SwarmAgent,
 )
+from swarm_field.contracts.command import (
+    Command,
+    CommandLog,
+    InjectInfestation,
+    Pause,
+    SetTimeScale,
+    StepOnce,
+    TimedCommand,
+)
 from swarm_field.contracts.ids import (
     AgentObjective,
     BodyType,
@@ -22,6 +31,7 @@ from swarm_field.contracts.ids import (
     TimeUnit,
 )
 from swarm_field.contracts.messages import Message, MessageKind
+from swarm_field.contracts.metrics import MetricsSample
 from swarm_field.contracts.navigation import Vector2
 from swarm_field.contracts.observations import (
     CropObservation,
@@ -31,8 +41,17 @@ from swarm_field.contracts.observations import (
     PeerObservation,
     TerrainObservation,
 )
-from swarm_field.contracts.scenario import PestDynamicsSpec, RobotSpec, ScenarioConfig, ScenarioId
-from swarm_field.contracts.snapshot import WorldSnapshot
+from swarm_field.contracts.scenario import (
+    EnergySpec,
+    FailureMode,
+    FailureSpec,
+    PestDynamicsSpec,
+    PositionErrorSpec,
+    RobotSpec,
+    ScenarioConfig,
+    ScenarioId,
+)
+from swarm_field.contracts.snapshot import Renderer, WorldSnapshot
 from swarm_field.contracts.world import CellState, FieldGeometry
 
 __all__ = [
@@ -43,33 +62,46 @@ __all__ = [
     "CellId",
     "CellState",
     "Charge",
+    "Command",
+    "CommandLog",
     "CropObservation",
     "CropType",
     "Decision",
     "Direction",
+    "EnergySpec",
+    "FailureMode",
+    "FailureSpec",
     "FieldGeometry",
     "Idle",
     "InfestationObservation",
+    "InjectInfestation",
     "Message",
     "MessageKind",
+    "MetricsSample",
     "Move",
     "Observation",
     "ObservationBase",
+    "Pause",
     "PeerObservation",
     "Perception",
     "PestDynamicsSpec",
     "PestType",
+    "PositionErrorSpec",
+    "Renderer",
     "RobotId",
     "RobotPublicState",
     "RobotSelfState",
     "RobotSpec",
     "ScenarioConfig",
     "ScenarioId",
+    "SetTimeScale",
+    "StepOnce",
     "SwarmAgent",
     "Terrain",
     "TerrainObservation",
     "Time",
     "TimeUnit",
+    "TimedCommand",
     "Treat",
     "Vector2",
     "WorldSnapshot",
