@@ -30,7 +30,7 @@ Memory holds facts and nothing else. The quadtree says where a robot can be and 
 | `swarm/navigator.py` | `Navigator` (the seam: progress, fallback) |
 | `swarm/steering.py` | `Steerer`, `Sensing`, `QuadtreeSensing`, `SteeringConfig` |
 | `swarm/seeder.py` | `FieldSeeder`, `SeededField`, `TreatSeeder` |
-| `swarm/behavior.py` | `Behavior`, `ActionCandidate`, `FollowField`, `Intent`, `DecisionContext`, `TreatInfestation` |
+| `swarm/behavior.py` | `Behavior`, `ActionCandidate`, `FollowField`, `Intent`, `DecisionContext`, `TreatInfestation`, `ExploreBehaviour` |
 | `swarm/brain.py` | `ComposedAgent` |
 
 Tests: `tests/test_memory.py`, `tests/test_quadtree.py`, `tests/test_field.py`, `tests/test_provider.py`, `tests/test_navigator.py`, `tests/test_steering.py`, `tests/test_swarm.py`.

@@ -3,6 +3,7 @@
 from swarm_field.swarm.field.builder import (
     BoundingBox,
     GridPotentialField,
+    MixedGraph,
     Seed,
     build_grid_potential_field,
 )
@@ -12,6 +13,7 @@ __all__ = [
     "BoundingBox",
     "GridPotentialField",
     "Leaf",
+    "MixedGraph",
     "Quadtree",
     "Seed",
     "TerrainView",
