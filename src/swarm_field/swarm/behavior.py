@@ -87,7 +87,6 @@ class DecisionContext:
     sensed: list[Observation]
     memory: MemoryView
     inbox: list[Message] = field(default_factory=list)
-    current_target: CellId | None = None
 
 
 class Behavior(Protocol):
@@ -171,12 +170,11 @@ class ExploreBehaviour:
         target cell, and the unexplored-cell fraction. If no usable field target exists, the
         scored candidate proposes ``Idle`` instead of following a field.
         """
-        position = ctx.self_state.position
-        inbox = ctx.inbox
+        _EXPLORE = AgentObjective.EXPLORE
         memory = ctx.memory
 
         criteria_scores = [
-            self._body_type_criteria(inbox),
+            self._body_type_criteria(memory),
             self._explore_score_criteria(memory, ctx.time),
             self._unexplore_criteria(memory),
         ]
@@ -188,24 +186,18 @@ class ExploreBehaviour:
         self._previous_time = ctx.time
         score = sum(w * s for w, s in zip(weights, criteria_scores, strict=True))
         action = FollowField(self._seeder)
-        target = None
-        if ctx.current_target == position:
-            action = Idle()
-            target = position
-        candidate = ActionCandidate(action=action, score=score, source=self.name, target=target)
+        candidate = ActionCandidate(action=action, score=score, source=self.name, target=None, objective=_EXPLORE)
         return (candidate,)
 
-    def _body_type_criteria(self, inbox: list[Message]) -> float:
+    def _body_type_criteria(self, memory: MemoryView) -> float:
         """Return the 1 - (fraction of nearby robots that are scouts)."""
-        peer_observations = [
-            message.payload for message in inbox if isinstance(message.payload, PeerObservation)
-        ]
-        if not peer_observations:
-            return 1.0
-        matching_robots = sum(
-            observation.body is BodyType.SCOUT for observation in peer_observations
-        )
-        return 1 - (matching_robots / len(peer_observations))
+        num_explore = 0
+        for peer in memory.peers():
+            if peer.body is BodyType.SCOUT:
+                num_explore += 1
+        if num_explore == 0:
+            return 0.99
+        return 1 - (num_explore / len(memory.peers()))
 
     def _explore_score_criteria(
         self,
@@ -217,17 +209,17 @@ class ExploreBehaviour:
         last_seen = np.asarray([memory.last_observed_times()], dtype=np.float64)
         monitorable = np.asarray([memory.monitorable_cells()], dtype=np.bool_)
         worths = revisit_worths(last_seen, monitorable, time, revisit_age)
-        avg_worth = np.mean(worths)
+        avg_worth = np.min(np.mean(worths), 0.99)
         return avg_worth
 
     def _unexplore_criteria(self, memory: MemoryView) -> float:
         """Return the 1 - (fraction of unexplored cells in the provided exploration field)."""
         last_seen = memory.last_observed_times()
         if last_seen is None:
-            return 1.0
+            return 0.99
         total_cells = last_seen.size
         if total_cells == 0:
-            return 1.0
+            return 0.99
         unexplored_cells = np.count_nonzero(np.isneginf(last_seen))
         return 1 - (unexplored_cells / total_cells)
 
