@@ -13,15 +13,11 @@ from swarm_field.swarm.behavior import (
 )
 from swarm_field.swarm.brain import ComposedAgent
 from swarm_field.swarm.capabilities import CapabilitySet, capabilities_for
+from swarm_field.swarm.explore import ExploreSeeder
 from swarm_field.swarm.memory import AgentMemory
 from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.provider import FieldProvider
-from swarm_field.swarm.seeder import (
-    BatteryRequestSeeder,
-    DockSeeder,
-    ExploreSeeder,
-    TreatSeeder,
-)
+from swarm_field.swarm.seeder import BatteryRequestSeeder, DockSeeder, TreatSeeder
 
 
 def build_agent(

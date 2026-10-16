@@ -35,7 +35,7 @@ from swarm_field.contracts import (
     Time,
 )
 from swarm_field.swarm.capabilities import CapabilitySet, capabilities_for
-from swarm_field.swarm.arbiter import Arbiter
+from swarm_field.swarm.arbiter import Arbiter, UtilityArbiter
 from swarm_field.swarm.behavior import (
     ActionCandidate,
     Behavior,
@@ -71,8 +71,8 @@ class ComposedAgent:
         memory: AgentMemory,
         fields: FieldProvider,
         navigator: Navigator,
+        arbiter: Arbiter | None = None,
         capabilities: CapabilitySet | None = None,
-        arbiter: Arbiter,
     ) -> None:
         self.robot_id: RobotId = robot_id
         self.behaviors: list[Behavior] = behaviors
@@ -80,7 +80,7 @@ class ComposedAgent:
         self.fields: FieldProvider = fields
         self.navigator: Navigator = navigator
         self.capabilities: CapabilitySet | None = capabilities
-        self.arbiter: Arbiter = arbiter
+        self.arbiter: Arbiter = arbiter if arbiter is not None else UtilityArbiter()
         self._current_goal: str | None = None
         self._current_target: CellId | None = None
         self._current_objective: AgentObjective | None = None
@@ -119,6 +119,7 @@ class ComposedAgent:
             memory=self.memory,
             inbox=perception.inbox,
             capabilities=capabilities,
+            fields=self.fields,
         )
         candidates: list[ActionCandidate] = []
         for behavior in self.behaviors:
@@ -135,7 +136,14 @@ class ComposedAgent:
 
         best = choice.candidate
         self._current_goal = best.source
-        action = self._action_for(best.action, perception.self_state.position, perception.time)
+        self._current_objective = best.objective
+        self._current_target = best.target
+        action, field_target = self._action_for(
+            best.action, perception.self_state.position, perception.time
+        )
+        if field_target is not None:
+            self._current_target = field_target
+
         # Validate the concrete action as well as the proposed intent: a FollowField intent
         # becomes a Move (or Idle) only after the navigator has resolved it.
         if not capabilities.can(type(action)):
@@ -147,14 +155,9 @@ class ComposedAgent:
             )
             action = Idle()
             self._current_goal = None
-        return Decision(action=action, outbox=outbox)
-        self._current_objective = best.objective
-        action, field_target = self._action_for(
-            best.action, perception.self_state.position, perception.time
-        )
-        self._current_target = best.target
-        if field_target is not None:
-            self._current_target = field_target
+            self._current_target = None
+            self._current_objective = None
+
         return Decision(action=action, outbox=self._messages_to_send(perception))
 
     @staticmethod

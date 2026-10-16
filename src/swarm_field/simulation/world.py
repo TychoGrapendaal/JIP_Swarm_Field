@@ -118,11 +118,9 @@ class WorldState:
         field: FieldGeometry,
         robots: Iterable[RobotState] = (),
         docks: Iterable[CellId] = (),
-    ) -> None:
-        """Create the field, fixed charging docks, and any initial robots."""
         energy: EnergyConfig | None = None,
     ) -> None:
-        """Create the field and place any initial robots."""
+        """Create the field, fixed charging docks, and any initial robots."""
         if field.width <= 0 or field.height <= 0:
             raise ValueError("field dimensions must be positive")
         if field.cell_size <= 0:
@@ -245,12 +243,7 @@ class WorldState:
         )
 
     def observe_for(self, robot_id: RobotId, time: Time) -> list[Observation]:
-        """Generate body-specific sensing, local terrain data and nearby peer status.
-
-        Scouts sense crop and infestation over a 3 x 3 footprint. Killers sense crop and
-        infestation in their own cell. Battery robots do not sense infestation. All bodies get
-        a one-cell terrain ring for local obstacle avoidance, and peer status within one cell.
-        """
+        """Generate body-specific pest, terrain, and peer observations."""
         from swarm_field.swarm.capabilities import capabilities_for
 
         robot = self._robot(robot_id)
@@ -285,14 +278,39 @@ class WorldState:
                 )
 
         for cell in terrain_cells:
-            state = self.cells[cell]
-            terrain = Terrain.OBSTACLE if state.obstacle else Terrain.FREE
-    def fail_robot(self, robot_id: RobotId, mode: FailureMode) -> None:
-        """Stop one robot from taking part in the run, in the way ``mode`` describes.
+            terrain = Terrain.OBSTACLE if self.cells[cell].obstacle else Terrain.FREE
+            observations.append(
+                TerrainObservation(
+                    cell=cell,
+                    confidence=1.0,
+                    observed_at=time,
+                    source=robot_id,
+                    terrain=terrain,
+                )
+            )
 
-        A robot that has already failed stays failed: a later check cannot bring it back, so a
-        sweep's failure count is monotone and the swarm only ever loses capacity.
-        """
+        for cell in peer_cells:
+            for peer_id in self.robots_at(cell):
+                if peer_id == robot_id:
+                    continue
+                peer = self._robot(peer_id)
+                observations.append(
+                    PeerObservation(
+                        cell=cell,
+                        confidence=1.0,
+                        observed_at=time,
+                        source=robot_id,
+                        peer=peer_id,
+                        body=peer.body,
+                        battery=peer.battery,
+                        target=peer.move_target,
+                    )
+                )
+
+        return observations
+
+    def fail_robot(self, robot_id: RobotId, mode: FailureMode) -> None:
+        """Stop one robot from taking part in the run, in the way ``mode`` describes."""
         robot = self._robot(robot_id)
         if robot.failed:
             return
@@ -312,74 +330,6 @@ class WorldState:
         return tuple(
             robot_id for robot_id, robot in sorted(self.robots.items()) if not robot.failed
         )
-
-    def observe_for(self, robot_id: RobotId, time: Time) -> list[Observation]:
-        """Generate what the robot senses: its own cell, and the terrain around it.
-
-        A cell is a patch of field the robot monitors as a whole, so its crop, its infestation
-        and the peers sharing it come from the robot's own cell only. Obstacles are large, such
-        as a river, so the robot also sees the terrain of its neighbouring cells.
-        """
-        robot = self._robot(robot_id)
-        observations: list[Observation] = []
-
-        cell = robot.position
-        state = self.cells[cell]
-        observations.append(
-            CropObservation(
-                cell=cell,
-                confidence=1.0,
-                observed_at=time,
-                source=robot_id,
-                crop=state.crop,
-                growth_stage=state.growth_stage,
-            )
-        )
-        observations.append(
-            InfestationObservation(
-                cell=cell,
-                confidence=1.0,
-                observed_at=time,
-                source=robot_id,
-                severity=state.infestation,
-                pest=None,
-            )
-        )
-        for seen in [cell, *self.neighbours(cell)]:
-            terrain = Terrain.FREE
-            if self.cells[seen].obstacle:
-                terrain = Terrain.OBSTACLE
-            observations.append(
-                TerrainObservation(
-                    cell=seen,
-                    confidence=1.0,
-                    observed_at=time,
-                    source=robot_id,
-                    terrain=terrain,
-                )
-            )
-
-        for cell in peer_cells:
-            for peer in self.robots_at(cell):
-                if peer == robot_id:
-                    continue
-                peer_state = self._robot(peer)
-        for peer in self.robots_at(cell):
-            if peer != robot_id:
-                observations.append(
-                    PeerObservation(
-                        cell=cell,
-                        confidence=1.0,
-                        observed_at=time,
-                        source=robot_id,
-                        peer=peer,
-                        body=peer_state.body,
-                        battery=peer_state.battery,
-                        body=self._robot(peer).body,
-                    )
-                )
-
-        return observations
 
     def _cells_in_square(self, centre: CellId, radius: int) -> list[CellId]:
         """Cells in a bounded square sensing footprint, independent of field connectivity."""
@@ -409,6 +359,7 @@ class WorldState:
         if isinstance(action, Treat):
             self._stop_charging(robot)
             self._stop_battery_replacement(robot)
+            self._spend(robot, self.energy.treat_per_action)
             self._apply_treat(robot, action.cell, time)
         elif isinstance(action, ReplaceBattery):
             self._stop_treatment(robot)
@@ -564,7 +515,7 @@ class WorldState:
         from swarm_field.swarm.capabilities import capabilities_for
 
         endurance = capabilities_for(robot.body).endurance_seconds * TimeUnit.SECOND
-        robot.battery = max(0.0, robot.battery - duration / endurance)
+        self._spend(robot, duration / endurance)
         self._spend(robot, self.energy.per_metre * self._distance_m(target, robot.position))
         robot.move_target = target
         robot.move_started_at = time
@@ -671,9 +622,6 @@ class WorldState:
     def _stop_battery_replacement(robot: RobotState) -> None:
         robot.replacing_battery_for = None
         robot.replacement_complete_at = None
-        self._spend(robot, self.energy.treat_per_action)
-        self.cells[target].infestation = 0.0
-        robot.consumable = max(0.0, robot.consumable - 0.1)
 
     @staticmethod
     def _spend(robot: RobotState, amount: float) -> None:

@@ -39,7 +39,6 @@ from swarm_field.swarm.provider import FieldProvider
 from swarm_field.swarm.seeder import (
     BatteryRequestSeeder,
     DockSeeder,
-    ExploreSeeder,
     FieldSeeder,
     SeededField,
     TreatSeeder,

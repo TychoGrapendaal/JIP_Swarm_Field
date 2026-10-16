@@ -8,11 +8,13 @@ from swarm_field.contracts import (
     PeerObservation,
     ReplaceBattery,
     RobotSelfState,
+    ScenarioConfig,
     Terrain,
     TerrainObservation,
     Treat,
 )
 from swarm_field.simulation import RobotState, WorldState
+from swarm_field.simulation.scenario import build_world
 from swarm_field.swarm import (
     ActionCandidate,
     AgentMemory,
@@ -120,9 +122,9 @@ def test_killer_capability_gate_allows_treatment_but_not_battery_supply() -> Non
     agent = _manual_agent(
         BodyType.KILLER,
         _CandidateBehavior(
-            (Idle(), 1.0),
-            (Treat((2, 2)), 10.0),
-            (ReplaceBattery(robot_id=2), 100.0),
+            (Idle(), 0.1),
+            (Treat((2, 2)), 0.8),
+            (ReplaceBattery(robot_id=2), 1.0),
         ),
     )
 
@@ -254,3 +256,17 @@ def test_sensing_footprints_are_body_specific() -> None:
     assert not any(isinstance(obs, InfestationObservation) for obs in battery_obs)
     scout_terrain = [obs for obs in scout_obs if isinstance(obs, TerrainObservation)]
     assert len(scout_terrain) == 9
+
+
+def test_scenario_world_preserves_configured_charging_docks() -> None:
+    scenario = ScenarioConfig(
+        field=FIELD,
+        crops={},
+        robots=[],
+        seed=0,
+        docks=((1, 1),),
+    )
+
+    world = build_world(scenario)
+
+    assert world.docks == frozenset({(1, 1)})

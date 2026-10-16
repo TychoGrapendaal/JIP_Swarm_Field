@@ -61,10 +61,10 @@ from swarm_field.swarm import (
     Behavior,
     ComposedAgent,
     ExploreConfig,
+    ExploreField,
     ExploreSeeder,
     FieldProvider,
     FieldSeeder,
-    FollowSeederField,
     Navigator,
     TreatInfestation,
     TreatSeeder,
@@ -129,9 +129,9 @@ def _build_treat_seeder(params: dict[str, Any], rng: Random) -> TreatSeeder:
 
 
 @BEHAVIORS.register("explore")
-def _build_explore(params: dict[str, Any], rng: Random) -> FollowSeederField:
-    """Build the mock explore behaviour: an even bid to follow the EXPLORE seeder's field."""
-    return FollowSeederField(ExploreSeeder.name)
+def _build_explore(params: dict[str, Any], rng: Random) -> ExploreField:
+    """Build the field-aware exploration behaviour for the EXPLORE seeder."""
+    return ExploreField(ExploreSeeder.name)
 
 
 @SEEDERS.register("explore")

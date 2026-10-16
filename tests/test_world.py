@@ -10,11 +10,8 @@ from swarm_field.contracts import (
     Move,
     PeerObservation,
     ReplaceBattery,
-    TimeUnit,
-    Treat,
-)
-from swarm_field.simulation import RobotState, WorldState
     TerrainObservation,
+    TimeUnit,
     Treat,
 )
 from swarm_field.simulation import EnergyConfig, RobotState, WorldState
@@ -211,8 +208,9 @@ def test_observe_for_reports_the_own_cell_and_the_terrain_around_it() -> None:
     }
 
     assert terrain_cells == {(1, 1), *world.neighbours((1, 1))}
-    assert other_cells == {(1, 1)}
-    assert {peer.peer for peer in peers} == {2, 3}
+    # Peers are visible within the body's configured one-cell sensing radius.
+    assert other_cells == {(1, 1), (2, 1)}
+    assert {peer.peer for peer in peers} == {2, 3, 4}
 
 
 def test_continuous_position_interpolates() -> None:
@@ -330,15 +328,19 @@ def test_energy_is_drained_per_metre_and_per_decision() -> None:
 
     world.apply_action(1, Move(to=(2, 1)), time=0)
 
-    # One cell across at 5 m per cell is 5 m of travel, plus the decision itself.
-    assert world.robots[1].battery == pytest.approx(1.0 - 0.05 - 0.02)
-    assert world.energy_spent() == pytest.approx(0.07)
+    # One cell is 5 m: configured movement and decision costs are joined by the body-specific
+    # endurance drain for the 1-second move (a KILLER has 8 hours of endurance).
+    endurance_drain = 1_000 / (8 * 60 * 60 * TimeUnit.SECOND)
+    expected_spend = 0.05 + 0.02 + endurance_drain
+    assert world.robots[1].battery == pytest.approx(1.0 - expected_spend)
+    assert world.energy_spent() == pytest.approx(expected_spend)
 
 
 def test_treat_costs_energy_and_charging_restores_the_battery() -> None:
     world = WorldState(
         _field(),
         robots=[_robot()],
+        docks=[(1, 1)],
         energy=EnergyConfig(per_decision=0.1, treat_per_action=0.05),
     )
     world.cell((1, 1)).infestation = 0.5
@@ -347,6 +349,8 @@ def test_treat_costs_energy_and_charging_restores_the_battery() -> None:
     assert world.robots[1].battery == pytest.approx(0.85)
 
     world.apply_action(1, Charge(), time=0)
+    assert world.robots[1].battery == pytest.approx(0.75)
+    world.advance_to(60 * 60 * TimeUnit.SECOND)
     assert world.robots[1].battery == pytest.approx(1.0)
     # Recharging tops the battery up but never gives back what was spent.
     assert world.energy_spent() == pytest.approx(0.25)
