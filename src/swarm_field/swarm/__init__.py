@@ -9,7 +9,6 @@ robot believes in, with a reactive ``Steerer`` to fall back on.
 """
 
 from swarm_field.contracts import Vector2
-from swarm_field.swarm.assembly import build_agent
 from swarm_field.swarm.arbiter import (
     Arbiter,
     ArbiterChoice,
@@ -17,12 +16,13 @@ from swarm_field.swarm.arbiter import (
     Commitment,
     UtilityArbiter,
 )
+from swarm_field.swarm.assembly import build_agent
 from swarm_field.swarm.behavior import (
     ActionCandidate,
     Behavior,
     DecisionContext,
-    ExploreField,
     ExploreBehaviour,
+    ExploreField,
     FollowField,
     FollowSeederField,
     Intent,
@@ -51,27 +51,23 @@ from swarm_field.swarm.steering import (
 )
 
 __all__ = [
+    "BODY_CAPABILITIES",
     "ActionCandidate",
     "AgentMemory",
-    "BODY_CAPABILITIES",
-    "BatteryRequestSeeder",
-    "Behavior",
-    "CapabilitySet",
-    "ComposedAgent",
-    "DecayConfig",
-    "DecisionContext",
-    "DockSeeder",
-    "ExploreField",
     "Arbiter",
     "ArbiterChoice",
     "ArbiterConfig",
+    "BatteryRequestSeeder",
     "Behavior",
+    "CapabilitySet",
     "Commitment",
     "ComposedAgent",
     "DecayConfig",
     "DecisionContext",
+    "DockSeeder",
     "ExploreBehaviour",
     "ExploreConfig",
+    "ExploreField",
     "ExploreSeeder",
     "FieldProvider",
     "FieldSeeder",

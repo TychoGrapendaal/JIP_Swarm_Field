@@ -6,6 +6,7 @@ simulation can still construct custom ``ComposedAgent`` instances for targeted e
 
 from swarm_field.contracts import BodyType, CellId, FieldGeometry, RobotId
 from swarm_field.swarm.behavior import (
+    Behavior,
     ExploreField,
     ReturnToDock,
     SupplyBattery,
@@ -37,15 +38,18 @@ def build_agent(
     memory = AgentMemory(robot_id, field)
 
     dock_seeder = DockSeeder(docks)
+    # Keep one shared protocol-typed list so branch-specific behaviour types do not infer an
+    # invariant union such as list[ExploreField | ReturnToDock].
+    behaviors: list[Behavior] = []
     if body is BodyType.SCOUT:
         seeders = [ExploreSeeder(), dock_seeder]
-        behaviors = [ExploreField(), ReturnToDock()]
+        behaviors.extend((ExploreField(), ReturnToDock()))
     elif body is BodyType.KILLER:
         seeders = [TreatSeeder(), dock_seeder]
-        behaviors = [TreatInfestation(), ReturnToDock()]
+        behaviors.extend((TreatInfestation(), ReturnToDock()))
     else:
         seeders = [BatteryRequestSeeder(), dock_seeder]
-        behaviors = [SupplyBattery(), ReturnToDock()]
+        behaviors.extend((SupplyBattery(), ReturnToDock()))
 
     fields = FieldProvider(memory, flies=capabilities.can_fly, seeders=seeders)
     return ComposedAgent(

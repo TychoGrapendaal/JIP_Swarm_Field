@@ -34,7 +34,6 @@ from swarm_field.contracts import (
     TerrainObservation,
     Time,
 )
-from swarm_field.swarm.capabilities import CapabilitySet, capabilities_for
 from swarm_field.swarm.arbiter import Arbiter, UtilityArbiter
 from swarm_field.swarm.behavior import (
     ActionCandidate,
@@ -43,6 +42,7 @@ from swarm_field.swarm.behavior import (
     FollowField,
     Intent,
 )
+from swarm_field.swarm.capabilities import CapabilitySet, capabilities_for
 from swarm_field.swarm.memory import AgentMemory
 from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.provider import FieldProvider
@@ -106,9 +106,7 @@ class ComposedAgent:
             # actions or physical abilities that the body type does not possess.
             capabilities = replace(
                 canonical_capabilities,
-                action_types=(
-                    canonical_capabilities.action_types & self.capabilities.action_types
-                )
+                action_types=(canonical_capabilities.action_types & self.capabilities.action_types)
                 | {Idle},
             )
 
@@ -161,9 +159,7 @@ class ComposedAgent:
         return Decision(action=action, outbox=self._messages_to_send(perception))
 
     @staticmethod
-    def _candidate_is_allowed(
-        candidate: ActionCandidate, capabilities: CapabilitySet
-    ) -> bool:
+    def _candidate_is_allowed(candidate: ActionCandidate, capabilities: CapabilitySet) -> bool:
         """Apply the capability gate before candidate scoring.
 
         A ``FollowField`` is a movement intent, not an action crossing the simulation boundary,

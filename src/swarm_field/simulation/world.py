@@ -611,17 +611,17 @@ class WorldState:
 
     @staticmethod
     def _stop_treatment(robot: RobotState) -> None:
-        robot.treating_cell = None
-        robot.treatment_updated_at = None
+        robot.treating_cell: CellId | None = None
+        robot.treatment_updated_at: Time | None = None
 
     @staticmethod
     def _stop_charging(robot: RobotState) -> None:
-        robot.charging_updated_at = None
+        robot.charging_updated_at: Time | None = None
 
     @staticmethod
     def _stop_battery_replacement(robot: RobotState) -> None:
-        robot.replacing_battery_for = None
-        robot.replacement_complete_at = None
+        robot.replacing_battery_for: RobotId | None = None
+        robot.replacement_complete_at: Time | None = None
 
     @staticmethod
     def _spend(robot: RobotState, amount: float) -> None:

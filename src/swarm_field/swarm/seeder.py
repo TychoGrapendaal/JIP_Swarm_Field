@@ -13,6 +13,7 @@ import numpy as np
 from scipy.spatial import KDTree
 
 from swarm_field.contracts import AgentObjective, BodyType, CellId, Time, TimeUnit
+from swarm_field.swarm.explore import ExploreSeeder as ExploreSeeder
 from swarm_field.swarm.field import GridPotentialField, Seed
 from swarm_field.swarm.memory import MemoryView
 
@@ -103,15 +104,12 @@ class TreatSeeder:
         values = np.asarray([seed.value for seed in seeds], dtype=float)
         tree = KDTree(coords)
         cutoff = self._cutoff_sigmas * self._sigma
-        weights = tree.sparse_distance_matrix(
-            tree, cutoff, output_type="coo_matrix"
-        ).tocsr()
+        weights = tree.sparse_distance_matrix(tree, cutoff, output_type="coo_matrix").tocsr()
         weights.data = np.exp(-((weights.data / self._sigma) ** 2))
         weights.setdiag(0)
         new_values = values + weights.dot(values)
         return [
-            Seed(seed.cell, float(value))
-            for seed, value in zip(seeds, new_values, strict=True)
+            Seed(seed.cell, float(value)) for seed, value in zip(seeds, new_values, strict=True)
         ]
 
 
@@ -179,7 +177,3 @@ def _cells_targeted_by_peers(memory: MemoryView) -> frozenset[CellId]:
         for peer in memory.peers()
         if peer.target is not None and peer.objective is AgentObjective.TREAT
     )
-
-
-# Preserve the former import path while the configurable implementation lives in explore.py.
-from swarm_field.swarm.explore import ExploreSeeder as ExploreSeeder

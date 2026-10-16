@@ -4,8 +4,8 @@ from swarm_field.contracts import (
     BodyType,
     FieldGeometry,
     Idle,
-    Perception,
     PeerObservation,
+    Perception,
     ReplaceBattery,
     RobotSelfState,
     ScenarioConfig,
@@ -26,7 +26,6 @@ from swarm_field.swarm import (
     capabilities_for,
 )
 from swarm_field.swarm.behavior import DecisionContext, Intent
-
 
 FIELD = FieldGeometry(
     width=8,
@@ -172,7 +171,8 @@ def test_body_assembly_configures_flying_traversability_and_roles() -> None:
     assert [behavior.name for behavior in scout.behaviors] == ["explore-field", "return-to-dock"]
     assert killer.fields._flies is False
     assert [behavior.name for behavior in killer.behaviors] == [
-        "treat-infestation", "return-to-dock"
+        "treat-infestation",
+        "return-to-dock",
     ]
     assert battery.fields._flies is False
     assert [behavior.name for behavior in battery.behaviors] == ["supply-battery", "return-to-dock"]
@@ -185,9 +185,7 @@ def test_scout_can_move_across_obstacles_but_killer_cannot() -> None:
     scout = build_agent(1, BodyType.SCOUT, FIELD)
     killer = build_agent(2, BodyType.KILLER, FIELD)
 
-    scout.decide(
-        Perception(0, _perception(BodyType.SCOUT).self_state, [obstacle], [])
-    )
+    scout.decide(Perception(0, _perception(BodyType.SCOUT).self_state, [obstacle], []))
     killer_state = RobotSelfState(
         robot_id=2,
         position=(2, 2),
@@ -245,13 +243,9 @@ def test_sensing_footprints_are_body_specific() -> None:
     killer_obs = world.observe_for(2, 0)
     battery_obs = world.observe_for(3, 0)
 
-    assert any(
-        isinstance(obs, InfestationObservation) and obs.cell == (3, 3)
-        for obs in scout_obs
-    )
+    assert any(isinstance(obs, InfestationObservation) and obs.cell == (3, 3) for obs in scout_obs)
     assert not any(
-        isinstance(obs, InfestationObservation) and obs.cell == (3, 3)
-        for obs in killer_obs
+        isinstance(obs, InfestationObservation) and obs.cell == (3, 3) for obs in killer_obs
     )
     assert not any(isinstance(obs, InfestationObservation) for obs in battery_obs)
     scout_terrain = [obs for obs in scout_obs if isinstance(obs, TerrainObservation)]

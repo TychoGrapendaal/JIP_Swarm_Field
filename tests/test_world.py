@@ -138,9 +138,7 @@ def test_move_to_obstacle_is_rejected_for_ground_robot() -> None:
 
 
 def test_scout_can_fly_over_obstacle_cells() -> None:
-    scout = RobotState(
-        robot_id=1, position=(1, 1), body=BodyType.SCOUT, speed_mps=8.0
-    )
+    scout = RobotState(robot_id=1, position=(1, 1), body=BodyType.SCOUT, speed_mps=8.0)
     world = WorldState(_field(), robots=[scout])
     world.cell((2, 1)).obstacle = True
 
@@ -319,6 +317,8 @@ def test_battery_robot_refills_spares_when_charging_at_dock() -> None:
     assert world.robots[1].spare_batteries == 3
     world.advance_to(3_600 * TimeUnit.SECOND)
     assert world.robots[1].battery == 1.0
+
+
 def test_energy_is_drained_per_metre_and_per_decision() -> None:
     world = WorldState(
         _field(),

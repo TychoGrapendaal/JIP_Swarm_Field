@@ -124,6 +124,7 @@ Just below 1, so that the battery behaviour can still outbid it to save the robo
 
 class TreatInfestation:
     """Follow reported infestations and treat them when the robot reaches a target cell."""
+
     """The pest-response behaviour: follow the field of the TREAT seeder and treat on arrival."""
 
     name: str = "treat-infestation"
@@ -434,9 +435,7 @@ class ReturnToDock:
             )
 
         if ctx.self_state.body is BodyType.BATTERY:
-            needs_dock = (
-                ctx.self_state.battery <= 0.25 or ctx.self_state.spare_batteries <= 0
-            )
+            needs_dock = ctx.self_state.battery <= 0.25 or ctx.self_state.spare_batteries <= 0
         else:
             # A scout/killer stays available to the swarm while a support robot may still help;
             # it heads to the dock only when the battery is nearly exhausted.
