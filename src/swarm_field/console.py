@@ -48,12 +48,16 @@ MAX_SPEED = 64.0
 FRAME_INTERVAL_MS = 60
 """Time between frames in a window, which also sets a video's frame rate."""
 INJECT_SEVERITY = 0.8
+HIDE_KEY = "h"
+"""Hides the status box and the legend, or shows them again."""
+CONSOLE_KEYS = frozenset({" ", "p", "s", "+", "=", "-", "0", HIDE_KEY})
+"""Every key the console handles, taken from matplotlib's own shortcuts in its window."""
 CONTROL_LINES = (
-    "space/p pause  s step  +/- speed  0 -> 1x",
+    "space/p pause  s step  +/- speed  0 -> 1x  h hide",
     "click field: inject  |  click robot: inspect",
 )
 REPLAY_CONTROL_LINES = (
-    "space/p pause  s step  +/- speed  0 -> 1x",
+    "space/p pause  s step  +/- speed  0 -> 1x  h hide",
     "replay: click robot to inspect",
 )
 
@@ -122,6 +126,9 @@ class InteractiveConsole:
         step_pending: Whether the next frame advances by exactly one event.
         selected: The robot whose inspection panel is shown, if any.
         show_targets: Whether a dashed line leads from each robot to the cell it is heading for.
+        show_info: Whether the status box and the legend are drawn; the hide key toggles it.
+        show_controls: Whether the status box lists the controls under the status line. A
+            video leaves them out, since nobody can press a key in it.
     """
 
     def __init__(
@@ -154,6 +161,8 @@ class InteractiveConsole:
         self.step_pending: bool = False
         self.selected: RobotId | None = None
         self.show_targets: bool = show_targets
+        self.show_info: bool = True
+        self.show_controls: bool = True
         self._overlay: CellOverlay | None = overlay
         self._overlay_label: str = overlay_label
         self._panel: PanelSource | None = panel
@@ -234,9 +243,12 @@ class InteractiveConsole:
         self.apply_click(x_data, y_data)
 
     def on_key(self, event: object) -> None:
-        """Handle a matplotlib key press as the time-pacing command it expresses."""
+        """Handle a matplotlib key press: the help key, or the time-pacing command it expresses."""
         key = getattr(event, "key", None)
         if key is None:
+            return
+        if key == HIDE_KEY:
+            self.show_info = not self.show_info
             return
         command = keys_to_command(key, self.speed)
         if command is not None:
@@ -246,7 +258,8 @@ class InteractiveConsole:
         """Render a snapshot through the ``Renderer`` port, then what is drawn on top of it.
 
         The title is left to the renderer, which writes the latest metrics sample into it; the
-        overlay only adds its label.
+        overlay only adds its label. Without ``show_info`` the status box and the renderer's
+        legend are left out, so nothing covers the field.
         """
         snapshot = self.run.snapshot()
         self.renderer.render(snapshot)
@@ -263,6 +276,11 @@ class InteractiveConsole:
             self._side_panel.show(self._panel(snapshot))
         if self.selected is not None:
             self._draw_inspection(self.selected)
+        if not self.show_info:
+            legend = axes.get_legend()
+            if legend is not None:
+                legend.remove()
+            return
         axes.text(
             0.02,
             0.015,
@@ -299,7 +317,7 @@ class InteractiveConsole:
         )
 
     def _status_lines(self) -> list[str]:
-        """The run, the time, the pacing mode and the controls."""
+        """The run, the time and the pacing mode, then the controls if ``show_controls``."""
         if self.finished:
             mode = "finished"
         elif self.paused:
@@ -307,10 +325,13 @@ class InteractiveConsole:
         else:
             mode = f"{self.speed:g}x"
         clock = f"t={format_time(self.time)} of {format_time(self.run.horizon)}"
+        status = f"{self.run.label} | {clock} | {mode}"
+        if not self.show_controls:
+            return [status]
         controls = CONTROL_LINES
         if self.run.replaying:
             controls = REPLAY_CONTROL_LINES
-        return [f"{self.run.label} | {clock} | {mode}", *controls]
+        return [status, *controls]
 
 
 def add_session_arguments(
@@ -376,11 +397,14 @@ def validate_session_arguments(parser: argparse.ArgumentParser, args: argparse.N
 def save_session(console: InteractiveConsole, path: Path) -> int:
     """Run the console to its horizon without a window, into a video or PNG directory at ``path``.
 
+    Nobody can press a key in a video, so its status box leaves out the controls.
+
     Returns:
         How many frames were written.
     """
     import matplotlib.pyplot as plt
 
+    console.show_controls = False
     frames = console.frames_to_horizon()
     save_frames(
         console.renderer.figure,
@@ -399,10 +423,31 @@ def write_recording(log: CommandLog, path: Path) -> None:
     path.write_text(log.to_json(), encoding="utf-8")
 
 
+def release_console_keys() -> None:
+    """Remove the console's keys from matplotlib's shortcuts, e.g. ``s`` from save-figure.
+
+    Without this a press of ``s`` would also open the save dialog, ``p`` toggle panning and
+    ``h`` reset the view. Matplotlib reads its shortcuts at each key press, so this takes effect
+    for windows that are already open.
+    """
+    import matplotlib as mpl
+
+    for name in list(mpl.rcParams):
+        if not name.startswith("keymap."):
+            continue
+        kept: list[str] = []
+        for key in mpl.rcParams[name]:
+            if key not in CONSOLE_KEYS:
+                kept.append(key)
+        mpl.rcParams[name] = kept
+
+
 def show_window(console: InteractiveConsole) -> None:
     """Open a window that advances the console every frame until the window is closed."""
     import matplotlib.pyplot as plt
     from matplotlib.animation import FuncAnimation
+
+    release_console_keys()
 
     def draw_frame(_frame: int) -> None:
         console.advance(render=True)

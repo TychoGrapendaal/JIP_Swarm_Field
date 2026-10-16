@@ -4,7 +4,12 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from swarm_field.console import BASE_STEP_MS, InteractiveConsole, keys_to_command
+from swarm_field.console import (
+    BASE_STEP_MS,
+    InteractiveConsole,
+    keys_to_command,
+    release_console_keys,
+)
 from swarm_field.contracts import (
     CellId,
     CommandLog,
@@ -139,3 +144,30 @@ def test_a_frame_draws_the_overlay_trails_targets_and_side_panel() -> None:
     # One trail per robot, and one dashed line per robot that has a target.
     trails = len(run.context.world.robots)
     assert len(axes.lines) == trails + len(run.targets())
+
+
+def test_the_hide_key_removes_the_status_box_and_the_legend_until_pressed_again() -> None:
+    console = _console()
+
+    class _Key:
+        key = "h"
+
+    console.draw()
+    shown = (len(console.renderer.axes.texts), console.renderer.axes.get_legend() is not None)
+    console.on_key(_Key())
+    console.draw()
+    hidden = (len(console.renderer.axes.texts), console.renderer.axes.get_legend() is not None)
+    console.on_key(_Key())
+    console.draw()
+
+    assert shown == (1, True)
+    assert hidden == (0, False)
+    assert len(console.renderer.axes.texts) == 1
+
+
+def test_the_console_keys_no_longer_trigger_matplotlib_shortcuts() -> None:
+    release_console_keys()
+
+    assert "s" not in matplotlib.rcParams["keymap.save"]
+    assert "p" not in matplotlib.rcParams["keymap.pan"]
+    assert "ctrl+s" in matplotlib.rcParams["keymap.save"]

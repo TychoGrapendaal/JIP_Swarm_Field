@@ -185,6 +185,7 @@ In the window:
 - Click an empty cell to inject an infestation (`InjectInfestation` command).
 - Click a robot to inspect its brain state via `SwarmAgent.inspect()`: a read-only `AgentInspection` panel shows its current goal and a summary of its belief.
 - `space` / `p` pause and resume, `s` advances exactly one simulation event, `+` / `-` double and halve the speed, and `0` resets it to 1x.
+- `h` hides the status box in the bottom-left corner and the legend, so nothing covers the field; press `h` again to show them. Videos written with `--save` keep the status line and the legend, but leave out the list of controls.
 
 The interactions flow through the typed `Command` port: `InjectInfestation` is applied by the simulation, and `Pause` / `StepOnce` / `SetTimeScale` pace the console's clock.
 
