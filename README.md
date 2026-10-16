@@ -259,6 +259,8 @@ Runs the cross product of three scenarios and two seeds, and prints one row per 
 uv run python examples/metrics_sweep_demo.py --scenarios S2 explore pests --hours 1
 ```
 
+Every summary row also records how its run was set up (`RunMetadata`): the horizon, the decision and sampling intervals, the field, the robots per body type, each brain by its parts, whether robots started with the terrain map, the pest dynamics, and the failure and position-error settings. These columns follow the result columns, so a row can be traced back to its setup without the script that produced it. Brain parameters such as an `ExploreConfig` are named but not spelled out.
+
 Write the summary table and every run's series to a directory (CSV and JSON):
 
 ```bash

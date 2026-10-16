@@ -15,8 +15,9 @@ from __future__ import annotations
 
 import csv
 import json
+from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from random import Random
 from typing import Any, TypeVar
@@ -167,6 +168,20 @@ class BrainSpec:
     params: dict[str, Any] = field(default_factory=dict)
     arbiter: ArbiterConfig = field(default_factory=ArbiterConfig)
 
+    def describe(self) -> str:
+        """The parts of this brain by name, e.g. ``behaviors=explore seeders=explore``.
+
+        Parameters are named but not spelled out, so a summary table stays readable.
+        """
+        parts = [
+            "behaviors=" + "+".join(self.behaviors),
+            "seeders=" + "+".join(self.seeders),
+            "navigator=" + self.navigator,
+        ]
+        if self.params:
+            parts.append("params=" + "+".join(sorted(self.params)))
+        return " ".join(parts)
+
 
 @dataclass(frozen=True)
 class ExperimentConfig:
@@ -204,6 +219,98 @@ class ExperimentConfig:
 
 
 @dataclass(frozen=True)
+class RunMetadata:
+    """How one run was set up: what tells two rows of a results table apart.
+
+    Every field is a plain value, so the metadata fits next to the results in one CSV row.
+
+    Attributes:
+        horizon_ms: How far the run went, in simulation time.
+        decision_interval_ms: Time between a robot's consecutive decisions.
+        metrics_period_ms: Time between two metrics samples.
+        field_width: Field width in cells.
+        field_height: Field height in cells.
+        cell_size_m: The side of a cell in metres.
+        robots: How many robots the run started with.
+        bodies: How many robots of each body type, e.g. ``KILLER=3 SCOUT=5``.
+        brain: The brain of every robot whose body has no brain of its own.
+        brains_by_body: The brain of each body type that has one of its own, e.g.
+            ``KILLER: behaviors=...``; empty if every robot has ``brain``.
+        robots_know_terrain: Whether the robots started with the terrain map.
+        stagger_decisions: Whether the robots' first decisions were spread over one interval.
+        pest_spawn_probability: Chance per cell and pest update that a pest spawns.
+        pest_growth_rate: How much a pest's severity grows per pest update.
+        pest_spread_probability: Chance per pest update that a pest infests a neighbour.
+        failure_probability: Chance per check that a live robot fails.
+        failure_mode: What a failure is, by name.
+        failure_period_ms: Time between two failure checks.
+        position_error_probability: Chance per decision that a robot mislocates itself.
+        position_error_max_offset: Largest such displacement, in cells.
+    """
+
+    horizon_ms: Time
+    decision_interval_ms: Time
+    metrics_period_ms: Time
+    field_width: int
+    field_height: int
+    cell_size_m: float
+    robots: int
+    bodies: str
+    brain: str
+    brains_by_body: str
+    robots_know_terrain: bool
+    stagger_decisions: bool
+    pest_spawn_probability: float
+    pest_growth_rate: float
+    pest_spread_probability: float
+    failure_probability: float
+    failure_mode: str
+    failure_period_ms: Time
+    position_error_probability: float
+    position_error_max_offset: int
+
+    @classmethod
+    def from_config(cls, config: ExperimentConfig) -> RunMetadata:
+        """The setup of the run that ``config`` describes."""
+        scenario = config.scenario
+        bodies: Counter[str] = Counter()
+        for robot in scenario.robots:
+            bodies[robot.body.name] += 1
+        counts: list[str] = []
+        for body, count in sorted(bodies.items()):
+            counts.append(f"{body}={count}")
+        own_brains: list[str] = []
+        for body in sorted(config.brains_by_body, key=lambda body: body.name):
+            own_brains.append(f"{body.name}: {config.brains_by_body[body].describe()}")
+        return cls(
+            horizon_ms=config.until,
+            decision_interval_ms=config.decision_interval,
+            metrics_period_ms=config.metrics.period,
+            field_width=scenario.field.width,
+            field_height=scenario.field.height,
+            cell_size_m=scenario.field.cell_size,
+            robots=len(scenario.robots),
+            bodies=" ".join(counts),
+            brain=config.brain.describe(),
+            brains_by_body="; ".join(own_brains),
+            robots_know_terrain=config.robots_know_terrain,
+            stagger_decisions=config.stagger_decisions,
+            pest_spawn_probability=scenario.pest_dynamics.spawn_probability,
+            pest_growth_rate=scenario.pest_dynamics.growth_rate,
+            pest_spread_probability=scenario.pest_dynamics.spread_probability,
+            failure_probability=scenario.failures.probability,
+            failure_mode=scenario.failures.mode.name,
+            failure_period_ms=scenario.failures.period,
+            position_error_probability=scenario.position_error.probability,
+            position_error_max_offset=scenario.position_error.max_offset,
+        )
+
+    def to_row(self) -> dict[str, int | float | str | bool]:
+        """The metadata as a flat ``dict`` of field name to value, for a summary row."""
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class RunSummary:
     """What one run produced: its full metrics series and the figures read off it.
 
@@ -211,6 +318,7 @@ class RunSummary:
         label: Name of the configuration this run used.
         scenario: Name of the scenario preset this run used.
         seed: The scenario seed the run was reproducible from.
+        metadata: How the run was set up, from its ``ExperimentConfig``.
         series: Every metrics sample, oldest first.
         targets_remaining: Active targets left at the end of the run.
         coverage: Fraction of the crop cells sensed by the end of the run.
@@ -225,6 +333,7 @@ class RunSummary:
     label: str
     scenario: str
     seed: int
+    metadata: RunMetadata
     series: tuple[MetricsSample, ...]
     targets_remaining: int
     coverage: float
@@ -235,22 +344,23 @@ class RunSummary:
     active_robots: int
 
     @classmethod
-    def from_series(
-        cls,
-        label: str,
-        scenario: str,
-        seed: int,
-        series: Iterable[MetricsSample],
-    ) -> RunSummary:
-        """Summarise a metrics series, taking the last sample for the whole-run figures."""
+    def from_run(cls, config: ExperimentConfig, series: Iterable[MetricsSample]) -> RunSummary:
+        """Summarise the run of ``config`` from its metrics series.
+
+        The whole-run figures are taken from the last sample, and the metadata from ``config``.
+
+        Raises:
+            ValueError: If the series holds no sample.
+        """
         taken = tuple(series)
         if not taken:
             raise ValueError("a run summary needs at least one metrics sample")
         final = taken[-1]
         return cls(
-            label=label,
-            scenario=scenario,
-            seed=seed,
+            label=config.label,
+            scenario=config.scenario_name,
+            seed=config.scenario.seed,
+            metadata=RunMetadata.from_config(config),
             series=taken,
             targets_remaining=final.targets_remaining,
             coverage=final.coverage,
@@ -261,9 +371,13 @@ class RunSummary:
             active_robots=final.active_robots,
         )
 
-    def to_row(self) -> dict[str, int | float | str | None]:
-        """This summary as one flat record, the shape a sweep's table is written in."""
-        return {
+    def to_row(self) -> dict[str, int | float | str | bool | None]:
+        """This summary as one flat record, the shape a sweep's table is written in.
+
+        The results come first and the metadata after them, so the result columns keep their
+        place when the metadata grows.
+        """
+        row: dict[str, int | float | str | bool | None] = {
             "label": self.label,
             "scenario": self.scenario,
             "seed": self.seed,
@@ -276,6 +390,8 @@ class RunSummary:
             "messages_received": self.messages_received,
             "active_robots": self.active_robots,
         }
+        row.update(self.metadata.to_row())
+        return row
 
     def export(self, directory: Path) -> tuple[Path, Path]:
         """Write this run's series as CSV and JSON under ``directory``, and return both paths.
@@ -304,9 +420,7 @@ def run_experiment(
     """
     ctx, collector = build_run(config, renderer)
     SimulationLoop().run(ctx, config.until)
-    return RunSummary.from_series(
-        config.label, config.scenario_name, config.scenario.seed, collector.series()
-    )
+    return RunSummary.from_run(config, collector.series())
 
 
 def sweep(

@@ -74,10 +74,7 @@ def parse_args() -> argparse.Namespace:
 
 def export_run(run: LiveRun, out: Path) -> None:
     """Write the run's metrics series and a one-row summary of it to ``out``."""
-    config = run.config
-    summary = RunSummary.from_series(
-        config.label, config.scenario_name, config.scenario.seed, run.metrics.series()
-    )
+    summary = RunSummary.from_run(run.config, run.metrics.series())
     series_csv, series_json = summary.export(out)
     export_summary_csv([summary], out / "summary.csv")
     export_summary_json([summary], out / "summary.json")

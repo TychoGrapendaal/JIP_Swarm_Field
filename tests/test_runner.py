@@ -7,16 +7,20 @@ from random import Random
 
 import pytest
 
-from swarm_field.contracts import ScenarioId, Time
+from swarm_field.contracts import FailureMode, FailureSpec, ScenarioId, Time
+from swarm_field.experiments import build_named_experiment
 from swarm_field.runner import (
     BrainSpec,
     ExperimentConfig,
+    RobustnessCase,
+    RunMetadata,
     RunSummary,
     build_agent,
     build_experiment,
     build_run,
     export_summary_csv,
     export_summary_json,
+    robustness_case_config,
     run_experiment,
     sweep,
 )
@@ -233,4 +237,31 @@ def test_an_unregistered_seeder_is_refused() -> None:
 
 def test_a_summary_needs_at_least_one_sample() -> None:
     with pytest.raises(ValueError):
-        RunSummary.from_series("x", "S1", 1, [])
+        RunSummary.from_run(_config(), [])
+
+
+def test_a_summary_row_records_how_the_run_was_set_up() -> None:
+    config = _config(scenario=ScenarioId.S2, until=30_000)
+
+    row = run_experiment(config).to_row()
+
+    assert row["horizon_ms"] == 30_000
+    assert row["metrics_period_ms"] == 30_000
+    assert row["robots"] == len(config.scenario.robots)
+    assert row["brain"] == "behaviors=treat-infestation seeders=treat navigator=potential-field"
+    assert row["brains_by_body"] == ""
+    assert row["failure_probability"] == 0.0
+
+
+def test_the_metadata_names_a_robustness_condition_and_a_brain_per_body() -> None:
+    case = RobustnessCase(
+        label="offline", failures=FailureSpec(probability=0.25, mode=FailureMode.OFFLINE)
+    )
+
+    faulty = RunMetadata.from_config(robustness_case_config(_config(), case))
+    pests = RunMetadata.from_config(build_named_experiment("pests", 1))
+
+    assert (faulty.failure_probability, faulty.failure_mode) == (0.25, "OFFLINE")
+    assert pests.bodies == "KILLER=3 SCOUT=5"
+    assert pests.brains_by_body.startswith("KILLER: behaviors=treat-infestation+explore")
+    assert pests.robots_know_terrain
