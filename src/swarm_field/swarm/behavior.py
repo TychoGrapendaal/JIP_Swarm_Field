@@ -95,10 +95,10 @@ class Behavior(Protocol):
     (``score``), and what to do if it wins (``action``). It may read the fields of seeders
     through ``ctx.fields``, e.g. to score from the potential at the robot's cell.
 
-    A behaviour never moves the robot itself. To move, it proposes ``FollowField`` with a
-    seeder's name, and the navigator steps along that field only if the candidate wins. A
-    behaviour standing on its target (``field.target_for(position) == position``) proposes its
-    on-the-spot action instead, such as ``Treat`` or ``Charge``.
+    A behaviour never moves the robot itself. To move, it proposes
+    ``FollowField`` with a seeder's name, and the navigator steps along that
+    field only if the candidate wins. A behaviour standing on a target proposes
+    its on-the-spot action instead, such as ``Treat`` or ``Charge``.
     """
 
     name: str
@@ -189,5 +189,5 @@ class Regroup:
                 )
                 self._warned_nowhere_to_go = True
             return ()
-        target = seeded.field.target_for(position)
-        return (ActionCandidate(FollowField(self._seeder.name), _REGROUP_SCORE, self.name, target),)
+        #target = seeded.field.target_for(position)
+        return (ActionCandidate(FollowField(self._seeder.name), _REGROUP_SCORE, self.name, None),)
