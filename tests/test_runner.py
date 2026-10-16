@@ -19,7 +19,6 @@ from swarm_field.runner import (
     export_summary_json,
     run_experiment,
     sweep,
-    sweep_scenarios,
 )
 from swarm_field.simulation import MetricsConfig, build_scenario
 from swarm_field.swarm import TreatInfestation, TreatSeeder
@@ -96,27 +95,6 @@ def test_sweep_runs_every_configuration_once_in_order() -> None:
     assert [run.label for run in sweep(configs)] == ["a", "b"]
 
 
-def test_sweep_scenarios_covers_the_cross_product() -> None:
-    runs = sweep_scenarios([ScenarioId.S1, ScenarioId.S2], seeds=[101, 102], until=30_000)
-
-    assert [(run.scenario, run.seed) for run in runs] == [
-        ("S1", 101),
-        ("S1", 102),
-        ("S2", 101),
-        ("S2", 102),
-    ]
-
-
-def test_sweep_scenarios_labels_each_run_with_its_scenario_and_seed() -> None:
-    runs = sweep_scenarios([ScenarioId.S1], seeds=[101, 102], until=30_000)
-
-    assert [run.label for run in runs] == ["S1/101", "S1/102"]
-
-
-def test_sweep_scenarios_with_no_seeds_yields_nothing() -> None:
-    assert sweep_scenarios([ScenarioId.S1], seeds=[], until=1_000) == ()
-
-
 def test_to_row_flattens_the_summary_into_one_record() -> None:
     run = run_experiment(_config())
 
@@ -128,7 +106,12 @@ def test_to_row_flattens_the_summary_into_one_record() -> None:
 
 
 def test_export_summary_csv_writes_one_row_per_run(tmp_path: Path) -> None:
-    runs = sweep_scenarios([ScenarioId.S1, ScenarioId.S2], seeds=[101], until=30_000)
+    runs = sweep(
+        [
+            _config(label="S1/101", scenario=ScenarioId.S1, until=30_000),
+            _config(label="S2/101", scenario=ScenarioId.S2, until=30_000),
+        ]
+    )
     path = tmp_path / "summary.csv"
 
     export_summary_csv(runs, path)
@@ -140,7 +123,7 @@ def test_export_summary_csv_writes_one_row_per_run(tmp_path: Path) -> None:
 
 
 def test_export_summary_json_round_trips(tmp_path: Path) -> None:
-    runs = sweep_scenarios([ScenarioId.S1], seeds=[101], until=30_000)
+    runs = sweep([_config(label="S1/101", until=30_000)])
     path = tmp_path / "summary.json"
 
     export_summary_json(runs, path)

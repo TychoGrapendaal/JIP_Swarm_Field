@@ -311,7 +311,7 @@ def add_session_arguments(
     from its recording instead, which ``validate_session_arguments`` enforces.
     """
     parser.add_argument("--seed", type=int, default=None, help="random seed of a new session")
-    hours_default = "until the window closes"
+    hours_default = "the scenario's own horizon, or until the window closes if it has none"
     if default_hours is not None:
         hours_default = f"{default_hours:g}"
     parser.add_argument(

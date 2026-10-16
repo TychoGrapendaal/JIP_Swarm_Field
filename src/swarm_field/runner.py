@@ -16,7 +16,7 @@ from __future__ import annotations
 import csv
 import json
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from random import Random
 from typing import Any, TypeVar
@@ -321,29 +321,6 @@ def sweep(
     return tuple(run_experiment(config, renderer) for config in configs)
 
 
-def sweep_scenarios(
-    scenarios: Iterable[ScenarioId],
-    seeds: Iterable[int],
-    brain: BrainSpec | None = None,
-    until: Time = TimeUnit.HOUR,
-    metrics: MetricsConfig | None = None,
-    renderer: Renderer | None = None,
-) -> tuple[RunSummary, ...]:
-    """Run the cross product of ``scenarios`` and ``seeds``, labelling each run ``SCENARIO/SEED``.
-
-    The label is derived rather than passed in, so a sweep's rows stay in the same order as the
-    configuration that produced them and cannot be mislabelled by hand.
-    """
-    configs: list[ExperimentConfig] = []
-    for scenario in scenarios:
-        for seed in seeds:
-            label = f"{scenario.name}/{seed}"
-            configs.append(
-                build_experiment(label, scenario, seed, brain=brain, until=until, metrics=metrics)
-            )
-    return sweep(configs, renderer)
-
-
 @dataclass(frozen=True)
 class RobustnessCase:
     """One condition a robustness sweep runs a scenario under.
@@ -362,62 +339,42 @@ class RobustnessCase:
     position_error: PositionErrorSpec = field(default_factory=PositionErrorSpec)
 
 
-def robustness_case_config(
-    scenario: ScenarioId,
-    case: RobustnessCase,
-    seed: int,
-    until: Time = 3_600_000,
-    metrics: MetricsConfig | None = None,
-) -> ExperimentConfig:
-    """Assemble the configuration for one robustness condition.
+def robustness_case_config(base: ExperimentConfig, case: RobustnessCase) -> ExperimentConfig:
+    """The configuration of ``base`` under one robustness condition, labelled ``NAME/CASE``.
 
     Separated from ``robustness_sweep`` so a caller can reproduce a single condition exactly as
     the sweep built it, which is what makes rendering that condition again trustworthy: the same
-    case, seed and duration produce the same run whether it was swept or drawn.
+    base and case produce the same run whether it was swept or drawn. ``base`` is left as it is.
     """
-    config = build_experiment(
-        f"{scenario.name}/{case.label}",
-        scenario,
-        seed,
-        until=until,
-        metrics=metrics,
-    )
-    config.scenario.failures = case.failures
-    config.scenario.position_error = case.position_error
-    return config
+    name = base.scenario_name
+    if not name:
+        name = base.label
+    scenario = replace(base.scenario, failures=case.failures, position_error=case.position_error)
+    return replace(base, label=f"{name}/{case.label}", scenario=scenario)
 
 
 def robustness_sweep(
-    scenario: ScenarioId,
+    base: ExperimentConfig,
     cases: Iterable[RobustnessCase],
-    seed: int,
-    until: Time = TimeUnit.HOUR,
-    metrics: MetricsConfig | None = None,
     renderer: Renderer | None = None,
 ) -> tuple[RunSummary, ...]:
-    """Run one scenario under each robustness condition, from the same seed.
+    """Run one experiment under each robustness condition, from the seed of ``base``.
 
     Every case is run against the same seed, so a run and its baseline differ only in the
     faults: the pest dynamics see the same random stream either way. That is what makes a
     difference in the metrics attributable to the condition rather than to the weather.
 
     Args:
-        scenario: Which built-in scenario preset to run under every condition.
+        base: The experiment every condition is applied to, e.g. from
+            ``experiments.build_named_experiment``; its seed is shared by every case.
         cases: The conditions to run, including the baseline.
-        seed: The seed shared by every case, which is what makes them comparable.
-        until: How far to run each case, in simulation time.
-        metrics: Sampling cadence and target threshold.
         renderer: Draws every case's world on every metric tick. One renderer sees all of them,
             so it cannot tell the conditions apart; render a single condition through
             ``robustness_case_config`` when the frames need to be attributable.
     """
-    runs = [
-        run_experiment(
-            robustness_case_config(scenario, case, seed, until=until, metrics=metrics),
-            renderer,
-        )
-        for case in cases
-    ]
+    runs: list[RunSummary] = []
+    for case in cases:
+        runs.append(run_experiment(robustness_case_config(base, case), renderer))
     return tuple(runs)
 
 

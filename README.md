@@ -169,7 +169,7 @@ uv run --with matplotlib python examples/renderer_demo.py --frames 60 --save fra
 Two scripts open a run in a steerable window. Both are thin command lines around the same console, `swarm_field.console`, so they offer the same controls and the same flags:
 
 - `examples/interactive_demo.py` runs a small hand-built world of three wandering robots, so it exercises the `Command` port on its own.
-- `examples/scenario_viewer.py` runs a real experiment: `runner.build_experiment` resolves the scenario preset and `runner.build_run` assembles the robots and brains, so the window shows the same run `runner.run_experiment` would produce. It defaults to `S2` with seed `101` for one simulated hour, the horizon `runner.sweep_scenarios` uses, and it records the run's metrics.
+- `examples/scenario_viewer.py` runs a real experiment: any scenario of the catalogue (see [Scenario catalogue](#scenario-catalogue)) through `runner.build_run`, so the window shows the same run `runner.run_experiment` would produce. It defaults to `S2` with seed `101` for the scenario's own horizon, and it records the run's metrics.
 
 ```bash
 uv run python examples/interactive_demo.py
@@ -177,6 +177,10 @@ uv run python examples/interactive_demo.py
 
 ```bash
 uv run python examples/scenario_viewer.py --scenario S3 --seed 7 --hours 6
+```
+
+```bash
+uv run python examples/scenario_viewer.py --scenario pests
 ```
 
 In the window:
@@ -191,9 +195,9 @@ The interactions flow through the typed `Command` port: `InjectInfestation` is a
 
 | Flag | Meaning | Interactive demo | Scenario viewer |
 |---|---|---|---|
-| `--scenario NAME` | Scenario preset to run. | – | `S2` |
+| `--scenario NAME` | Scenario of the catalogue to run. | – | `S2` |
 | `--seed N` | Seed of a new run. | 7 | 101 |
-| `--hours H` | Simulated hours the run lasts; it stops there. | until the window closes | 1 |
+| `--hours H` | Simulated hours the run lasts; it stops there. | until the window closes | the scenario's own |
 | `--speed X` | Simulated time per frame: 0.5 s times `X`. In a window this is the starting speed. | 1 | 4 |
 | `--save PATH` | Run to the horizon without a window, into a `.gif`, an `.mp4` (needs [ffmpeg](https://ffmpeg.org/)) or, for any other path, a directory of PNG frames. | | |
 | `--record PATH` | When the run ends, write its recording to `PATH`. | | |
@@ -242,13 +246,21 @@ A run without a window needs a horizon: the scenario viewer always has one, and 
 
 Drawing a frame takes roughly a tenth of a second, so a long run at a low speed takes a few minutes to record.
 
+### Scenario catalogue
+
+Every scenario has a name, and every script that runs scenarios takes them by that name: the presets `S1` to `S5` of the scenario builder, and the hand-built experiments `explore` (`ExploreScenario`, scouts monitoring a field) and `pests` (`PestScenario`, scouts and killers while pests keep appearing). `swarm_field.experiments.build_named_experiment(name, seed, until)` turns a name and a seed into the `ExperimentConfig` the runner runs, labelled `NAME/SEED`. Each scenario keeps its own horizon unless one is given: an hour for the presets, three hours for `explore` and `pests`. `scenario_names()` lists them, and `tests/test_catalogue.py` checks that every one of them reproduces its run exactly from the same seed.
+
 ### Seeded scenario sweep with metrics (B.5)
 
 ```bash
 uv run python examples/metrics_sweep_demo.py
 ```
 
-Runs the cross product of three scenarios and two seeds, and prints one row per run followed by a full metrics series. Each run is reproducible from its seed: the same seed and configuration produce the same series.
+Runs the cross product of three scenarios and two seeds, and prints one row per run followed by a full metrics series. Each run is reproducible from its seed: the same seed and configuration produce the same series. `--scenarios` takes any names of the catalogue:
+
+```bash
+uv run python examples/metrics_sweep_demo.py --scenarios S2 explore pests --hours 1
+```
 
 Write the summary table and every run's series to a directory (CSV and JSON):
 
@@ -279,6 +291,7 @@ Runs one scenario under a baseline and then one fault at a time: three failure m
 
 ```bash
 uv run python examples/robustness_demo.py --scenario S5 --hours 3
+uv run python examples/robustness_demo.py --scenario pests --hours 1
 uv run python examples/robustness_demo.py --out runs/robustness
 ```
 
