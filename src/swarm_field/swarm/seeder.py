@@ -139,6 +139,62 @@ class TreatSeeder:
         return updated_seeds
 
 
+class RegroupSeeder:
+    """Seeds the REGROUP field: draws the robot to where its peers were last known to be.
+
+    Each remembered peer attracts at its last known cell and at the cell it said it was heading
+    for, by the memory's confidence in that fact, so the most recent contact attracts most. A
+    cell the robot searched without hearing anyone no longer attracts. The rally point, if
+    any, attracts least and is never dropped, so it is where a robot ends up, and waits, once
+    every peer location turned out empty. Rebuilt once a minute, and whenever the peers' cells
+    or targets, or the searched cells, change.
+
+    Attributes:
+        value_amplifier: The attraction of a peer location at full confidence, in cells.
+        rally_point: The cell every robot falls back to, or ``None`` for no fallback.
+    """
+
+    name: str = "regroup"
+
+    def __init__(self, value_amplifier: float = 10.0, rally_point: CellId | None = None) -> None:
+        self._value_amplifier: float = value_amplifier
+        self.rally_point: CellId | None = rally_point
+        self._searched: set[CellId] = set()
+
+    def field_key(self, memory: MemoryView, now: Time) -> Hashable:
+        locations: set[tuple[CellId, CellId | None]] = set()
+        for peer in memory.peers():
+            locations.add((peer.cell, peer.target))
+        return (now // TimeUnit.MINUTE, frozenset(locations), frozenset(self._searched))
+
+    def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
+        # One seed per cell: the most attractive of the peers pointing at it.
+        values: dict[CellId, float] = {}
+        for peer in memory.peers():
+            value = -self._value_amplifier * memory.confidence(peer, now)
+            cells = [peer.cell]
+            if peer.target is not None:
+                cells.append(peer.target)
+            for cell in cells:
+                if cell not in self._searched and cell != self.rally_point:
+                    values[cell] = min(value, values.get(cell, 0.0))
+
+        seeds: list[Seed] = []
+        for cell, value in values.items():
+            seeds.append(Seed(cell, value))
+        if self.rally_point is not None:
+            seeds.append(Seed(self.rally_point, 0.0))
+        return tuple(seeds)
+
+    def mark_searched(self, cell: CellId) -> None:
+        """Stop being drawn to ``cell``: the robot went there and heard no one."""
+        self._searched.add(cell)
+
+    def forget_searched(self) -> None:
+        """Let every peer location attract again, once the robot is back in contact."""
+        self._searched.clear()
+
+
 def _cells_targeted_by_peers(memory: MemoryView) -> frozenset[CellId]:
     """The cells the remembered peers say they are heading for."""
     targeted: set[CellId] = set()

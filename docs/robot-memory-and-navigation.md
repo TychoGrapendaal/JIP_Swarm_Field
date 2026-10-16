@@ -29,8 +29,8 @@ Memory holds facts and nothing else. The quadtree says where a robot can be and 
 | `swarm/provider.py` | `FieldProvider` (the quadtree, the seeders, one cached field per seeder) |
 | `swarm/navigator.py` | `Navigator` (the seam: progress, fallback) |
 | `swarm/steering.py` | `Steerer`, `Sensing`, `QuadtreeSensing`, `SteeringConfig` |
-| `swarm/seeder.py` | `FieldSeeder`, `SeededField`, `TreatSeeder` |
-| `swarm/behavior.py` | `Behavior`, `ActionCandidate`, `FollowField`, `Intent`, `DecisionContext`, `TreatInfestation` |
+| `swarm/seeder.py` | `FieldSeeder`, `SeededField`, `TreatSeeder`, `RegroupSeeder` |
+| `swarm/behavior.py` | `Behavior`, `ActionCandidate`, `FollowField`, `Intent`, `DecisionContext`, `TreatInfestation`, `Regroup` |
 | `swarm/brain.py` | `ComposedAgent` |
 
 Tests: `tests/test_memory.py`, `tests/test_quadtree.py`, `tests/test_field.py`, `tests/test_provider.py`, `tests/test_navigator.py`, `tests/test_steering.py`, `tests/test_swarm.py`.
@@ -176,6 +176,18 @@ agent = ComposedAgent(robot_id, [TreatInfestation()], memory, fields, Navigator(
 decision = agent.decide(perception)
 ```
 
+### Regroup
+
+The design assumes every robot can communicate with at least one other robot. `Regroup` enforces it after the fact: a robot that received no message for `silence_timeout` (2 minutes by default, 24 missed decision points) bids to follow the field of its `RegroupSeeder`. That field draws the robot to where its peers were last known to be, each peer's last cell and the target it announced, weighted by memory's confidence in the peer fact, so the most recent contact attracts most. Peers move, so the robot may arrive and still hear no one. The behaviour then tells the seeder the cell was searched (`mark_searched`), and the robot moves on to the next location. The seeder's optional `rally_point` attracts least and is never dropped: it is where a robot ends up and waits once every peer location turned out empty, and since all lost robots share it, it is the step that guarantees they meet. The first received message ends the search and makes every location attractive again. Only received messages count as contact; a peer sensed in a neighbouring cell does not.
+
+`Regroup` bids 0.98, just below treating on the spot, so a robot finishes the pest it stands on before it walks back. The behaviour and its seeder are one instance pair, since the behaviour reports searched cells to the seeder:
+
+```python
+regroup_seeder = RegroupSeeder(rally_point=(field.width // 2, field.height // 2))
+fields = FieldProvider(memory, flies=False, seeders=[TreatSeeder(), regroup_seeder])
+behaviors = [TreatInfestation(), Regroup(regroup_seeder)]
+```
+
 When a behaviour or seeder recovers from something that should not happen instead of raising, it logs a warning through its module's `logging.getLogger(__name__)` (see `AGENTS.md`).
 
 ## Not in v1
@@ -185,6 +197,7 @@ When a behaviour or seeder recovers from something that should not happen instea
 - **Forgetting.** Memory never deletes facts; it is bounded by the field size plus the number of robots.
 - **Sending only new facts.** Robots exchange all their facts at every meeting. Sending only what the other robot has not seen yet needs, per fact, the time this robot learned it (not when it was observed).
 - **Arbiter.** The brain picks the highest score, with no overrides for urgent needs (such as a low battery) and nothing against switching objectives back and forth.
+- **Staying in range.** `Regroup` only reacts: a robot turns back after the silence timeout, and once it hears a peer it resumes its work and may walk out of range again. Nothing keeps robots in range in the first place. Until the arbiter exists, `TreatInfestation` also outbids `Regroup` when it knows of four or more pests than killers, since its score then passes 0.98.
 - **Faster fields.** Each field a robot reads costs one build per block it travels, so the cost grows with the number of field-reading behaviours. Inside the quadtree, each leaf's neighbours are still found again for every field; caching them until an update touches them would make repeated fields about four to five times faster.
 - **The steerer's clearance ring.** `QuadtreeSensing` reads the quadtree, so the fallback steers over *believed* terrain; a real robot would probe one cell ahead and would rather slide along a wall than cut it. The fallback is also blind to crops: it only knows what the quadtree was told, and memory does not store crops yet.
 - **Terrain costs.** All traversable cells cost the same; there is no extra cost for unknown cells or rough terrain.

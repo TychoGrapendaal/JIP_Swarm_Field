@@ -1,5 +1,6 @@
 """Composable robot behaviours for the high-level cell model."""
 
+import logging
 import math
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -13,11 +14,14 @@ from swarm_field.contracts import (
     Observation,
     RobotSelfState,
     Time,
+    TimeUnit,
     Treat,
 )
 from swarm_field.swarm.memory import MemoryView
 from swarm_field.swarm.provider import FieldProvider
-from swarm_field.swarm.seeder import TreatSeeder
+from swarm_field.swarm.seeder import RegroupSeeder, TreatSeeder
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -133,3 +137,57 @@ class TreatInfestation:
         # The more pests are left per killer already known, the more this robot is needed.
         score = 1 / (1 + math.exp(-(len(seeded.seeds) - num_killers)))
         return (ActionCandidate(FollowField(self._seeder), score, self.name, None),)
+
+
+_REGROUP_SCORE = 0.98
+"""The score of walking back to the swarm after a long silence.
+
+Just below ``_TREAT_SCORE``, so that the robot still treats the pest it stands on first.
+"""
+
+
+class Regroup:
+    """Returns a robot to the swarm once it has received no message for ``silence_timeout``.
+
+    It follows the field of its ``RegroupSeeder`` to where the peers were last known to be.
+    Standing on such a cell and still hearing no one, it tells the seeder the cell was searched
+    and moves on to the next; the seeder's rally point is where it finally waits. The first
+    message received ends the search.
+    """
+
+    name: str = "regroup"
+
+    def __init__(self, seeder: RegroupSeeder, silence_timeout: Time = 2 * TimeUnit.MINUTE) -> None:
+        self._seeder: RegroupSeeder = seeder
+        self._silence_timeout: Time = silence_timeout
+        self._last_contact: Time | None = None
+        self._warned_nowhere_to_go: bool = False
+
+    def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
+        if ctx.inbox or self._last_contact is None:
+            self._last_contact = ctx.time
+            self._warned_nowhere_to_go = False
+            self._seeder.forget_searched()
+            return ()
+        if ctx.time - self._last_contact < self._silence_timeout:
+            return ()
+
+        position = ctx.self_state.position
+        seeded = ctx.fields.field_for(self._seeder.name, position, ctx.time)
+        if seeded is not None and position != self._seeder.rally_point:
+            for seed in seeded.seeds:
+                if seed.cell == position:
+                    self._seeder.mark_searched(position)
+                    seeded = ctx.fields.field_for(self._seeder.name, position, ctx.time)
+                    break
+        if seeded is None:
+            if not self._warned_nowhere_to_go:
+                logger.warning(
+                    "Robot %s heard no one since %s and knows no place to look for peers",
+                    ctx.self_state.robot_id,
+                    self._last_contact,
+                )
+                self._warned_nowhere_to_go = True
+            return ()
+        target = seeded.field.target_for(position)
+        return (ActionCandidate(FollowField(self._seeder.name), _REGROUP_SCORE, self.name, target),)

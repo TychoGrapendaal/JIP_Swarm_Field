@@ -15,13 +15,14 @@ from swarm_field.swarm.behavior import (
     DecisionContext,
     FollowField,
     Intent,
+    Regroup,
     TreatInfestation,
 )
 from swarm_field.swarm.brain import ComposedAgent
 from swarm_field.swarm.memory import AgentMemory, DecayConfig, MemoryView
 from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.provider import FieldProvider
-from swarm_field.swarm.seeder import FieldSeeder, SeededField, TreatSeeder
+from swarm_field.swarm.seeder import FieldSeeder, RegroupSeeder, SeededField, TreatSeeder
 from swarm_field.swarm.steering import (
     QuadtreeSensing,
     Sensing,
@@ -43,6 +44,8 @@ __all__ = [
     "MemoryView",
     "Navigator",
     "QuadtreeSensing",
+    "Regroup",
+    "RegroupSeeder",
     "SeededField",
     "Sensing",
     "Steerer",
