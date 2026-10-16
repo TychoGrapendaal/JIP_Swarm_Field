@@ -164,15 +164,12 @@ Write frames as PNGs instead of opening a window:
 uv run --with matplotlib python examples/renderer_demo.py --frames 60 --save frames
 ```
 
-### Interactive console and scenario viewer (C.1)
+### Scenario viewer: the interactive console (C.1)
 
-Two scripts open a run in a steerable window. Both are thin command lines around the same console, `swarm_field.console`, so they offer the same controls and the same flags:
-
-- `examples/interactive_demo.py` runs a small hand-built world of three wandering robots, so it exercises the `Command` port on its own.
-- `examples/scenario_viewer.py` runs a real experiment: any scenario of the catalogue (see [Scenario catalogue](#scenario-catalogue)) through `runner.build_run`, so the window shows the same run `runner.run_experiment` would produce. It defaults to `S2` with seed `101` for the scenario's own horizon, and it records the run's metrics.
+`examples/scenario_viewer.py` opens any scenario of the catalogue (see [Scenario catalogue](#scenario-catalogue)) in a steerable window. It is a thin command line around the console, `swarm_field.console`, which steers an `experiments.LiveRun`: the same run, built by `runner.build_run`, that `runner.run_experiment` would produce, advanced in slices so that it can be paused, stepped and steered. It defaults to `S2` with seed `101` for the scenario's own horizon, and it records the run's metrics.
 
 ```bash
-uv run python examples/interactive_demo.py
+uv run python examples/scenario_viewer.py
 ```
 
 ```bash
@@ -193,16 +190,16 @@ The interactions flow through the typed `Command` port: `InjectInfestation` is a
 
 #### Flags
 
-| Flag | Meaning | Interactive demo | Scenario viewer |
-|---|---|---|---|
-| `--scenario NAME` | Scenario of the catalogue to run. | – | `S2` |
-| `--seed N` | Seed of a new run. | 7 | 101 |
-| `--hours H` | Simulated hours the run lasts; it stops there. | until the window closes | the scenario's own |
-| `--speed X` | Simulated time per frame: 0.5 s times `X`. In a window this is the starting speed. | 1 | 4 |
-| `--save PATH` | Run to the horizon without a window, into a `.gif`, an `.mp4` (needs [ffmpeg](https://ffmpeg.org/)) or, for any other path, a directory of PNG frames. | | |
-| `--record PATH` | When the run ends, write its recording to `PATH`. | | |
-| `--replay PATH` | Play back a recording instead of starting a new run. | | |
-| `--out DIR` | When the run ends, write its metrics series and a summary row to `DIR`. | – | ✓ |
+| Flag | Meaning | Default |
+|---|---|---|
+| `--scenario NAME` | Scenario of the catalogue to run. | `S2` |
+| `--seed N` | Seed of a new run. | 101 |
+| `--hours H` | Simulated hours the run lasts; it stops there. | the scenario's own horizon |
+| `--speed X` | Simulated time per frame: 0.5 s times `X`. In a window this is the starting speed. | 4 |
+| `--save PATH` | Run to the horizon without a window, into a `.gif`, an `.mp4` (needs [ffmpeg](https://ffmpeg.org/)) or, for any other path, a directory of PNG frames. | a window |
+| `--record PATH` | When the run ends, write its recording to `PATH`. | |
+| `--replay PATH` | Play back a recording instead of starting a new run. | |
+| `--out DIR` | When the run ends, write its metrics series and a summary row to `DIR`. | |
 
 Each flag controls one thing, which is why there are several: `--scenario`, `--seed` and `--replay` choose the run; `--hours` sets how long it lasts and `--speed` how much of it one frame shows; and the run can produce three different outputs, which can be combined:
 
@@ -236,7 +233,7 @@ Run a whole experiment in the background, and get the video and the metrics of t
 uv run python examples/scenario_viewer.py --scenario S2 --hours 6 --speed 16 --save runs/s2.mp4 --out runs/s2
 ```
 
-A run without a window needs a horizon: the scenario viewer always has one, and the interactive demo uses two simulated minutes when `--hours` is not given. The video plays at 16 frames per second, which gives these lengths:
+Without a window the run goes to its horizon, the scenario's own or `--hours`, and stops. The video plays at 16 frames per second, which gives these lengths:
 
 | `--speed` | Simulated time per frame | Frames per simulated hour | Video length per simulated hour |
 |---|---|---|---|
@@ -304,7 +301,7 @@ uv run python examples/robustness_demo.py --out runs/robustness
 - Coarse-grained infestation dynamics are implemented as a scheduled `WorldTick`; the current model supports severity growth, neighbour spread, and stochastic spawning.
 - Sensing covers the robot's own cell, and the terrain of its neighbours; obstacles further away are unknown unless the robot starts with the terrain map, and infestations elsewhere unless peers share them.
 - Robot batteries are drained by a coarse cost model (per metre, per decision, per treat) and robot failure and position error can be injected for robustness runs, but there is no charging station, no consumable replenishment and no recovery from a failure.
-- The visualization adapter renders read-only snapshots; interactive time control, infestation injection, robot inspection, and recording and replaying a run live in `swarm_field.console`, with `examples/interactive_demo.py` and `examples/scenario_viewer.py` as its command lines (C.1).
+- The visualization adapter renders read-only snapshots; interactive time control, infestation injection, robot inspection, and recording and replaying a run live in `swarm_field.console` and `experiments.LiveRun`, with `examples/scenario_viewer.py` as their command line (C.1).
 
 ## Project layout
 

@@ -36,14 +36,8 @@ from swarm_field.console import (
     write_recording,
 )
 from swarm_field.contracts import CommandLog, Time, TimeUnit
-from swarm_field.experiments import build_named_experiment, scenario_names
-from swarm_field.runner import (
-    RunSummary,
-    build_run,
-    export_summary_csv,
-    export_summary_json,
-)
-from swarm_field.simulation import CommandReplay, MetricsCollector
+from swarm_field.experiments import LiveRun, build_named_experiment, scenario_names
+from swarm_field.runner import RunSummary, export_summary_csv, export_summary_json
 from swarm_field.visualization import MatplotlibRenderer
 
 DEFAULT_SCENARIO = "S2"
@@ -63,7 +57,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help=f"scenario to run, by name (default: {DEFAULT_SCENARIO})",
     )
-    add_session_arguments(parser, default_speed=DEFAULT_SPEED, default_hours=None)
+    add_session_arguments(parser, default_speed=DEFAULT_SPEED)
     parser.add_argument(
         "--out",
         type=Path,
@@ -71,17 +65,18 @@ def parse_args() -> argparse.Namespace:
         help="directory to write the run's metrics series and summary to when it ends",
     )
     args = parser.parse_args()
-    validate_session_arguments(parser, args, default_hours=None)
+    validate_session_arguments(parser, args)
     if args.replay is not None and args.scenario is not None:
         parser.error("--scenario cannot be combined with --replay: the recording holds it")
     return args
 
 
-def export_run(
-    label: str, scenario: str, seed: int, collector: MetricsCollector, out: Path
-) -> None:
+def export_run(run: LiveRun, out: Path) -> None:
     """Write the run's metrics series and a one-row summary of it to ``out``."""
-    summary = RunSummary.from_series(label, scenario, seed, collector.series())
+    config = run.config
+    summary = RunSummary.from_series(
+        config.label, config.scenario_name, config.scenario.seed, run.metrics.series()
+    )
     series_csv, series_json = summary.export(out)
     export_summary_csv([summary], out / "summary.csv")
     export_summary_json([summary], out / "summary.json")
@@ -91,50 +86,41 @@ def export_run(
 def main() -> None:
     """Run one seeded scenario in a window or without one, then write what was asked for."""
     args = parse_args()
+    log: CommandLog | None = None
+    name = DEFAULT_SCENARIO
+    seed = DEFAULT_SEED
     until: Time | None = None
     if args.replay is not None:
         log = CommandLog.from_json(args.replay.read_text(encoding="utf-8"))
         if log.scenario not in scenario_names():
             raise SystemExit(f"{args.replay} was not recorded from a scenario of the catalogue")
         name = log.scenario
+        seed = log.seed
         until = log.until
     else:
-        name = DEFAULT_SCENARIO
         if args.scenario is not None:
             name = args.scenario
-        seed = DEFAULT_SEED
         if args.seed is not None:
             seed = args.seed
         if args.hours is not None:
             until = int(args.hours * TimeUnit.HOUR)
-        log = CommandLog(seed=seed, until=0, commands=(), scenario=name)
 
-    config = build_named_experiment(name, log.seed, until)
+    config = build_named_experiment(name, seed, until)
     period = min(config.metrics.period, METRICS_PERIOD_MS)
     config = replace(config, metrics=replace(config.metrics, period=period))
-    # Built without a renderer on purpose: the console draws on its own clock, and a renderer
-    # handed to the run would draw on every metric tick as well.
-    ctx, collector = build_run(config)
-    console = InteractiveConsole(
-        CommandReplay(ctx, log),
-        MatplotlibRenderer(),
-        label=config.label,
-        horizon=config.until,
-        replaying=args.replay is not None,
-        speed=args.speed,
-        collector=collector,
-    )
+    run = LiveRun.from_config(config, log)
+    console = InteractiveConsole(run, MatplotlibRenderer(), speed=args.speed)
 
     if args.save is None:
         show_window(console)
     else:
         frames = save_session(console, args.save)
-        print(f"Wrote {frames} frames up to {format_time(console.time)} to {args.save}")
+        print(f"Wrote {frames} frames up to {format_time(run.now)} to {args.save}")
     if args.record is not None:
-        write_recording(console, args.record)
-        print(f"Recorded {len(console.recorded)} commands up to {format_time(console.time)}")
+        write_recording(run.command_log(), args.record)
+        print(f"Recorded {len(run.recorded)} commands up to {format_time(run.now)}")
     if args.out is not None:
-        export_run(config.label, name, log.seed, collector, args.out)
+        export_run(run, args.out)
 
 
 if __name__ == "__main__":

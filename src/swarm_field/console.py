@@ -4,10 +4,7 @@ Like ``runner``, this is a composition-level module: it advances a run through t
 and draws it through the visualization, so it lives at the package root rather than in
 ``visualization``, which only ever reads snapshots. The console is the ``Command`` port's
 frontend: key presses become the time-pacing commands, and clicks inject infestations or select
-a robot to inspect.
-
-The clock always advances through a ``CommandReplay``: a live session replays an empty log and a
-replayed session the recorded one, so both take exactly the same path through the run.
+a robot to inspect. The run itself, and its recording, is an ``experiments.LiveRun``.
 """
 
 from __future__ import annotations
@@ -28,10 +25,9 @@ from swarm_field.contracts import (
     SetTimeScale,
     StepOnce,
     Time,
-    TimedCommand,
     TimeUnit,
 )
-from swarm_field.simulation import CommandReplay, MetricsCollector, SimulationContext
+from swarm_field.experiments import LiveRun
 from swarm_field.visualization import MatplotlibRenderer, save_frames
 
 BASE_STEP_MS: Time = 500
@@ -104,64 +100,40 @@ def format_time(time: Time) -> str:
 class InteractiveConsole:
     """Advances one run a render frame at a time, and turns key presses and clicks into commands.
 
+    The run stops at its horizon. In a replayed run injecting is disabled, so the run stays the
+    recorded one.
+
     Attributes:
-        replay: Advances the context, applying the replayed log's commands on the way.
+        run: The run being steered, which also records the commands applied to it.
         renderer: Draws the world.
-        label: Names the run in the status box.
-        horizon: Simulation time the run stops at, or ``None`` to run until the window closes.
-        replaying: Whether the session plays back a recording. Injecting is then disabled, so
-            the run stays the recorded one.
-        collector: The run's metrics, shown in the title, or ``None`` for a run without them.
-        recorded: The commands applied in this session, for ``command_log``.
-        time: Simulation time of the frame on screen.
         paused: Whether the clock stands still between frames.
         speed: Multiplier on ``BASE_STEP_MS`` of simulated time per frame.
         step_pending: Whether the next frame advances by exactly one event.
         selected: The robot whose inspection panel is shown, if any.
     """
 
-    def __init__(
-        self,
-        replay: CommandReplay,
-        renderer: MatplotlibRenderer,
-        label: str,
-        horizon: Time | None = None,
-        replaying: bool = False,
-        speed: float = 1.0,
-        collector: MetricsCollector | None = None,
-    ) -> None:
-        self.replay: CommandReplay = replay
+    def __init__(self, run: LiveRun, renderer: MatplotlibRenderer, speed: float = 1.0) -> None:
+        self.run: LiveRun = run
         self.renderer: MatplotlibRenderer = renderer
-        self.label: str = label
-        self.horizon: Time | None = horizon
-        self.replaying: bool = replaying
-        self.collector: MetricsCollector | None = collector
-        self.recorded: list[TimedCommand] = []
-        self.time: Time = replay.ctx.now
         self.paused: bool = False
         self.speed: float = speed
         self.step_pending: bool = False
         self.selected: RobotId | None = None
 
     @property
-    def ctx(self) -> SimulationContext:
-        return self.replay.ctx
+    def time(self) -> Time:
+        """The simulation time of the frame on screen."""
+        return self.run.now
 
     @property
     def finished(self) -> bool:
         """Whether the run has reached its horizon."""
-        return self.horizon is not None and self.time >= self.horizon
+        return self.time >= self.run.horizon
 
     def frames_to_horizon(self) -> int:
-        """How many frames at the current speed carry the run from now to its horizon.
-
-        Raises:
-            ValueError: If the run has no horizon, so it would never end without a window.
-        """
-        if self.horizon is None:
-            raise ValueError("a run without a horizon cannot be counted in frames")
+        """How many frames at the current speed carry the run from now to its horizon."""
         step = int(BASE_STEP_MS * self.speed)
-        return math.ceil(max(self.horizon - self.time, 0) / step)
+        return math.ceil(max(self.run.horizon - self.time, 0) / step)
 
     def apply_time_command(self, command: Command) -> None:
         """Apply a time-pacing command to the render loop's state.
@@ -183,20 +155,17 @@ class InteractiveConsole:
     def advance(self, render: bool = False) -> None:
         """Advance one render frame: process the events it covers, then draw the world."""
         if self.step_pending:
-            self.replay.step()
+            self.run.step()
             self.step_pending = False
         elif not self.paused and not self.finished:
-            until = self.time + int(BASE_STEP_MS * self.speed)
-            if self.horizon is not None:
-                until = min(until, self.horizon)
-            self.replay.advance_to(until)
-        self.time = self.ctx.now
+            until = min(self.time + int(BASE_STEP_MS * self.speed), self.run.horizon)
+            self.run.advance_to(until)
         if render:
             self.draw()
 
     def apply_click(self, x_data: float, y_data: float) -> None:
         """Select or deselect a robot on the clicked cell, or inject an infestation there."""
-        world = self.ctx.world
+        world = self.run.context.world
         cell = (math.floor(x_data), math.floor(y_data))
         if not world.is_inside(cell):
             return
@@ -208,11 +177,9 @@ class InteractiveConsole:
             else:
                 self.selected = robot
             return
-        if self.replaying or not world.is_walkable(cell):
+        if self.run.replaying or not world.is_walkable(cell):
             return
-        command = InjectInfestation(cell=cell, severity=INJECT_SEVERITY)
-        self.ctx.apply_command(command)
-        self.recorded.append(TimedCommand(time=self.ctx.now, command=command))
+        self.run.apply_command(InjectInfestation(cell=cell, severity=INJECT_SEVERITY))
 
     def on_click(self, event: object) -> None:
         """Handle a matplotlib click, ignoring presses outside the axes."""
@@ -231,22 +198,12 @@ class InteractiveConsole:
         if command is not None:
             self.apply_time_command(command)
 
-    def command_log(self) -> CommandLog:
-        """The recording of this session so far: the replayed log's run and the new commands."""
-        log = self.replay.log
-        return CommandLog(
-            seed=log.seed, until=self.time, commands=tuple(self.recorded), scenario=log.scenario
-        )
-
     def draw(self) -> None:
         """Render a snapshot through the ``Renderer`` port, then the inspection and status boxes.
 
         The title is left to the renderer, which writes the latest metrics sample into it.
         """
-        latest = None
-        if self.collector is not None:
-            latest = self.collector.latest()
-        self.renderer.render(self.ctx.world.snapshot(self.time, latest))
+        self.renderer.render(self.run.snapshot())
         axes = self.renderer.axes
         if self.selected is not None:
             self._draw_inspection(self.selected)
@@ -265,8 +222,8 @@ class InteractiveConsole:
     def _draw_inspection(self, robot: RobotId) -> None:
         """Ring the selected robot and show its ``AgentInspection``."""
         axes = self.renderer.axes
-        inspection = self.ctx.agents[robot].inspect()
-        x, y = self.ctx.world.continuous_position(robot, self.time)
+        inspection = self.run.context.agents[robot].inspect()
+        x, y = self.run.context.world.continuous_position(robot, self.time)
         axes.scatter([x], [y], s=260, facecolors="none", edgecolors="black", linewidths=2.0)
         lines = [
             f"robot {inspection.robot_id}",
@@ -293,32 +250,26 @@ class InteractiveConsole:
             mode = "paused"
         else:
             mode = f"{self.speed:g}x"
-        clock = f"t={format_time(self.time)}"
-        if self.horizon is not None:
-            clock = f"{clock} of {format_time(self.horizon)}"
+        clock = f"t={format_time(self.time)} of {format_time(self.run.horizon)}"
         controls = CONTROL_LINES
-        if self.replaying:
+        if self.run.replaying:
             controls = REPLAY_CONTROL_LINES
-        return [f"{self.label} | {clock} | {mode}", *controls]
+        return [f"{self.run.label} | {clock} | {mode}", *controls]
 
 
-def add_session_arguments(
-    parser: argparse.ArgumentParser, default_speed: float, default_hours: float | None
-) -> None:
+def add_session_arguments(parser: argparse.ArgumentParser, default_speed: float) -> None:
     """Add the flags every console session shares, so each script offers them the same way.
 
-    ``--seed`` and ``--hours`` default to ``None`` and ``default_hours``; a replay takes both
-    from its recording instead, which ``validate_session_arguments`` enforces.
+    ``--seed`` and ``--hours`` default to ``None``, meaning the script's default seed and the
+    scenario's own horizon; a replay takes both from its recording instead, which
+    ``validate_session_arguments`` enforces.
     """
     parser.add_argument("--seed", type=int, default=None, help="random seed of a new session")
-    hours_default = "the scenario's own horizon, or until the window closes if it has none"
-    if default_hours is not None:
-        hours_default = f"{default_hours:g}"
     parser.add_argument(
         "--hours",
         type=float,
-        default=default_hours,
-        help=f"simulated hours the run lasts (default: {hours_default})",
+        default=None,
+        help="simulated hours the run lasts (default: the scenario's own horizon)",
     )
     parser.add_argument(
         "--speed",
@@ -346,9 +297,7 @@ def add_session_arguments(
     )
 
 
-def validate_session_arguments(
-    parser: argparse.ArgumentParser, args: argparse.Namespace, default_hours: float | None
-) -> None:
+def validate_session_arguments(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
     """Refuse a replay that also asks for its own seed or length, which come from the recording.
 
     Exits through ``parser.error``, like any other invalid command line.
@@ -357,7 +306,7 @@ def validate_session_arguments(
         return
     if args.seed is not None:
         parser.error("--seed cannot be combined with --replay: the recording holds the seed")
-    if args.hours != default_hours:
+    if args.hours is not None:
         parser.error("--hours cannot be combined with --replay: the recording holds the length")
     if args.record is not None:
         parser.error("--record cannot be combined with --replay: a replay adds no commands")
@@ -383,10 +332,10 @@ def save_session(console: InteractiveConsole, path: Path) -> int:
     return frames
 
 
-def write_recording(console: InteractiveConsole, path: Path) -> None:
-    """Write the session's ``CommandLog`` to ``path`` as JSON."""
+def write_recording(log: CommandLog, path: Path) -> None:
+    """Write ``log`` to ``path`` as JSON."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(console.command_log().to_json(), encoding="utf-8")
+    path.write_text(log.to_json(), encoding="utf-8")
 
 
 def show_window(console: InteractiveConsole) -> None:
