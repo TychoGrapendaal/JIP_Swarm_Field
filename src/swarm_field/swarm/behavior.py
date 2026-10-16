@@ -123,9 +123,7 @@ Just below 1, so that the battery behaviour can still outbid it to save the robo
 
 
 class TreatInfestation:
-    """Follow reported infestations and treat them when the robot reaches a target cell."""
-
-    """The pest-response behaviour: follow the field of the TREAT seeder and treat on arrival."""
+    """The pest-response behaviour: follow the TREAT field and treat on arrival."""
 
     name: str = "treat-infestation"
 
@@ -139,40 +137,19 @@ class TreatInfestation:
             treat = Treat(position)
             return (ActionCandidate(treat, _TREAT_SCORE, self.name, position, _TREAT),)
 
-        pests = tuple(pest for pest in ctx.memory.infestations() if pest.severity > 0.0)
-        if not pests:
+        num_pests = 0
+        for pest in ctx.memory.infestations():
+            if pest.severity > 0:
+                num_pests += 1
+        if num_pests == 0:
             return ()
-
-        if ctx.fields is not None:
-            seeded = ctx.fields.field_for(self._seeder, position, ctx.time)
-            if seeded is None:
-                return ()
-            target = seeded.field.target_for(position)
-            if target is None or target == position:
-                return ()
-        else:
-            # A context used to inspect a behaviour in isolation may omit the field provider.
-            # Keep the intent meaningful without constructing a navigation field in that case.
-            target = min(
-                (pest.cell for pest in pests),
-                key=lambda cell: (
-                    abs(cell[0] - position[0]) + abs(cell[1] - position[1]),
-                    cell,
-                ),
-            )
-
-        num_killers = sum(1 for peer in ctx.memory.peers() if peer.body is BodyType.KILLER)
-        # More known pests per known killer increases the urgency of this objective.
-        score = 1.0 / (1.0 + math.exp(-(len(pests) - num_killers)))
-        return (
-            ActionCandidate(
-                action=FollowField(self._seeder),
-                score=score,
-                source=self.name,
-                target=target,
-                objective=_TREAT,
-            ),
-        )
+        num_killers = 0
+        for peer in ctx.memory.peers():
+            if peer.body is BodyType.KILLER:
+                num_killers += 1
+        # The more pests are left per killer already known, the more this robot is needed.
+        score = 1 / (1 + math.exp(-(num_pests - num_killers)))
+        return (ActionCandidate(FollowField(self._seeder), score, self.name, None, _TREAT),)
 
 
 class ExploreBehaviour:

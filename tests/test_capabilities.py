@@ -132,6 +132,28 @@ def test_killer_capability_gate_allows_treatment_but_not_battery_supply() -> Non
     assert decision.action == Treat((2, 2))
 
 
+def test_scout_capability_gate_rejects_battery_replacement() -> None:
+    agent = _manual_agent(
+        BodyType.SCOUT,
+        _CandidateBehavior((Idle(), 0.1), (ReplaceBattery(robot_id=2), 100.0)),
+    )
+
+    decision = agent.decide(_perception(BodyType.SCOUT))
+
+    assert decision.action == Idle()
+
+
+def test_battery_capability_gate_rejects_pest_treatment() -> None:
+    agent = _manual_agent(
+        BodyType.BATTERY,
+        _CandidateBehavior((Idle(), 0.1), (Treat((2, 2)), 100.0)),
+    )
+
+    decision = agent.decide(_perception(BodyType.BATTERY))
+
+    assert decision.action == Idle()
+
+
 def test_body_mismatch_cannot_expand_capabilities() -> None:
     # Even a misconfigured profile that grants Treat cannot expand what SCOUT may emit.
     scout_profile = capabilities_for(BodyType.SCOUT)

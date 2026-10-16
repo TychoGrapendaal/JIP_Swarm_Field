@@ -38,18 +38,16 @@ def build_agent(
     memory = AgentMemory(robot_id, field)
 
     dock_seeder = DockSeeder(docks)
-    # Keep one shared protocol-typed list so branch-specific behaviour types do not infer an
-    # invariant union such as list[ExploreField | ReturnToDock].
-    behaviors: list[Behavior] = []
+    behaviors: list[Behavior]
     if body is BodyType.SCOUT:
         seeders = [ExploreSeeder(), dock_seeder]
-        behaviors.extend((ExploreField(), ReturnToDock()))
+        behaviors = [ExploreField(), ReturnToDock()]
     elif body is BodyType.KILLER:
         seeders = [TreatSeeder(), dock_seeder]
-        behaviors.extend((TreatInfestation(), ReturnToDock()))
+        behaviors = [TreatInfestation(), ReturnToDock()]
     else:
         seeders = [BatteryRequestSeeder(), dock_seeder]
-        behaviors.extend((SupplyBattery(), ReturnToDock()))
+        behaviors = [SupplyBattery(), ReturnToDock()]
 
     fields = FieldProvider(memory, flies=capabilities.can_fly, seeders=seeders)
     return ComposedAgent(

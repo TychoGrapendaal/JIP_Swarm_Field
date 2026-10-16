@@ -1,15 +1,10 @@
-"""The composed robot brain (A).
+"""The composed robot brain.
 
-``ComposedAgent`` is the thin orchestrator that implements the ``SwarmAgent`` boundary. At each
-decision point it merges what the robot sensed and received into its memory, keeps the field
-provider's quadtree in sync with new terrain facts, gathers the scored candidates of its
-behaviors, picks the best and turns its intent into one action: the navigator steps along the
-field a ``FollowField`` names, and any other intent passes through. Knowledge broadcasts share the
-robot memory, and a per-body capability gate filters candidates and validates the final action.
-behaviors, lets its arbiter pick one and turns its intent into one action: the navigator steps
-along the field a ``FollowField`` names, and any other intent passes through. It broadcasts its
-status (its cell, and the winner's target and objective) and its memory, and merges what its
-peers broadcast. Capability gating is added once it is built.
+``ComposedAgent`` implements the ``SwarmAgent`` boundary. At each decision point it merges local
+and received observations into memory, updates the field provider with new terrain facts, gathers
+behavior candidates, and lets its arbiter select one. The winning intent is resolved into a concrete
+action, then checked against the robot body's capabilities. The agent broadcasts its status and
+knowledge snapshot and merges the status and knowledge received from peers.
 """
 
 import logging
@@ -226,6 +221,7 @@ class ComposedAgent:
             source=self.robot_id,
             peer=self.robot_id,
             body=perception.self_state.body,
+            battery=perception.self_state.battery,
             target=self._current_target,
             objective=self._current_objective,
         )
