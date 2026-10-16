@@ -233,6 +233,8 @@ class RunMetadata:
         cell_size_m: The side of a cell in metres.
         robots: How many robots the run started with.
         bodies: How many robots of each body type, e.g. ``KILLER=3 SCOUT=5``.
+        radio_ranges_m: The robots' broadcast ranges in metres, each distinct range once, e.g.
+            ``300`` or ``100 300``.
         brain: The brain of every robot whose body has no brain of its own.
         brains_by_body: The brain of each body type that has one of its own, e.g.
             ``KILLER: behaviors=...``; empty if every robot has ``brain``.
@@ -256,6 +258,7 @@ class RunMetadata:
     cell_size_m: float
     robots: int
     bodies: str
+    radio_ranges_m: str
     brain: str
     brains_by_body: str
     robots_know_terrain: bool
@@ -279,6 +282,9 @@ class RunMetadata:
         counts: list[str] = []
         for body, count in sorted(bodies.items()):
             counts.append(f"{body}={count}")
+        ranges: list[str] = []
+        for radio_range in sorted({robot.radio_range for robot in scenario.robots}):
+            ranges.append(f"{radio_range:g}")
         own_brains: list[str] = []
         for body in sorted(config.brains_by_body, key=lambda body: body.name):
             own_brains.append(f"{body.name}: {config.brains_by_body[body].describe()}")
@@ -291,6 +297,7 @@ class RunMetadata:
             cell_size_m=scenario.field.cell_size,
             robots=len(scenario.robots),
             bodies=" ".join(counts),
+            radio_ranges_m=" ".join(ranges),
             brain=config.brain.describe(),
             brains_by_body="; ".join(own_brains),
             robots_know_terrain=config.robots_know_terrain,

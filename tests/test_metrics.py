@@ -288,3 +288,34 @@ def test_metrics_config_rejects_a_non_positive_period() -> None:
 def test_metrics_config_rejects_a_threshold_outside_zero_to_one() -> None:
     with pytest.raises(ValueError):
         MetricsConfig(target_threshold=1.5)
+
+
+def test_a_pest_on_a_cell_sensed_before_is_detected_when_sensed_again() -> None:
+    world = _cropped_world()
+    collector = _collector(world)
+    collector.observe([_infestation((2, 2), 0.0, 10)], now=10)
+    world.cell((2, 2)).infestation = 0.5
+    collector.track_infestation(world, now=100)
+
+    collector.observe([_infestation((2, 2), 0.5, 160)], now=160)
+
+    assert collector.sample(world, now=200, messages_sent=0).detection_latency_ms == 60
+
+
+def test_a_pest_is_dated_at_the_world_tick_that_spawns_it_not_at_the_next_sample() -> None:
+    world = _cropped_world()
+    collector = _collector(world)
+    ctx = _context(world, collector)
+    spawn_everywhere = PestDynamicsConfig(
+        period=1_000_000,
+        spawn_probability=1.0,
+        growth_rate=0.0,
+        spread_probability=0.0,
+        spawn_severity=0.5,
+    )
+    ctx.schedule(WorldTick(time=30, config=spawn_everywhere))
+    SimulationLoop().run(ctx, until=30)
+
+    collector.observe([_infestation((1, 1), 0.5, 50)], now=50)
+
+    assert collector.sample(world, now=10_000, messages_sent=0).detection_latency_ms == 20

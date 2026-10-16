@@ -45,7 +45,7 @@ select = [
 ]
 
 [tool.pyrefly]
-project-includes = ["src", "tests", "examples"]
+project-includes = ["src", "tests", "examples", "studies"]
 search-path = ["src", "."]
 python-version = "3.12"
 # Visualization is an optional technology behind the Renderer port (examples use

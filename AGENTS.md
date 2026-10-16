@@ -13,6 +13,7 @@ A decentralized swarm of robots that monitor and cultivate a crop field. Each ro
 - [`docs/research/`](docs/research/) — research notes: navigation design, and the robustness measurement (failure and position error).
 - `docs/*.pdf` — the problem statement and literature review (domain background on swarm robotics for crop fields).
 - Source lives under `src/swarm_field/<package>/`; tests mirror it under `tests/`.
+- [`studies/`](studies/README.md) — the experiments behind the report, one script per research question; `examples/` holds demonstrations.
 
 ## Modules
 

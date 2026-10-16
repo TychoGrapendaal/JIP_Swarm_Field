@@ -53,8 +53,18 @@ uv run python -m tests.benchmark_field --sizes 100 250 500
 Compare variants and parameters of the EXPLORE seeder: five robots exploring a 32 × 32 field for three simulated hours, four seeds per variant, spread over processes (takes about ten minutes on 20 cores; not part of `pytest`). The results are in [`docs/explore.md`](docs/explore.md):
 
 ```bash
-uv run python -m tests.benchmark_explore --size 32 --hours 3 --seeds 4 --jobs 20
+uv run python -m studies.explore_variants --size 32 --hours 3 --seeds 4 --jobs 20
 ```
+
+## Studies
+
+`examples/` shows what the simulation and its tools can do; [`studies/`](studies/README.md) holds the experiments behind the report, one script per research question. A study runs fixed configurations with fixed seeds and writes every run's series and a summary row per run under `runs/<study>/`:
+
+```bash
+uv run python -m studies.radio_range --ranges 50 150 300 --seeds 3 --hours 1
+```
+
+See [`studies/README.md`](studies/README.md) for the list of studies and how to write one.
 
 ## Demonstrations
 
@@ -312,5 +322,6 @@ uv run python examples/robustness_demo.py --out runs/robustness
 src/swarm_field/   # contracts, swarm brain, simulation, runner and visualization adapter
 tests/             # pytest suite
 examples/          # executable demonstrations
+studies/           # experiments behind the report, one per research question
 docs/              # design documents, research notes and source material
 ```

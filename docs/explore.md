@@ -1,6 +1,6 @@
 # EXPLORE: drawing robots to stale information (#41)
 
-This document describes the EXPLORE field seeder, how it is measured, and what the measurements say. The seeder is `ExploreSeeder` in `swarm/explore.py`; the measurements come from `MetricsCollector` (`simulation/metrics.py`), the experiment `ExploreScenario` in `swarm_field.experiments`, run by `swarm_field.runner`, and `tests/benchmark_explore.py`. How a seeder fits into the brain is described in [`robot-memory-and-navigation.md`](./robot-memory-and-navigation.md) under "Writing a behaviour".
+This document describes the EXPLORE field seeder, how it is measured, and what the measurements say. The seeder is `ExploreSeeder` in `swarm/explore.py`; the measurements come from `MetricsCollector` (`simulation/metrics.py`), the experiment `ExploreScenario` in `swarm_field.experiments`, run by `swarm_field.runner`, and `studies/explore_variants.py`. How a seeder fits into the brain is described in [`robot-memory-and-navigation.md`](./robot-memory-and-navigation.md) under "Writing a behaviour".
 
 Exploring a new field and monitoring a known one are one objective. A cell is worth visiting again by how long ago anyone observed it, and a never-seen cell is simply the oldest information there is. A robot observes only the cell it stands on, so visiting a cell is observing it.
 
@@ -89,7 +89,7 @@ The mean idleness is also the expected detection latency. A pest appearing at a 
 
 `ExploreScenario.into_experiment` describes one run as an `ExperimentConfig`, which `swarm_field.runner` assembles and runs: a field with optional obstacles, robots starting side by side in a corner, each a real `ComposedAgent` on the real simulation loop, and a `MetricsCollector`. Every robot has one behaviour, the mock explore behaviour `FollowSeederField`, which follows the field of its seeder and bids a fixed score, so the arbiter has nothing to choose. Robots start with the terrain map, so they plan around obstacles they have not seen yet. They share their memory and status over the channel, with an unlimited radio range unless `radio_range_m` says otherwise. `ExploreScenario.seed` staggers the robots' first decisions, so repeated runs interleave them differently. `RandomWaypointSeeder` in `tests/baselines.py` is the baseline: one random target cell, and a new one once the robot stands on it.
 
-`tests/benchmark_explore.py` runs every variant with several seeds and prints the mean of each measure; `tests/test_explore_swarm.py` checks the main findings on a small field.
+`studies/explore_variants.py` runs every variant with several seeds and prints the mean of each measure; `tests/test_explore_swarm.py` checks the main findings on a small field.
 
 ## Results
 
@@ -175,7 +175,7 @@ The revisit age with saturating values and the block max (32 × 32, four seeds; 
 ## What is not done
 
 - **The behaviour.** `ExploreBehaviour` (Jin, branch `41-explore-objective`) scores EXPLORE against other objectives. The experiments use the stand-in `FollowSeederField`.
-- **Results recorded before the move to the runner.** The tables above were measured with `CoverageTracker`, which no longer exists, and with a perfect pool that shared every sensed fact instantly. The experiments now share over the channel, and the "no sharing" variants are a radio range of 0, which also turns off the peer discount. The tables need a re-run with `tests/benchmark_explore.py`.
+- **Results recorded before the move to the runner.** The tables above were measured with `CoverageTracker`, which no longer exists, and with a perfect pool that shared every sensed fact instantly. The experiments now share over the channel, and the "no sharing" variants are a radio range of 0, which also turns off the peer discount. The tables need a re-run with `studies/explore_variants.py`.
 - **Holes on large fields.** On 64 × 64 cells the worst idleness stays above 300 minutes. Uncapped linear growth fixed most of it (see "Earlier value rules") but was left out to keep the rule simple.
 - **Choosing the revisit age.** It should grow with the time the swarm needs to sweep its field, which depends on the field and the number of robots; it is a fixed parameter for now, and the swarm-size experiment is still to do.
 - **Decisions while moving.** Robots decide every 2.5 s while a move takes 10 to 14 s. The navigator then sees no progress for three ticks and hands over to the steerer, whose moves the simulation ignores while the robot is moving. This is harmless but wasted work.
