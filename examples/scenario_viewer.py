@@ -44,6 +44,7 @@ DEFAULT_SCENARIO = "S2"
 DEFAULT_SEED = 101
 DEFAULT_SPEED = 4.0
 METRICS_PERIOD_MS = TimeUnit.MINUTE
+TRAIL_LENGTH = 30
 
 
 def parse_args() -> argparse.Namespace:
@@ -109,7 +110,13 @@ def main() -> None:
     period = min(config.metrics.period, METRICS_PERIOD_MS)
     config = replace(config, metrics=replace(config.metrics, period=period))
     run = LiveRun.from_config(config, log)
-    console = InteractiveConsole(run, MatplotlibRenderer(), speed=args.speed)
+    console = InteractiveConsole(
+        run,
+        MatplotlibRenderer(show_targets=False),
+        speed=args.speed,
+        trail_length=TRAIL_LENGTH,
+        show_targets=True,
+    )
 
     if args.save is None:
         show_window(console)

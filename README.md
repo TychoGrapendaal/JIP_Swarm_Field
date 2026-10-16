@@ -102,13 +102,13 @@ uv run --with matplotlib python examples/mass_swarm_visualization.py --robots 10
 uv run python examples/explore_demo.py
 ```
 
-Five scouts explore and keep monitoring a field with the EXPLORE seeder, drawn by the general-purpose `SimulationViewer`. The overlay shades how stale each cell is in ground truth, trails show where the robots went, dashed lines the target each robot is heading for, and a panel the coverage measures (coverage, idleness, redundancy). `--no-discount` turns off the peer discount, `--block-side 16` uses 16 × 16 blocks, and `--obstacles` adds a river with one bridge. Record a video instead of opening a window:
+Five scouts explore and keep monitoring a field with the EXPLORE seeder, on the interactive console of the [scenario viewer](#scenario-viewer-the-interactive-console-c1), so pausing, stepping, changing the speed, injecting a pest and inspecting a robot work the same way. The overlay shades how stale each cell is in ground truth, trails show where the robots went, dashed lines the target each robot is heading for, and a panel the coverage measures (coverage, idleness, redundancy). `--no-discount` turns off the peer discount, `--block-side 16` uses 16 × 16 blocks, and `--obstacles` adds a river with one bridge. Record a video instead of opening a window:
 
 ```bash
 uv run python examples/explore_demo.py --obstacles --save explore.mp4
 ```
 
-`SimulationViewer` (in `swarm_field.visualization`) works for any run: give it a function from a time to a `WorldSnapshot` (e.g. `LiveRun.snapshot_at` in `swarm_field.experiments`), and optionally a per-cell overlay, the robots' goals and the lines of the panel.
+Both demos take the console's `--seed`, `--hours`, `--speed` (default 40, twenty simulated seconds per frame) and `--save`, but not `--record` and `--replay`: a recording holds the scenario's name and seed, not the demo's options, so it could not rebuild the run. The overlay, trails, targets and side panel come from `swarm_field.visualization.overlays`, and any script can hand them to `InteractiveConsole`.
 
 ### Pest demonstration
 
@@ -116,7 +116,7 @@ uv run python examples/explore_demo.py --obstacles --save explore.mp4
 uv run python examples/pest_demo.py
 ```
 
-Five scouts explore and three killers explore and treat a field with a river and two rocks, while pests appear at random free cells over time. Every robot is a real `ComposedAgent` with a `UtilityArbiter`: scouts follow the EXPLORE field with a mock behaviour that always bids 0.5, and killers weigh it against `TreatInfestation` on the TREAT field. Robots share their memory and status only within radio range. The panel shows what each killer is doing and how many pests it knows of. `--killers-treat-only` leaves the explore behaviour out of the killers, so they wait until they hear of a pest. The panel also shows the measures of `MetricsCollector`: infested cells, detection latency, coverage, idleness and redundancy. `--radio`, `--pests-per-hour`, `--spread`, `--scouts` and `--killers` change the setup, and `--save videos/pests.mp4` records a video. `PestScenario` in `swarm_field.experiments` describes the run, and `swarm_field.runner` assembles and runs it.
+Five scouts explore and three killers explore and treat a field with a river and two rocks, while pests appear at random free cells over time. Every robot is a real `ComposedAgent` with a `UtilityArbiter`: scouts follow the EXPLORE field with a mock behaviour that always bids 0.5, and killers weigh it against `TreatInfestation` on the TREAT field. Robots share their memory and status only within radio range. The panel shows what each killer is doing and how many pests it knows of. `--killers-treat-only` leaves the explore behaviour out of the killers, so they wait until they hear of a pest. The panel also shows the measures of `MetricsCollector`: infested cells, detection latency, coverage, idleness and redundancy. `--radio`, `--pests-per-hour`, `--spread`, `--scouts` and `--killers` change the setup, and `--save videos/pests.mp4` records a video. The killers' time per goal is weighted by simulated time, so pausing or changing the speed does not change it. `PestScenario` in `swarm_field.experiments` describes the run, and `swarm_field.runner` assembles and runs it.
 
 ### Wall-following steering demonstration
 
@@ -166,7 +166,7 @@ uv run --with matplotlib python examples/renderer_demo.py --frames 60 --save fra
 
 ### Scenario viewer: the interactive console (C.1)
 
-`examples/scenario_viewer.py` opens any scenario of the catalogue (see [Scenario catalogue](#scenario-catalogue)) in a steerable window. It is a thin command line around the console, `swarm_field.console`, which steers an `experiments.LiveRun`: the same run, built by `runner.build_run`, that `runner.run_experiment` would produce, advanced in slices so that it can be paused, stepped and steered. It defaults to `S2` with seed `101` for the scenario's own horizon, and it records the run's metrics.
+`examples/scenario_viewer.py` opens any scenario of the catalogue (see [Scenario catalogue](#scenario-catalogue)) in a steerable window, with each robot's trail and a dashed line to the cell it is heading for. It is a thin command line around the console, `swarm_field.console`, which steers an `experiments.LiveRun`: the same run, built by `runner.build_run`, that `runner.run_experiment` would produce, advanced in slices so that it can be paused, stepped and steered. It defaults to `S2` with seed `101` for the scenario's own horizon, and it records the run's metrics.
 
 ```bash
 uv run python examples/scenario_viewer.py

@@ -1,4 +1,4 @@
-"""Scouts explore and killers explore and treat while pests keep appearing, on ``SimulationViewer``.
+"""Scouts explore and killers explore and treat while pests keep appearing, on the console.
 
 Five scouts and three killers start side by side in a corner of a field of 10 m cells with a
 river and two rocks. Each is a real ``ComposedAgent`` with a ``UtilityArbiter`` on the real
@@ -10,7 +10,8 @@ runs it.
 
 Red cells are the pests in ground truth, trails show where the robots went, and dashed lines the
 target each robot is heading for. The panel shows the measures of ``MetricsCollector``, how the
-killers spent their time, and what each killer does and knows.
+killers spent their time, and what each killer does and knows. The console's controls work as in
+``scenario_viewer.py``: pause, step, change the speed, inject a pest, inspect a robot.
 
 Run from the repository root with:
     uv run python examples/pest_demo.py
@@ -23,12 +24,22 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
-from pathlib import Path
+from dataclasses import replace
 
-from swarm_field.contracts import BodyType, TimeUnit, WorldSnapshot
+from swarm_field.console import (
+    InteractiveConsole,
+    add_session_arguments,
+    format_time,
+    save_session,
+    show_window,
+)
+from swarm_field.contracts import BodyType, Time, TimeUnit, WorldSnapshot
 from swarm_field.experiments import LiveRun, PestScenario
-from swarm_field.visualization import SimulationViewer
+from swarm_field.visualization import MatplotlibRenderer
 
+DEFAULT_SPEED = 40.0
+"""Twenty simulated seconds per frame."""
+TRAIL_LENGTH = 30
 GOAL_LABELS: dict[str | None, str] = {
     "follow-field": "explore",
     "treat-infestation": "treat",
@@ -53,16 +64,12 @@ def parse_args() -> argparse.Namespace:
         default=defaults.spread_probability,
         help="pest spread probability",
     )
-    parser.add_argument("--hours", type=float, default=3.0, help="simulated time")
-    parser.add_argument("--frame-seconds", type=float, default=20.0, help="simulated per frame")
-    parser.add_argument("--fps", type=int, default=20)
-    parser.add_argument("--seed", type=int, default=defaults.seed)
-    parser.add_argument("--save", type=Path, help="write a .mp4 or .gif instead of a window")
+    add_session_arguments(parser, default_speed=DEFAULT_SPEED, recording=False)
     return parser.parse_args()
 
 
-def main() -> None:
-    args = parse_args()
+def build_scenario(args: argparse.Namespace) -> PestScenario:
+    """The scenario of the command line, on ``PestScenario``'s seed and horizon unless given."""
     scenario = PestScenario(
         scouts=args.scouts,
         killers=args.killers,
@@ -70,28 +77,71 @@ def main() -> None:
         radio_range_m=args.radio,
         pests_per_hour=args.pests_per_hour,
         spread_probability=args.spread,
-        seed=args.seed,
     )
+    if args.seed is not None:
+        scenario = replace(scenario, seed=args.seed)
+    if args.hours is not None:
+        scenario = replace(scenario, until=int(args.hours * TimeUnit.HOUR))
+    return scenario
+
+
+class KillerTime:
+    """How long the killers have spent on each goal, in simulated time.
+
+    Weighted by the time between two observations, so a paused, stepped or sped-up console
+    counts every goal for as long as the killers actually pursued it.
+    """
+
+    def __init__(self) -> None:
+        self._time_by_goal: Counter[str] = Counter()
+        self._goals: list[str] = []
+        self._seen_at: Time = 0
+
+    def observe(self, now: Time, goals: list[str]) -> None:
+        """Credit the goals seen last with the time since then, and remember ``goals``."""
+        elapsed = now - self._seen_at
+        if elapsed > 0:
+            for goal in self._goals:
+                self._time_by_goal[goal] += elapsed
+            self._seen_at = now
+        self._goals = goals
+
+    def shares(self) -> list[tuple[str, float]]:
+        """Each goal and its share of the killers' time so far, by goal name."""
+        total = sum(self._time_by_goal.values())
+        if total == 0:
+            return []
+        return [(goal, time / total) for goal, time in sorted(self._time_by_goal.items())]
+
+
+def main() -> None:
+    args = parse_args()
+    scenario = build_scenario(args)
     run = LiveRun.from_config(scenario.into_experiment())
-    killer_goals: Counter[str] = Counter()
+    killer_time = KillerTime()
 
     def panel(snapshot: WorldSnapshot) -> list[str]:
-        return panel_lines(run, scenario, snapshot, killer_goals)
+        return panel_lines(run, scenario, snapshot, killer_time)
 
-    viewer = SimulationViewer(run.snapshot_at, goals=run.targets, panel=panel)
-    step = int(args.frame_seconds * TimeUnit.SECOND)
-    frames = list(range(0, int(args.hours * TimeUnit.HOUR) + 1, step))
-    viewer.animate(frames, fps=args.fps, save=args.save)
+    console = InteractiveConsole(
+        run,
+        MatplotlibRenderer((12.0, 8.0), show_targets=False),
+        speed=args.speed,
+        panel=panel,
+        trail_length=TRAIL_LENGTH,
+        show_targets=True,
+    )
+    if args.save is None:
+        show_window(console)
+        return
+    frames = save_session(console, args.save)
+    print(f"Wrote {frames} frames up to {format_time(run.now)} to {args.save}")
 
 
 def panel_lines(
-    run: LiveRun, scenario: PestScenario, snapshot: WorldSnapshot, killer_goals: Counter[str]
+    run: LiveRun, scenario: PestScenario, snapshot: WorldSnapshot, killer_time: KillerTime
 ) -> list[str]:
-    """The run's settings, its measures, and what the killers do and know.
-
-    ``killer_goals`` counts the killers' goals over the frames drawn so far; frames are evenly
-    spaced in time, so it says how the killers spent their time.
-    """
+    """The run's settings, its measures, and what the killers do and know."""
     killers = "explore + treat"
     if not scenario.killers_explore:
         killers = "treat only"
@@ -116,21 +166,22 @@ def panel_lines(
             ]
         )
     agents = run.agents()
+    goals: list[str] = []
     rows: list[str] = []
     for robot in snapshot.robots:
         if robot.body is not BodyType.KILLER:
             continue
         agent = agents[robot.robot_id]
         goal = GOAL_LABELS.get(agent.inspect().current_goal, "other")
-        killer_goals[goal] += 1
+        goals.append(goal)
         known = 0
         for pest in agent.memory.infestations():
             if pest.severity > 0:
                 known += 1
         rows.append(f"{robot.robot_id:6d}  {goal:8s} {known:5d}")
-    total = sum(killer_goals.values())
-    for goal, count in sorted(killer_goals.items()):
-        lines.append(f"killer time   {count / total:6.1%} {goal}")
+    killer_time.observe(snapshot.time, goals)
+    for goal, share in killer_time.shares():
+        lines.append(f"killer time   {share:6.1%} {goal}")
     lines.append("")
     lines.append("killer  goal     known pests")
     lines.extend(rows)

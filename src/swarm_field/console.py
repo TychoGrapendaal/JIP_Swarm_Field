@@ -4,7 +4,9 @@ Like ``runner``, this is a composition-level module: it advances a run through t
 and draws it through the visualization, so it lives at the package root rather than in
 ``visualization``, which only ever reads snapshots. The console is the ``Command`` port's
 frontend: key presses become the time-pacing commands, and clicks inject infestations or select
-a robot to inspect. The run itself, and its recording, is an ``experiments.LiveRun``.
+a robot to inspect. The run itself, and its recording, is an ``experiments.LiveRun``. On top of
+the rendered world the console can draw what a study wants to see, from
+``visualization.overlays``: a cell overlay, trails, each robot's target and a side panel.
 """
 
 from __future__ import annotations
@@ -28,7 +30,16 @@ from swarm_field.contracts import (
     TimeUnit,
 )
 from swarm_field.experiments import LiveRun
-from swarm_field.visualization import MatplotlibRenderer, save_frames
+from swarm_field.visualization import (
+    CellOverlay,
+    MatplotlibRenderer,
+    PanelSource,
+    RobotTrails,
+    SidePanel,
+    draw_cell_overlay,
+    draw_targets,
+    save_frames,
+)
 
 BASE_STEP_MS: Time = 500
 """Simulated time one frame advances at speed 1."""
@@ -101,7 +112,7 @@ class InteractiveConsole:
     """Advances one run a render frame at a time, and turns key presses and clicks into commands.
 
     The run stops at its horizon. In a replayed run injecting is disabled, so the run stays the
-    recorded one.
+    recorded one. The overlay, trails, targets and side panel are each optional.
 
     Attributes:
         run: The run being steered, which also records the commands applied to it.
@@ -110,15 +121,48 @@ class InteractiveConsole:
         speed: Multiplier on ``BASE_STEP_MS`` of simulated time per frame.
         step_pending: Whether the next frame advances by exactly one event.
         selected: The robot whose inspection panel is shown, if any.
+        show_targets: Whether a dashed line leads from each robot to the cell it is heading for.
     """
 
-    def __init__(self, run: LiveRun, renderer: MatplotlibRenderer, speed: float = 1.0) -> None:
+    def __init__(
+        self,
+        run: LiveRun,
+        renderer: MatplotlibRenderer,
+        speed: float = 1.0,
+        overlay: CellOverlay | None = None,
+        overlay_label: str = "",
+        panel: PanelSource | None = None,
+        trail_length: int = 0,
+        show_targets: bool = False,
+    ) -> None:
+        """Steer ``run`` on ``renderer``.
+
+        Args:
+            run: The run to steer.
+            renderer: Draws the world; its figure and axes are the console's.
+            speed: The starting speed.
+            overlay: Shades every cell by a value from 0 to 1, if given.
+            overlay_label: What the overlay shows, added to the title.
+            panel: The lines of a side panel next to the field, if given.
+            trail_length: How many past cells of each robot are drawn; 0 draws no trails.
+            show_targets: Whether to draw each robot's target.
+        """
         self.run: LiveRun = run
         self.renderer: MatplotlibRenderer = renderer
         self.paused: bool = False
         self.speed: float = speed
         self.step_pending: bool = False
         self.selected: RobotId | None = None
+        self.show_targets: bool = show_targets
+        self._overlay: CellOverlay | None = overlay
+        self._overlay_label: str = overlay_label
+        self._panel: PanelSource | None = panel
+        self._side_panel: SidePanel | None = None
+        if panel is not None:
+            self._side_panel = SidePanel(renderer)
+        self._trails: RobotTrails | None = None
+        if trail_length > 0:
+            self._trails = RobotTrails(trail_length)
 
     @property
     def time(self) -> Time:
@@ -199,12 +243,24 @@ class InteractiveConsole:
             self.apply_time_command(command)
 
     def draw(self) -> None:
-        """Render a snapshot through the ``Renderer`` port, then the inspection and status boxes.
+        """Render a snapshot through the ``Renderer`` port, then what is drawn on top of it.
 
-        The title is left to the renderer, which writes the latest metrics sample into it.
+        The title is left to the renderer, which writes the latest metrics sample into it; the
+        overlay only adds its label.
         """
-        self.renderer.render(self.run.snapshot())
+        snapshot = self.run.snapshot()
+        self.renderer.render(snapshot)
         axes = self.renderer.axes
+        if self._overlay is not None:
+            draw_cell_overlay(axes, snapshot, self._overlay(snapshot))
+            if self._overlay_label:
+                axes.set_title(f"{axes.get_title()}\noverlay: {self._overlay_label}")
+        if self._trails is not None:
+            self._trails.update_and_draw(axes, snapshot)
+        if self.show_targets:
+            draw_targets(axes, snapshot, self.run.targets())
+        if self._panel is not None and self._side_panel is not None:
+            self._side_panel.show(self._panel(snapshot))
         if self.selected is not None:
             self._draw_inspection(self.selected)
         axes.text(
@@ -257,12 +313,15 @@ class InteractiveConsole:
         return [f"{self.run.label} | {clock} | {mode}", *controls]
 
 
-def add_session_arguments(parser: argparse.ArgumentParser, default_speed: float) -> None:
+def add_session_arguments(
+    parser: argparse.ArgumentParser, default_speed: float, recording: bool = True
+) -> None:
     """Add the flags every console session shares, so each script offers them the same way.
 
     ``--seed`` and ``--hours`` default to ``None``, meaning the script's default seed and the
     scenario's own horizon; a replay takes both from its recording instead, which
-    ``validate_session_arguments`` enforces.
+    ``validate_session_arguments`` enforces. Without ``recording`` there is no ``--record`` and
+    ``--replay``, for a script whose scenario a recording could not rebuild.
     """
     parser.add_argument("--seed", type=int, default=None, help="random seed of a new session")
     parser.add_argument(
@@ -283,6 +342,8 @@ def add_session_arguments(parser: argparse.ArgumentParser, default_speed: float)
         default=None,
         help="run to the horizon without a window, into a .gif or .mp4 video or a PNG directory",
     )
+    if not recording:
+        return
     parser.add_argument(
         "--record",
         type=Path,
@@ -302,7 +363,7 @@ def validate_session_arguments(parser: argparse.ArgumentParser, args: argparse.N
 
     Exits through ``parser.error``, like any other invalid command line.
     """
-    if args.replay is None:
+    if getattr(args, "replay", None) is None:
         return
     if args.seed is not None:
         parser.error("--seed cannot be combined with --replay: the recording holds the seed")

@@ -1,9 +1,19 @@
-"""Tests for the interactive console: time controls, clicks and the run's horizon."""
+"""Tests for the interactive console: time controls, clicks, the run's horizon and the extras."""
 
+import numpy as np
 import pytest
+from numpy.typing import NDArray
 
 from swarm_field.console import BASE_STEP_MS, InteractiveConsole, keys_to_command
-from swarm_field.contracts import CellId, CommandLog, Pause, SetTimeScale, StepOnce, TimeUnit
+from swarm_field.contracts import (
+    CellId,
+    CommandLog,
+    Pause,
+    SetTimeScale,
+    StepOnce,
+    TimeUnit,
+    WorldSnapshot,
+)
 from swarm_field.experiments import LiveRun, build_named_experiment
 from swarm_field.visualization import MatplotlibRenderer
 
@@ -100,3 +110,32 @@ def test_a_replay_refuses_new_injections() -> None:
 
     assert console.run.context.world.cell(cell).infestation == 0.0
     assert console.run.recorded == []
+
+
+def test_a_frame_draws_the_overlay_trails_targets_and_side_panel() -> None:
+    run = LiveRun.from_config(build_named_experiment("S1", 1, TimeUnit.MINUTE))
+
+    def half(snapshot: WorldSnapshot) -> NDArray[np.float64]:
+        return np.full((snapshot.field.width, snapshot.field.height), 0.5)
+
+    def panel(snapshot: WorldSnapshot) -> list[str]:
+        return [f"t = {snapshot.time}"]
+
+    console = InteractiveConsole(
+        run,
+        MatplotlibRenderer(show_targets=False),
+        overlay=half,
+        overlay_label="half",
+        panel=panel,
+        trail_length=5,
+        show_targets=True,
+    )
+    console.advance(render=True)
+    console.advance(render=True)
+
+    axes = console.renderer.axes
+    assert console.renderer.figure.texts[0].get_text() == f"t = {2 * BASE_STEP_MS}"
+    assert "overlay: half" in axes.get_title()
+    # One trail per robot, and one dashed line per robot that has a target.
+    trails = len(run.context.world.robots)
+    assert len(axes.lines) == trails + len(run.targets())
