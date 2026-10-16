@@ -84,7 +84,7 @@ class Seed:
 # swarm_field.swarm.seeder
 class FieldSeeder(Protocol):
     name: str
-    def field_key(self, memory: MemoryView, now: Time) -> Hashable: ...  # changes when the seeds do
+    def field_key(self, memory: MemoryView, robot: CellId, now: Time) -> Hashable: ...  # changes when the seeds do
     def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]: ...
 
 # swarm_field.swarm.behavior

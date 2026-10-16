@@ -1,9 +1,8 @@
 """The robot's field provider: its quadtree, kept in sync with memory, and the grid potential
 fields of its seeders, built on it and cached one per seeder.
 
-Behaviours read the fields to score their bids, and the brain hands the winner's field to the
-``Navigator`` to move. Both go through :meth:`FieldProvider.field_for`, so a field is built
-once and shared, whichever of them asks first.
+Behaviours never read the fields. Only the brain asks :meth:`FieldProvider.field_for`, for the
+winning candidate's field, which picks the robot's target and which the ``Navigator`` follows.
 """
 
 from collections.abc import Hashable, Iterable
@@ -42,8 +41,7 @@ class FieldProvider:
     """Builds and caches the grid potential fields of one robot's seeders, over its quadtree.
 
     The seeders are registered by name when the provider is created, and each has its own
-    cache slot, so behaviours reading different fields at every decision point do not evict
-    each other's.
+    cache slot, so a robot switching between objectives does not evict the other fields.
 
     Attributes:
         quadtree: Where this robot can be and move, read from its memory's terrain.
@@ -76,7 +74,7 @@ class FieldProvider:
         microseconds.
         """
         found = self._seeders[seeder]
-        key = found.field_key(self._memory, now)
+        key = found.field_key(self._memory, robot, now)
         version = self.quadtree.version
         block = self._block_of(robot)
         cached = self._slots.get(seeder)
@@ -86,7 +84,8 @@ class FieldProvider:
         seeds = found.seeds(self._memory, robot, now)
         field: SeededField | None = None
         if seeds:
-            field = SeededField(seeds, build_grid_potential_field(seeds, self.quadtree, robot))
+            built = build_grid_potential_field(seeds, self.quadtree, robot, found.window_blocks)
+            field = SeededField(seeds, built)
         self._slots[seeder] = _CachedField(key=key, version=version, block=block, field=field)
         return field
 

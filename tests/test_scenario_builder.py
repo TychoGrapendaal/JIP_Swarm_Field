@@ -2,7 +2,7 @@
 
 import pytest
 
-from swarm_field.contracts import BodyType, ScenarioConfig, ScenarioId
+from swarm_field.contracts import BodyType, EnergySpec, ScenarioConfig, ScenarioId
 from swarm_field.simulation import build_scenario, build_world
 
 
@@ -96,3 +96,22 @@ def test_custom_scenario_builds_without_a_preset() -> None:
     assert world.cell((1, 1)).infestation == pytest.approx(0.7)
     assert world.cell((2, 2)).obstacle
     assert len(world.robots) == 2
+
+
+def test_robot_specs_reach_the_world_with_their_radio_range() -> None:
+    config = build_scenario(ScenarioId.S1)
+
+    world = build_world(config)
+
+    for spec in config.robots:
+        assert world.robots[spec.robot_id].radio_range_m == spec.radio_range
+
+
+def test_scenario_energy_spec_reaches_the_world() -> None:
+    config = build_scenario(ScenarioId.S1)
+    config.energy = EnergySpec(per_metre=0.01, per_decision=0.001)
+
+    world = build_world(config)
+
+    assert world.energy.per_metre == 0.01
+    assert world.energy.per_decision == 0.001

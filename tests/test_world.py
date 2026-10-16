@@ -4,6 +4,7 @@ import pytest
 
 from swarm_field.contracts import (
     BodyType,
+    Charge,
     FieldGeometry,
     Idle,
     Move,
@@ -13,6 +14,10 @@ from swarm_field.contracts import (
     Treat,
 )
 from swarm_field.simulation import RobotState, WorldState
+    TerrainObservation,
+    Treat,
+)
+from swarm_field.simulation import EnergyConfig, RobotState, WorldState
 
 
 def _field(connectivity: int = 8) -> FieldGeometry:
@@ -180,11 +185,12 @@ def test_last_treatment_dose_can_finish_after_consumable_reaches_zero() -> None:
     assert world.cell((1, 1)).infestation == 0.0
 
 
-def test_observe_for_reports_multiple_visible_peers() -> None:
+def test_observe_for_reports_the_own_cell_and_the_terrain_around_it() -> None:
     robots = [
         _robot(1, position=(1, 1)),
-        _robot(2, position=(2, 1)),
-        _robot(3, position=(2, 1)),
+        _robot(2, position=(1, 1)),
+        _robot(3, position=(1, 1)),
+        _robot(4, position=(2, 1)),
     ]
     world = WorldState(_field(), robots=robots)
 
@@ -193,6 +199,19 @@ def test_observe_for_reports_multiple_visible_peers() -> None:
         observation for observation in observations if isinstance(observation, PeerObservation)
     ]
 
+    terrain_cells = {
+        observation.cell
+        for observation in observations
+        if isinstance(observation, TerrainObservation)
+    }
+    other_cells = {
+        observation.cell
+        for observation in observations
+        if not isinstance(observation, TerrainObservation)
+    }
+
+    assert terrain_cells == {(1, 1), *world.neighbours((1, 1))}
+    assert other_cells == {(1, 1)}
     assert {peer.peer for peer in peers} == {2, 3}
 
 
@@ -302,3 +321,47 @@ def test_battery_robot_refills_spares_when_charging_at_dock() -> None:
     assert world.robots[1].spare_batteries == 3
     world.advance_to(3_600 * TimeUnit.SECOND)
     assert world.robots[1].battery == 1.0
+def test_energy_is_drained_per_metre_and_per_decision() -> None:
+    world = WorldState(
+        _field(),
+        robots=[_robot(speed_mps=5.0)],
+        energy=EnergyConfig(per_metre=0.01, per_decision=0.02),
+    )
+
+    world.apply_action(1, Move(to=(2, 1)), time=0)
+
+    # One cell across at 5 m per cell is 5 m of travel, plus the decision itself.
+    assert world.robots[1].battery == pytest.approx(1.0 - 0.05 - 0.02)
+    assert world.energy_spent() == pytest.approx(0.07)
+
+
+def test_treat_costs_energy_and_charging_restores_the_battery() -> None:
+    world = WorldState(
+        _field(),
+        robots=[_robot()],
+        energy=EnergyConfig(per_decision=0.1, treat_per_action=0.05),
+    )
+    world.cell((1, 1)).infestation = 0.5
+
+    world.apply_action(1, Treat(cell=(1, 1)), time=0)
+    assert world.robots[1].battery == pytest.approx(0.85)
+
+    world.apply_action(1, Charge(), time=0)
+    assert world.robots[1].battery == pytest.approx(1.0)
+    # Recharging tops the battery up but never gives back what was spent.
+    assert world.energy_spent() == pytest.approx(0.25)
+
+
+def test_battery_never_goes_below_empty() -> None:
+    world = WorldState(
+        _field(),
+        robots=[_robot()],
+        energy=EnergyConfig(per_decision=0.4),
+    )
+
+    world.apply_action(1, Idle(), time=0)
+    world.apply_action(1, Idle(), time=1)
+    world.apply_action(1, Idle(), time=2)
+
+    assert world.robots[1].battery == 0.0
+    assert world.energy_spent() == pytest.approx(1.0)

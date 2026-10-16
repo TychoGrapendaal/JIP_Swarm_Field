@@ -1,10 +1,12 @@
 """Tests for the matplotlib renderer behind the ``Renderer`` port."""
 
+from pathlib import Path
+
 import pytest
 
 from swarm_field.contracts import BodyType, CellState, FieldGeometry, TimeUnit, Treat, WorldSnapshot
 from swarm_field.simulation import RobotState, WorldState
-from swarm_field.visualization import MatplotlibRenderer
+from swarm_field.visualization import MatplotlibRenderer, save_frames
 from swarm_field.visualization.matplotlib_renderer import cell_rgba_image
 
 matplotlib = pytest.importorskip("matplotlib")
@@ -78,3 +80,24 @@ def test_render_tracks_an_infestation_as_it_is_treated() -> None:
 
     assert not (before == after).all()
     assert world.snapshot(100).cells[(3, 1)].infestation < 1.0
+
+
+@pytest.mark.parametrize("name", ["run.gif", "frames"])
+def test_save_frames_draws_every_frame_into_a_video_or_png_directory(
+    tmp_path: Path, name: str
+) -> None:
+    renderer = MatplotlibRenderer()
+    world = WorldState(_field())
+    drawn: list[int] = []
+
+    def draw_frame(index: int) -> None:
+        drawn.append(index)
+        renderer.render(world.snapshot(index * 1_000))
+
+    save_frames(renderer.figure, draw_frame, 3, tmp_path / name)
+
+    assert len(drawn) >= 3
+    if name == "frames":
+        assert len(list((tmp_path / name).glob("*.png"))) == 3
+    else:
+        assert (tmp_path / name).stat().st_size > 0

@@ -8,6 +8,8 @@ the ``visualization`` package) does not require matplotlib to be installed.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from swarm_field.contracts import BodyType, CellState, WorldSnapshot
@@ -29,6 +31,7 @@ _OBSTACLE_RGB: RGB = (0.35, 0.35, 0.35)
 _BARE_SOIL_RGB: RGB = (0.85, 0.80, 0.68)
 _CROP_RGB: RGB = (0.25, 0.60, 0.25)
 _INFESTATION_RGB: RGB = (0.85, 0.10, 0.05)
+_FAILED_COLOR = "dimgray"
 
 
 def cell_rgba_image(snapshot: WorldSnapshot) -> list[list[RGBA]]:
@@ -78,16 +81,22 @@ class MatplotlibRenderer:
     how to display them (``plt.show()``, an animation, or saving frames). The axes can also be
     cleared by the caller with ``axes.clear()`` and closed with ``figure``.
 
+    A robot that has failed is drawn hollow and grey instead of in its body colour, so a
+    robustness run shows the swarm losing capacity rather than only reporting it. When the
+    snapshot carries a metrics sample, the current figures are written into the title.
+
     Attributes:
         figure: The matplotlib figure the snapshot is drawn on.
         axes: The single axes the snapshot is drawn on.
         show_targets: Whether to draw a line from each robot to its movement target.
+        show_metrics: Whether to write the snapshot's metrics into the title.
     """
 
     def __init__(
         self,
         figsize: tuple[float, float] = (9.0, 7.0),
         show_targets: bool = True,
+        show_metrics: bool = True,
     ) -> None:
         import matplotlib.pyplot as plt
 
@@ -95,6 +104,7 @@ class MatplotlibRenderer:
         self.axes: Axes
         self.figure, self.axes = plt.subplots(figsize=figsize)
         self.show_targets: bool = show_targets
+        self.show_metrics: bool = show_metrics
 
     def render(self, snapshot: WorldSnapshot) -> None:
         """Redraw the axes from ``snapshot``."""
@@ -112,30 +122,139 @@ class MatplotlibRenderer:
         self.axes.set_ylim(0, field.height)
         self.axes.set_xlabel("Field cell X")
         self.axes.set_ylabel("Field cell Y")
-        self.axes.set_title(
-            f"t={snapshot.time} | {field.width}x{field.height} grid | "
-            f"{len(snapshot.robots)} robot(s)"
+        self.axes.set_title(self._title(snapshot))
+
+    def _title(self, snapshot: WorldSnapshot) -> str:
+        """The figure title: time, field size, live robot count and the current metrics."""
+        field = snapshot.field
+        failed = sum(robot.failed for robot in snapshot.robots)
+        active = len(snapshot.robots) - failed
+        census = f"{active}/{len(snapshot.robots)} active" if failed else f"{len(snapshot.robots)}"
+        title = f"t={snapshot.time} | {field.width}x{field.height} grid | {census} robot(s)"
+        if not self.show_metrics or snapshot.metrics is None:
+            return title
+        sample = snapshot.metrics
+        return (
+            f"{title} | targets={sample.targets_remaining} "
+            f"coverage={sample.coverage:.3f} active={sample.active_robots}"
         )
 
     def _draw_robots(self, snapshot: WorldSnapshot) -> None:
-        """Scatter robots by body type and, optionally, link each one to its target."""
+        """Scatter live robots by body type, failed ones hollow, and link each to its target."""
         for body in BodyType:
             robots = [robot for robot in snapshot.robots if robot.body is body]
-            if not robots:
-                continue
-            xs = [robot.position[0] + 0.5 for robot in robots]
-            ys = [robot.position[1] + 0.5 for robot in robots]
-            color = BODY_COLORS[body]
-            self.axes.scatter(xs, ys, s=26, color=color, label=f"{body.name} ({len(robots)})")
+            live = [robot for robot in robots if not robot.failed]
+            dead = [robot for robot in robots if robot.failed]
+            for group, color, filled in (
+                (live, BODY_COLORS[body], True),
+                (dead, _FAILED_COLOR, False),
+            ):
+                if not group:
+                    continue
+                self.axes.scatter(
+                    [robot.position[0] + 0.5 for robot in group],
+                    [robot.position[1] + 0.5 for robot in group],
+                    s=26,
+                    color=color,
+                    facecolors=color if filled else "none",
+                    edgecolors=color,
+                    linewidths=1.4,
+                    label=f"{body.name} ({len(group)})",
+                    zorder=2 if filled else 1,
+                )
             if self.show_targets:
-                for robot, x, y in zip(robots, xs, ys, strict=True):
+                for robot in live:
                     if robot.target is not None:
                         self.axes.plot(
-                            [x, robot.target[0] + 0.5],
-                            [y, robot.target[1] + 0.5],
-                            color=color,
+                            [
+                                robot.position[0] + 0.5,
+                                robot.target[0] + 0.5,
+                            ],
+                            [
+                                robot.position[1] + 0.5,
+                                robot.target[1] + 0.5,
+                            ],
+                            color=BODY_COLORS[body],
                             linewidth=0.8,
                             alpha=0.6,
                         )
         if snapshot.robots:
             self.axes.legend(loc="upper right", markerscale=1.5)
+
+
+class FrameWriter:
+    """A ``Renderer`` that writes every snapshot it is handed to a PNG.
+
+    A sweep driven by the runner renders from inside the event loop, which is what makes frames
+    rather than a live window the right output: by the time the run returns there is nothing left
+    to animate. Wrapping a ``MatplotlibRenderer`` keeps the drawing in one place and lets a whole
+    sweep's ticks be captured by passing this where a ``Renderer`` is expected.
+
+    Attributes:
+        renderer: The renderer that draws each frame before it is written.
+        directory: Directory the frames are written to, created on first write.
+        stem: Filename prefix, so several conditions can share one directory.
+        frames_written: How many frames have been written so far.
+    """
+
+    def __init__(
+        self,
+        renderer: MatplotlibRenderer,
+        directory: Path,
+        stem: str,
+        dpi: int = 120,
+    ) -> None:
+        self.renderer = renderer
+        self.directory = directory
+        self.stem = stem
+        self.frames_written = 0
+        self._dpi = dpi
+
+    def render(self, snapshot: WorldSnapshot) -> None:
+        """Draw the snapshot through the wrapped renderer and save it as the next frame."""
+        self.renderer.render(snapshot)
+        self.directory.mkdir(parents=True, exist_ok=True)
+        path = self.directory / f"{self.stem}_{self.frames_written:04d}.png"
+        self.renderer.figure.savefig(path, dpi=self._dpi)
+        self.frames_written += 1
+
+
+VIDEO_SUFFIXES: tuple[str, ...] = (".gif", ".mp4")
+"""Suffixes ``save_frames`` writes as one video file rather than a directory of PNGs."""
+
+
+def save_frames(
+    figure: Figure,
+    draw_frame: Callable[[int], None],
+    frames: int,
+    path: Path,
+    fps: int = 16,
+    dpi: int = 120,
+) -> None:
+    """Draw ``frames`` frames into ``figure`` without a window and write them to ``path``.
+
+    A ``.gif`` path is written with Pillow and an ``.mp4`` path with ffmpeg, which must be on the
+    ``PATH``; any other path is a directory that receives one PNG per frame.
+
+    Args:
+        figure: The figure ``draw_frame`` draws into.
+        draw_frame: Draws frame ``index`` into the figure, advancing whatever it shows.
+        frames: How many frames to draw.
+        path: The video file, or the directory for the PNGs; parents are created.
+        fps: Frames per second of a video.
+        dpi: Resolution of the PNG frames.
+    """
+    from matplotlib.animation import FFMpegWriter, FuncAnimation, PillowWriter
+
+    if path.suffix in VIDEO_SUFFIXES:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        animation = FuncAnimation(figure, draw_frame, frames=frames, repeat=False)
+        writer = PillowWriter(fps=fps)
+        if path.suffix == ".mp4":
+            writer = FFMpegWriter(fps=fps)
+        animation.save(str(path), writer=writer)
+        return
+    path.mkdir(parents=True, exist_ok=True)
+    for index in range(frames):
+        draw_frame(index)
+        figure.savefig(path / f"frame_{index:04d}.png", dpi=dpi)

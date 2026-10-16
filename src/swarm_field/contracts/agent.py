@@ -65,6 +65,8 @@ class RobotPublicState:
         health: Condition, 0..1.
         target: Current direct movement target, if the robot is travelling.
         current_action: The currently executing action, if any.
+        failed: Whether the robot has stopped taking part in the run, so a renderer can tell a
+            lost robot from a live one.
     """
 
     robot_id: RobotId
@@ -75,15 +77,24 @@ class RobotPublicState:
     health: float
     target: CellId | None
     current_action: Action | None
+    failed: bool = False
 
 
 @dataclass
 class AgentInspection:
-    """Read-only algorithm state for the visualization layer."""
+    """Read-only algorithm state for the visualization layer.
+
+    Attributes:
+        robot_id: The robot inspected.
+        current_goal: The name of the behaviour that won the last decision, if any.
+        belief: The robot's beliefs, in a shape the algorithm chooses.
+        current_target: The cell the last winning candidate committed the robot to, if any.
+    """
 
     robot_id: RobotId
     current_goal: str | None
     belief: object
+    current_target: CellId | None = None
 
 
 class SwarmAgent(Protocol):

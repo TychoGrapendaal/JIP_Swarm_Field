@@ -3,7 +3,8 @@
 A fact is a contract ``Observation``, stored as it arrived. Memory holds at most one fact per
 identity (the cell for terrain and infestation, the peer's id for peers) and keeps the most
 recently observed one. Confidence decays with age, but is computed when read, so nothing in
-memory changes as time passes.
+memory changes as time passes. Memory also keeps two arrays over the field, for seeders that read
+every cell at once: when each cell was last observed, and whether it is worth monitoring.
 """
 
 from collections.abc import Iterable, Iterator
@@ -11,6 +12,9 @@ from dataclasses import dataclass
 from itertools import chain
 from math import exp
 from typing import Protocol
+
+import numpy as np
+from numpy.typing import NDArray
 
 from swarm_field.contracts import (
     CellId,
@@ -66,6 +70,10 @@ class MemoryView(Protocol):
 
     def confidence(self, fact: Observation, now: Time) -> float: ...
 
+    def last_observed_times(self) -> NDArray[np.float64]: ...
+
+    def monitorable_cells(self) -> NDArray[np.bool_]: ...
+
 
 class AgentMemory:
     """One robot's facts about the field and its peers, merged from its own sensing and peers.
@@ -85,6 +93,8 @@ class AgentMemory:
         self._terrain: dict[CellId, TerrainObservation] = {}
         self._infestation: dict[CellId, InfestationObservation] = {}
         self._peers: dict[RobotId, PeerObservation] = {}
+        self._last_seen: NDArray[np.float64] = np.full((field.width, field.height), -np.inf)
+        self._monitorable: NDArray[np.bool_] = np.ones((field.width, field.height), dtype=np.bool_)
 
     @property
     def width(self) -> int:
@@ -108,8 +118,14 @@ class AgentMemory:
             match fact:
                 case TerrainObservation():
                     _keep_newest(self._terrain, fact.cell, fact)
+                    if self._is_inside(fact.cell):
+                        newest = self._terrain[fact.cell]
+                        self._monitorable[fact.cell] = newest.terrain is Terrain.FREE
                 case InfestationObservation():
                     _keep_newest(self._infestation, fact.cell, fact)
+                    if self._is_inside(fact.cell):
+                        seen = max(self._last_seen[fact.cell], fact.observed_at)
+                        self._last_seen[fact.cell] = seen
                 case PeerObservation(peer=int() as peer) if peer != self._robot_id:
                     _keep_newest(self._peers, peer, fact)
                 case _:
@@ -128,8 +144,7 @@ class AgentMemory:
 
         Cells beyond the field's bounding box are ``Terrain.OUTSIDE`` without being observed.
         """
-        x, y = cell
-        if not (0 <= x < self._field.width and 0 <= y < self._field.height):
+        if not self._is_inside(cell):
             return Terrain.OUTSIDE
         fact = self._terrain.get(cell)
         if fact is None:
@@ -152,6 +167,32 @@ class AgentMemory:
         if decay_time is None:
             return fact.confidence
         return fact.confidence * exp(-(now - fact.observed_at) / decay_time)
+
+    def last_observed_times(self) -> NDArray[np.float64]:
+        """When each cell was last observed, by this robot or a peer, indexed ``[x, y]``.
+
+        ``-inf`` means never. Read from the cells' infestation facts, which every observation
+        of a cell carries (severity 0 when clean). The array is a read-only view.
+        """
+        return _read_only(self._last_seen)
+
+    def monitorable_cells(self) -> NDArray[np.bool_]:
+        """Whether each cell is worth monitoring, indexed ``[x, y]``: all but known obstacles.
+
+        The array is a read-only view.
+        """
+        return _read_only(self._monitorable)
+
+    def _is_inside(self, cell: CellId) -> bool:
+        x, y = cell
+        return 0 <= x < self._field.width and 0 <= y < self._field.height
+
+
+def _read_only[T: np.generic](array: NDArray[T]) -> NDArray[T]:
+    """A view of ``array`` that cannot be written through."""
+    view = array.view()
+    view.flags.writeable = False
+    return view
 
 
 def _keep_newest[K, F: ObservationBase](store: dict[K, F], key: K, fact: F) -> None:
