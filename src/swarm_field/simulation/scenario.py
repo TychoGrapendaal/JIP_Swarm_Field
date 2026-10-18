@@ -33,7 +33,9 @@ def build_world(config: ScenarioConfig) -> WorldState:
     specifications become mutable ``RobotState`` objects without changing the configuration.
     """
     _validate_config(config)
-    world = WorldState(config.field, energy=EnergyConfig.from_spec(config.energy))
+    world = WorldState(
+        config.field, energy=EnergyConfig.from_spec(config.energy), roles=config.roles
+    )
 
     for cell, crop in config.crops.items():
         world.cell(cell).crop = crop

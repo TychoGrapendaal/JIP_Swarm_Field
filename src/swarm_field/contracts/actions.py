@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from swarm_field.contracts.ids import CellId
+from swarm_field.contracts.ids import BodyType, CellId
 
 
 @dataclass(frozen=True)
@@ -36,8 +36,19 @@ class Charge:
 
 
 @dataclass(frozen=True)
+class SwitchRole:
+    """Take on another role: the simulation changes the robot's body and its speed.
+
+    Attributes:
+        body: The body the robot switches to.
+    """
+
+    body: BodyType
+
+
+@dataclass(frozen=True)
 class Idle:
     """Do nothing until the next decision point."""
 
 
-Action = Move | Treat | Charge | Idle
+Action = Move | Treat | Charge | SwitchRole | Idle

@@ -24,6 +24,8 @@ from swarm_field.contracts import (
     RobotId,
     RobotPublicState,
     RobotSelfState,
+    RoleSwitchSpec,
+    SwitchRole,
     Terrain,
     TerrainObservation,
     Time,
@@ -80,6 +82,8 @@ class RobotState:
         energy_spent: Battery fraction this robot has consumed since the run began, whatever
             recharged it in between.
         failed: Whether the robot has stopped taking part in the run.
+        busy_until: Until when the robot is switching role and does not act, if it is.
+        role_switches: How often the robot has switched role since the run began.
     """
 
     robot_id: RobotId
@@ -96,6 +100,8 @@ class RobotState:
     current_action: Action | None = None
     energy_spent: float = 0.0
     failed: bool = False
+    busy_until: Time | None = None
+    role_switches: int = 0
 
 
 class WorldState:
@@ -111,6 +117,7 @@ class WorldState:
         field: FieldGeometry,
         robots: Iterable[RobotState] = (),
         energy: EnergyConfig | None = None,
+        roles: RoleSwitchSpec | None = None,
     ) -> None:
         """Create the field and place any initial robots."""
         if field.width <= 0 or field.height <= 0:
@@ -122,6 +129,7 @@ class WorldState:
 
         self.field: FieldGeometry = field
         self.energy: EnergyConfig = energy if energy is not None else EnergyConfig()
+        self.roles: RoleSwitchSpec = roles if roles is not None else RoleSwitchSpec()
         self.cells: dict[CellId, CellState] = {
             (x, y): CellState(
                 crop=None,
@@ -312,12 +320,18 @@ class WorldState:
     def apply_action(self, robot_id: RobotId, action: Action, time: Time = 0) -> Time | None:
         """Apply an action at a time already advanced by the simulation event."""
         robot = self._robot(robot_id)
+        if robot.busy_until is not None and time < robot.busy_until:
+            # Still switching role: the robot spends its decision but does not act.
+            self._spend(robot, self.energy.per_decision)
+            return None
         robot.current_action = action
         self._spend(robot, self.energy.per_decision)
 
-        if isinstance(action, Move):
+        if isinstance(action, SwitchRole):
+            self._switch_role(robot, action.body, time)
+        elif isinstance(action, Move):
             return self._start_move(robot, action.to, time)
-        if isinstance(action, Treat):
+        elif isinstance(action, Treat):
             self._apply_treat(robot, action.cell)
         elif isinstance(action, Charge):
             robot.battery = 1.0
@@ -434,6 +448,16 @@ class WorldState:
         robot.move_started_at = time
         robot.move_arrival_at = time + duration
         return robot.move_arrival_at
+
+    def _switch_role(self, robot: RobotState, body: BodyType, time: Time) -> None:
+        """Give the robot another body, with that body's speed, and keep it busy meanwhile."""
+        if body is robot.body:
+            return
+        robot.body = body
+        robot.speed_mps = self.roles.speeds.get(body, robot.speed_mps)
+        robot.role_switches += 1
+        if self.roles.duration > 0:
+            robot.busy_until = time + self.roles.duration
 
     def _apply_treat(self, robot: RobotState, target: CellId) -> None:
         if not self.is_inside(target):

@@ -148,6 +148,27 @@ class PositionErrorSpec:
             raise ValueError("position error offset cannot be negative")
 
 
+@dataclass(frozen=True)
+class RoleSwitchSpec:
+    """How a robot changes role when it switches body, for swarms that rebalance their roles.
+
+    Attributes:
+        speeds: The travel speed of each body in metres per second; a robot switching to a body
+            missing here keeps its speed.
+        duration: How long a switch keeps the robot from acting, in simulation milliseconds.
+    """
+
+    speeds: dict[BodyType, float] = field(default_factory=dict)
+    duration: int = 0
+
+    def __post_init__(self) -> None:
+        """Validate that speeds are positive and the duration is not negative."""
+        if any(speed <= 0.0 for speed in self.speeds.values()):
+            raise ValueError("role speeds must be positive")
+        if self.duration < 0:
+            raise ValueError("role switch duration cannot be negative")
+
+
 @dataclass
 class RobotSpec:
     """Fixed parameters of one robot at the start of a run.
@@ -184,6 +205,7 @@ class ScenarioConfig:
         energy: Parameters for the battery model the simulation drains.
         failures: Recurring chance that a robot fails, for robustness runs.
         position_error: Recurring chance that a robot mislocates itself, for robustness runs.
+        roles: How a robot changes role when it switches body.
     """
 
     field: FieldGeometry
@@ -196,3 +218,4 @@ class ScenarioConfig:
     energy: EnergySpec = EnergySpec()
     failures: FailureSpec = FailureSpec()
     position_error: PositionErrorSpec = PositionErrorSpec()
+    roles: RoleSwitchSpec = RoleSwitchSpec()

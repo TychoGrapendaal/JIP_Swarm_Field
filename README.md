@@ -118,6 +118,22 @@ uv run python examples/pest_demo.py
 
 Five scouts explore and three killers explore and treat a field with a river and two rocks, while pests appear at random free cells over time. Every robot is a real `ComposedAgent` with a `UtilityArbiter`: scouts follow the EXPLORE field with a mock behaviour that always bids 0.5, and killers weigh it against `TreatInfestation` on the TREAT field. Robots share their memory and status only within radio range. The panel shows what each killer is doing and how many pests it knows of. `--killers-treat-only` leaves the explore behaviour out of the killers, so they wait until they hear of a pest. The panel also shows the measures of `MetricsCollector`: infested cells, detection latency, coverage, idleness and redundancy. `--radio`, `--pests-per-hour`, `--spread`, `--scouts` and `--killers` change the setup, and `--save videos/pests.mp4` records a video. `PestScenario` in `swarm_field.experiments` describes the run, and `swarm_field.runner` assembles and runs it.
 
+### Arbiter demonstration: every rule, fourteen robots
+
+```bash
+uv run python examples/arbiter_demo.py
+```
+
+Eight scouts and six killers on the river-and-rocks field, with four docks near the corners and batteries that drain as robots move, decide and treat. Scouts weigh exploring against `ReturnToDock`; killers weigh `TreatInfestation`, exploring and `ReturnToDock`. Pests keep spawning and robots start with staggered batteries, so every rule of `UtilityArbiter` gets exercised: overrides (treating the pest underfoot, a critical battery, charging on a dock), a finished objective freeing the robot, a finished target moving it on within its objective, the minimum dwell, and the effort margin holding a commitment or letting a rival through. Each robot's arbiter is wrapped in a `RecordingArbiter`, which reads the rule behind every choice from outside the arbiter, so `UtilityArbiter` itself is unchanged; the panel counts the `ArbiterRule` behind every choice, the switches per completed job, and each robot's goal and battery. `--scouts`, `--killers`, `--explore explore-utility` (the scored `ExploreBehaviour` instead of the even 0.5 mock), `--pests-per-hour`, `--radio` and `--seed` change the setup; `--save videos/arbiter.mp4` records a video, and `--report --out runs/arbiter.json` runs headless and prints and writes the rule counts. `ArbiterScenario` in `swarm_field.experiments` describes the run.
+
+#### Role rebalancing (#64)
+
+```bash
+uv run python examples/arbiter_demo.py --rebalance
+```
+
+With `--rebalance` every robot can switch between monitor (scout) and killer. Each carries both roles' behaviours, with `TreatInfestation` wrapped in a `BodyGate` so only killers treat, plus `RebalanceRoles`. From its own memory a robot counts the monitors, killers and pests it knows of; the swarm needs `min_killers` plus one killer per `pests_per_killer` known pests, but always keeps the `min_monitors` that the field needs (`ArbiterScenario.monitors_needed`). When the split stays off for `persistence`, only the robots best placed to switch bid `SwitchRole` (the monitors nearest a known pest, or the killers furthest from any), so the swarm does not switch all at once; a robot then keeps its new role for `role_dwell`. The simulation changes the robot's body and speed and keeps it busy for `switch_duration`. `--switch-at-dock` lets robots switch only while on a dock. The panel and `--report` show the roles over time and the number of switches.
+
 ### Wall-following steering demonstration
 
 ```bash

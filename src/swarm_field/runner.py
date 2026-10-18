@@ -23,6 +23,7 @@ from typing import Any, TypeVar
 
 from swarm_field.contracts import (
     BodyType,
+    CellId,
     FailureMode,
     FailureSpec,
     FieldGeometry,
@@ -59,17 +60,25 @@ from swarm_field.swarm import (
     AgentMemory,
     ArbiterConfig,
     Behavior,
+    BodyGate,
     ComposedAgent,
+    DockSeeder,
+    ExploreBehaviour,
     ExploreConfig,
     ExploreSeeder,
     FieldProvider,
     FieldSeeder,
     FollowSeederField,
     Navigator,
+    RebalanceConfig,
+    RebalanceRoles,
+    RechargeConfig,
+    ReturnToDock,
     TreatInfestation,
     TreatSeeder,
     UtilityArbiter,
 )
+from swarm_field.swarm.dock import dock_seeder_name
 
 T = TypeVar("T")
 """What a ``Registry`` holds: a swappable brain part."""
@@ -139,6 +148,65 @@ def _build_explore_seeder(params: dict[str, Any], rng: Random) -> ExploreSeeder:
     """Build the EXPLORE seeder from the ``ExploreConfig`` under ``"explore"``, if given."""
     config: ExploreConfig | None = params.get("explore")
     return ExploreSeeder(config)
+
+
+@BEHAVIORS.register("explore-utility")
+def _build_explore_utility(params: dict[str, Any], rng: Random) -> ExploreBehaviour:
+    """Build the scored explore behaviour on the EXPLORE seeder's field."""
+    return ExploreBehaviour(ExploreSeeder.name)
+
+
+@BEHAVIORS.register("return-to-dock")
+def _build_return_to_dock(params: dict[str, Any], rng: Random) -> ReturnToDock:
+    """Build the battery behaviour over the docks under ``"docks"``, one seeder per dock.
+
+    A ``RechargeConfig`` under ``"recharge"`` tunes when and how much the robot wants a dock.
+
+    Raises:
+        ValueError: If the spec names no docks, so there is nowhere to recharge.
+    """
+    docks: tuple[CellId, ...] = tuple(params.get("docks", ()))
+    if not docks:
+        raise ValueError("return-to-dock needs the docks under 'docks'")
+    if len(docks) > MAX_DOCKS:
+        raise ValueError(f"at most {MAX_DOCKS} docks are registered")
+    seeders = [dock_seeder_name(index) for index in range(len(docks))]
+    config: RechargeConfig | None = params.get("recharge")
+    return ReturnToDock(docks, seeders, config)
+
+
+@BEHAVIORS.register("rebalance-roles")
+def _build_rebalance_roles(params: dict[str, Any], rng: Random) -> RebalanceRoles:
+    """Build role rebalancing from a ``RebalanceConfig`` under ``"rebalance"``, if given.
+
+    The docks under ``"docks"`` are where a robot switches when the config says only at a dock.
+    """
+    config: RebalanceConfig | None = params.get("rebalance")
+    docks: tuple[CellId, ...] = tuple(params.get("docks", ()))
+    return RebalanceRoles(config, docks)
+
+
+MAX_DOCKS = 8
+"""How many dock seeders are registered, ``dock-0`` to ``dock-7``; one per dock of a run."""
+
+
+def _dock_seeder_factory(index: int) -> PartFactory[FieldSeeder]:
+    """The factory of the seeder of the dock at ``index`` in the spec's ``"docks"``."""
+
+    def build(params: dict[str, Any], rng: Random) -> FieldSeeder:
+        docks: tuple[CellId, ...] = tuple(params.get("docks", ()))
+        return DockSeeder(dock_seeder_name(index), docks[index])
+
+    return build
+
+
+for _index in range(MAX_DOCKS):
+    SEEDERS.register(dock_seeder_name(_index))(_dock_seeder_factory(_index))
+
+
+def dock_seeders(docks: Sequence[CellId]) -> tuple[str, ...]:
+    """The seeder names a ``BrainSpec`` lists for ``docks``, in the same order."""
+    return tuple(dock_seeder_name(index) for index in range(len(docks)))
 
 
 @dataclass(frozen=True)
@@ -559,13 +627,20 @@ def build_agent(
 
     The robot's ``BodyType`` is not a parameter: ``ComposedAgent`` has no capability gate to
     apply it in, so a body gets its own brain through ``ExperimentConfig.brains_by_body``
-    instead (architecture §A.3). The robot's memory starts with ``terrain``.
+    instead (architecture §A.3). A robot that can switch role carries every role's behaviours
+    instead, each wrapped in a ``BodyGate`` for the bodies under ``"body_gates"`` in the spec's
+    parameters. The robot's memory starts with ``terrain``.
     """
     memory = AgentMemory(robot_id, field)
     memory.merge(terrain)
-    behaviors: list[Behavior] = [
-        BEHAVIORS.build(name, _params_for(spec), rng) for name in spec.behaviors
-    ]
+    gates: dict[str, tuple[BodyType, ...]] = spec.params.get("body_gates", {})
+    behaviors: list[Behavior] = []
+    for name in spec.behaviors:
+        behavior = BEHAVIORS.build(name, _params_for(spec), rng)
+        bodies = gates.get(name)
+        if bodies is not None:
+            behavior = BodyGate(behavior, bodies)
+        behaviors.append(behavior)
     fields = build_field_provider(spec, memory, rng)
     return ComposedAgent(
         robot_id=robot_id,

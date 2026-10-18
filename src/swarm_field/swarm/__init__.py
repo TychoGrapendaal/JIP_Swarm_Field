@@ -27,10 +27,12 @@ from swarm_field.swarm.behavior import (
     TreatInfestation,
 )
 from swarm_field.swarm.brain import ComposedAgent
+from swarm_field.swarm.dock import DockSeeder, RechargeConfig, ReturnToDock
 from swarm_field.swarm.explore import ExploreConfig, ExploreSeeder
 from swarm_field.swarm.memory import AgentMemory, DecayConfig, MemoryView
 from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.provider import FieldProvider
+from swarm_field.swarm.rebalance import BodyGate, RebalanceConfig, RebalanceRoles
 from swarm_field.swarm.seeder import (
     FieldSeeder,
     SeededField,
@@ -50,10 +52,12 @@ __all__ = [
     "ArbiterChoice",
     "ArbiterConfig",
     "Behavior",
+    "BodyGate",
     "Commitment",
     "ComposedAgent",
     "DecayConfig",
     "DecisionContext",
+    "DockSeeder",
     "ExploreBehaviour",
     "ExploreConfig",
     "ExploreSeeder",
@@ -65,6 +69,10 @@ __all__ = [
     "MemoryView",
     "Navigator",
     "QuadtreeSensing",
+    "RebalanceConfig",
+    "RebalanceRoles",
+    "RechargeConfig",
+    "ReturnToDock",
     "SeededField",
     "Sensing",
     "Steerer",
