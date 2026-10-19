@@ -18,6 +18,7 @@ from swarm_field.swarm import (
     Navigator,
     TreatInfestation,
     TreatSeeder,
+    UtilityArbiter,
 )
 from swarm_field.visualization import MatplotlibRenderer
 
@@ -58,6 +59,7 @@ def make_agent(field: FieldGeometry) -> ComposedAgent:
         memory=memory,
         fields=fields,
         navigator=Navigator(fields.quadtree),
+        arbiter=UtilityArbiter(),
     )
 
 

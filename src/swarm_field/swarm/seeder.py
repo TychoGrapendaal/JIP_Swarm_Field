@@ -2,8 +2,8 @@
 
 A ``FieldSeeder`` reads the robot's memory and turns it into the ``Seed``s of one grid potential
 field (TREAT, EXPLORE, ...). Seeders are registered by name in the robot's ``FieldProvider``
-when the brain is assembled. Behaviours ask the provider for a seeder's field by that name, and
-only the provider calls the seeder, whenever its cached field no longer answers.
+when the brain is assembled. The brain asks the provider for the winning seeder's field by that
+name, and only the provider calls the seeder, whenever its cached field no longer answers.
 """
 
 from collections.abc import Hashable
@@ -13,7 +13,7 @@ from typing import Protocol
 import numpy as np
 from scipy.spatial import KDTree
 
-from swarm_field.contracts import CellId, Time, TimeUnit
+from swarm_field.contracts import AgentObjective, CellId, Time, TimeUnit
 from swarm_field.swarm.field import GridPotentialField, Seed
 from swarm_field.swarm.memory import MemoryView
 
@@ -23,17 +23,22 @@ class FieldSeeder(Protocol):
 
     Attributes:
         name: Identifies the seeder in the field provider, and so the field's cache slot.
+        window_blocks: How many blocks of ``Quadtree.max_leaf_side`` cells around the robot's
+            block the field is searched cell by cell; beyond them, leaf by leaf. A smaller
+            window builds faster but measures far routes less exactly.
     """
 
     name: str
+    window_blocks: int
 
-    def field_key(self, memory: MemoryView, now: Time) -> Hashable:
+    def field_key(self, memory: MemoryView, robot: CellId, now: Time) -> Hashable:
         """A value that changes whenever the seeds would change.
 
         The field is rebuilt only when this key, the terrain or the robot's block changes, so
         the key covers what the seeds depend on and nothing else; terrain is accounted for by
         the field provider. Seeds that drift continuously, such as values weighted by a decaying
-        confidence, need a coarse key, e.g. a memory version plus a time bucket.
+        confidence, need a coarse key, e.g. a memory version plus a time bucket. Like the seeds,
+        the key may depend on the robot's position only through its block.
         """
         ...
 
@@ -65,8 +70,8 @@ class TreatSeeder:
 
     Each infested cell attracts by its severity times the memory's confidence in it, and
     clustered infestations attract more than isolated ones. A cell that a peer is already
-    heading for attracts less. Rebuilt once a minute, and whenever the infested cells or the
-    peers' targets change.
+    heading for, to treat it, attracts less. Rebuilt once a minute, and whenever the infested
+    cells or the peers' targets change.
 
     Attributes:
         reduction_rate: What is left of a cell's attraction when a peer is heading for it, 0..1.
@@ -79,6 +84,7 @@ class TreatSeeder:
     """
 
     name: str = "treat"
+    window_blocks: int = 2
 
     def __init__(
         self,
@@ -92,7 +98,7 @@ class TreatSeeder:
         self._sigma: float = sigma
         self._cutoff_sigmas: float = cutoff_sigmas
 
-    def field_key(self, memory: MemoryView, now: Time) -> Hashable:
+    def field_key(self, memory: MemoryView, robot: CellId, now: Time) -> Hashable:
         infested: set[CellId] = set()
         for pest in memory.infestations():
             if pest.severity > 0:
@@ -155,13 +161,14 @@ class RegroupSeeder:
     """
 
     name: str = "regroup"
+    window_blocks: int = 2
 
     def __init__(self, value_amplifier: float = 10.0, rally_point: CellId | None = None) -> None:
         self._value_amplifier: float = value_amplifier
         self.rally_point: CellId | None = rally_point
         self._searched: set[CellId] = set()
 
-    def field_key(self, memory: MemoryView, now: Time) -> Hashable:
+    def field_key(self, memory: MemoryView, robot: CellId, now: Time) -> Hashable:
         locations: set[tuple[CellId, CellId | None]] = set()
         for peer in memory.peers():
             locations.add((peer.cell, peer.target))
@@ -186,6 +193,10 @@ class RegroupSeeder:
             seeds.append(Seed(self.rally_point, 0.0))
         return tuple(seeds)
 
+    def attracts_to(self, memory: MemoryView, cell: CellId) -> bool:
+        """Whether ``cell`` is a peer location the robot has not searched yet."""
+        return any(peer.cell == cell or peer.target == cell for peer in memory.peers())
+
     def mark_searched(self, cell: CellId) -> None:
         """Stop being drawn to ``cell``: the robot went there and heard no one."""
         self._searched.add(cell)
@@ -196,9 +207,9 @@ class RegroupSeeder:
 
 
 def _cells_targeted_by_peers(memory: MemoryView) -> frozenset[CellId]:
-    """The cells the remembered peers say they are heading for."""
+    """The cells the remembered peers say they are heading for, to treat them."""
     targeted: set[CellId] = set()
     for peer in memory.peers():
-        if peer.target is not None:
+        if peer.target is not None and peer.objective is AgentObjective.TREAT:
             targeted.add(peer.target)
     return frozenset(targeted)

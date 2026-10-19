@@ -13,8 +13,14 @@ from swarm_field.contracts.ids import RobotId, Time
 class MessageKind(Enum):
     """Discriminates message payloads.
 
-    Knowledge messages carry a robot's current memory snapshot. More specialised kinds
-    (stigmergy, claims, ...) can be added later without changing the transport layer.
+    More specialised kinds (stigmergy, claims, ...) can be added later without changing the
+    transport layer.
+
+    Attributes:
+        HELLO: A placeholder, to test that messages are delivered.
+        KNOWLEDGE: A robot's current memory snapshot, as a tuple of facts.
+        STATUS: A robot's report of itself: a ``PeerObservation`` of its own cell and the
+            target it is heading for.
     """
 
     HELLO = auto()

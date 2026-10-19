@@ -43,6 +43,7 @@ from swarm_field.swarm import (
     RegroupSeeder,
     TreatInfestation,
     TreatSeeder,
+    UtilityArbiter,
 )
 
 logger = logging.getLogger(__name__)
@@ -99,6 +100,7 @@ def make_agent(robot_id: RobotId, body: BodyType, field: FieldGeometry) -> Compo
         memory=memory,
         fields=fields,
         navigator=Navigator(fields.quadtree),
+        arbiter=UtilityArbiter(),
     )
 
 

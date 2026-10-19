@@ -19,8 +19,10 @@ from random import Random
 
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
+from matplotlib.axes import Axes
 
 from swarm_field.contracts import (
+    AgentInspection,
     BodyType,
     Decision,
     FieldGeometry,
@@ -91,9 +93,9 @@ class ScriptedAgent:
         )
         return Decision(action=action)
 
-    def inspect(self):
+    def inspect(self) -> AgentInspection:
         """Return the minimal inspection data needed by the agent protocol."""
-        return None
+        return AgentInspection(robot_id=ROBOT_ID, current_goal=None, belief=())
 
 
 def build_context() -> tuple[SimulationContext, ScriptedAgent]:
@@ -132,7 +134,7 @@ def current_record(agent: ScriptedAgent, time: int) -> DecisionRecord | None:
 
 
 def render_frame(
-    ax,
+    ax: Axes,
     ctx: SimulationContext,
     agent: ScriptedAgent,
     time: int,
@@ -215,14 +217,18 @@ def render_frame(
         fontsize=11,
         bbox={"boxstyle": "round", "facecolor": "white", "alpha": 0.9},
     )
+    next_event = ctx.queue.peek()
+    status = "Robot 1 position: done"
+    if next_event is not None:
+        status = (
+            f"Robot 1 position: {robot.position}\n"
+            f"Action: {action_text}\n"
+            f"Next queued event: {next_event.time / 1000:.1f}s"
+        )
     ax.text(
         0.98,
         0.02,
-        f"Robot 1 position: {robot.position}\n"
-        f"Action: {action_text}\n"
-        f"Next queued event: {ctx.queue.peek().time / 1000:.1f}s"
-        if ctx.queue.peek() is not None
-        else "Robot 1 position: done",
+        status,
         transform=ax.transAxes,
         ha="right",
         va="bottom",
