@@ -5,11 +5,13 @@ decision point it merges what the robot sensed and received into its memory, kee
 provider's quadtree in sync with new terrain facts, gathers the scored candidates of its
 behaviors, lets its arbiter pick one and turns its intent into one action: the navigator steps
 along the field a ``FollowField`` names, and any other intent passes through. It broadcasts its
-status (its cell, and the winner's target and objective) and its memory, and merges what its
-peers broadcast. Capability gating is added once it is built.
+status (its cell, and the winner's target and objective) and, depending on its
+``KnowledgeSharing``, its memory, and merges what its peers broadcast. Capability gating is added
+once it is built.
 """
 
 import logging
+from enum import Enum, auto
 from typing import cast
 
 from swarm_field.contracts import (
@@ -44,6 +46,20 @@ from swarm_field.swarm.provider import FieldProvider
 logger = logging.getLogger(__name__)
 
 
+class KnowledgeSharing(Enum):
+    """Which memory facts a robot broadcasts in its ``KNOWLEDGE`` message.
+
+    ``EVERYTHING`` sends every fact: terrain, infestations and the relayed peers.
+    ``INFESTATIONS`` sends only infestation facts, including cells observed to be clean.
+    ``NOTHING`` sends no ``KNOWLEDGE`` message at all. The robot's status is broadcast at every
+    level, so peers in range always learn where it is.
+    """
+
+    EVERYTHING = auto()
+    INFESTATIONS = auto()
+    NOTHING = auto()
+
+
 class ComposedAgent:
     """A robot brain assembled from a memory, a field provider, a navigator and behaviors.
 
@@ -56,6 +72,7 @@ class ComposedAgent:
         navigator: Moves the robot along the winning candidate's field.
         arbiter: Picks the candidate the robot acts on and holds the robot to its choice. Every
             robot needs its own, since an arbiter remembers its robot's commitment.
+        sharing: Which memory facts the robot broadcasts to its peers.
     """
 
     def __init__(
@@ -66,6 +83,7 @@ class ComposedAgent:
         fields: FieldProvider,
         navigator: Navigator,
         arbiter: Arbiter,
+        sharing: KnowledgeSharing = KnowledgeSharing.EVERYTHING,
     ) -> None:
         self.robot_id: RobotId = robot_id
         self.behaviors: list[Behavior] = behaviors
@@ -73,6 +91,7 @@ class ComposedAgent:
         self.fields: FieldProvider = fields
         self.navigator: Navigator = navigator
         self.arbiter: Arbiter = arbiter
+        self.sharing: KnowledgeSharing = sharing
         self._current_goal: str | None = None
         self._current_target: CellId | None = None
         self._current_objective: AgentObjective | None = None
@@ -165,7 +184,8 @@ class ComposedAgent:
 
         The status tells peers where the robot is, which target it is heading for (the target
         of the winner's field, or else the winning candidate's ``target``) and for which
-        objective, so that they can avoid the same region.
+        objective, so that they can avoid the same region. The memory message carries the facts
+        ``sharing`` selects, and is left out at ``KnowledgeSharing.NOTHING``.
         """
         status = PeerObservation(
             cell=perception.self_state.position,
@@ -183,10 +203,17 @@ class ComposedAgent:
             kind=MessageKind.STATUS,
             payload=status,
         )
+        match self.sharing:
+            case KnowledgeSharing.EVERYTHING:
+                facts: tuple[Observation, ...] = tuple(self.memory.records())
+            case KnowledgeSharing.INFESTATIONS:
+                facts = tuple(self.memory.infestations())
+            case KnowledgeSharing.NOTHING:
+                return [status_message]
         memory_message = Message(
             sender=self.robot_id,
             sent_at=perception.time,
             kind=MessageKind.KNOWLEDGE,
-            payload=tuple(self.memory.records()),
+            payload=facts,
         )
         return [status_message, memory_message]

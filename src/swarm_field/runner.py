@@ -65,6 +65,7 @@ from swarm_field.swarm import (
     FieldProvider,
     FieldSeeder,
     FollowSeederField,
+    KnowledgeSharing,
     Navigator,
     TreatInfestation,
     TreatSeeder,
@@ -146,8 +147,7 @@ class BrainSpec:
     """How to assemble one robot's brain, by name.
 
     This is the data-driven assembly of architecture §A.4. Every brain gets a
-    ``UtilityArbiter`` with ``arbiter``; the communication strategy is fixed in
-    ``ComposedAgent``, so it has no registry entry.
+    ``UtilityArbiter`` with ``arbiter``.
 
     Attributes:
         behaviors: Registry names of the behaviors, combined at every decision point. Order
@@ -159,6 +159,7 @@ class BrainSpec:
         params: Per-part parameters, passed through to the named factory, e.g. an
             ``ExploreConfig`` under ``"explore"`` for the EXPLORE seeder.
         arbiter: The overrides and hysteresis of the robot's ``UtilityArbiter``.
+        sharing: Which memory facts the robot broadcasts to its peers.
     """
 
     behaviors: tuple[str, ...] = ("treat-infestation",)
@@ -166,6 +167,7 @@ class BrainSpec:
     navigator: str = "potential-field"
     params: dict[str, Any] = field(default_factory=dict)
     arbiter: ArbiterConfig = field(default_factory=ArbiterConfig)
+    sharing: KnowledgeSharing = KnowledgeSharing.EVERYTHING
 
 
 @dataclass(frozen=True)
@@ -574,6 +576,7 @@ def build_agent(
         fields=fields,
         navigator=Navigator(fields.quadtree),
         arbiter=UtilityArbiter(spec.arbiter),
+        sharing=spec.sharing,
     )
 
 

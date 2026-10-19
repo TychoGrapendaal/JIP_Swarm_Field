@@ -26,7 +26,7 @@ from swarm_field.swarm.behavior import (
     Intent,
     TreatInfestation,
 )
-from swarm_field.swarm.brain import ComposedAgent
+from swarm_field.swarm.brain import ComposedAgent, KnowledgeSharing
 from swarm_field.swarm.explore import ExploreConfig, ExploreSeeder
 from swarm_field.swarm.memory import AgentMemory, DecayConfig, MemoryView
 from swarm_field.swarm.navigator import Navigator
@@ -62,6 +62,7 @@ __all__ = [
     "FollowField",
     "FollowSeederField",
     "Intent",
+    "KnowledgeSharing",
     "MemoryView",
     "Navigator",
     "QuadtreeSensing",

@@ -35,6 +35,7 @@ from swarm_field.swarm import (
     FieldSeeder,
     FollowField,
     Intent,
+    KnowledgeSharing,
     MemoryView,
     Navigator,
     TreatInfestation,
@@ -333,6 +334,35 @@ def test_the_agent_broadcasts_its_cell_and_the_winners_target_and_objective() ->
     assert message.payload.target == (5, 5)
     assert message.payload.objective is AgentObjective.EXPLORE
     assert agent.inspect().current_target == (5, 5)
+
+
+@pytest.mark.parametrize(
+    ("sharing", "shared_kinds"),
+    [
+        (
+            KnowledgeSharing.EVERYTHING,
+            {InfestationObservation, TerrainObservation, PeerObservation},
+        ),
+        (KnowledgeSharing.INFESTATIONS, {InfestationObservation}),
+        (KnowledgeSharing.NOTHING, None),
+    ],
+)
+def test_the_sharing_level_selects_the_broadcast_facts(
+    sharing: KnowledgeSharing, shared_kinds: set[type] | None
+) -> None:
+    agent = _agent([])
+    agent.sharing = sharing
+
+    decision = agent.decide(_perception())
+
+    knowledge = [m for m in decision.outbox if m.kind is MessageKind.KNOWLEDGE]
+    assert decision.outbox[0].kind is MessageKind.STATUS
+    if shared_kinds is None:
+        assert knowledge == []
+    else:
+        (message,) = knowledge
+        assert isinstance(message.payload, tuple)
+        assert {type(fact) for fact in message.payload} == shared_kinds
 
 
 def test_a_peers_status_is_stored_as_a_peer_fact() -> None:
