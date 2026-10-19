@@ -189,5 +189,5 @@ class Regroup:
                 )
                 self._warned_nowhere_to_go = True
             return ()
-        #target = seeded.field.target_for(position)
+        # target = seeded.field.target_for(position)
         return (ActionCandidate(FollowField(self._seeder.name), _REGROUP_SCORE, self.name, None),)
