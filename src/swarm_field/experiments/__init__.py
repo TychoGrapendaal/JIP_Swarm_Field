@@ -5,10 +5,11 @@ runner assembles and runs it. ``LiveRun`` advances one such run step by step, fo
 """
 
 from swarm_field.experiments.explore import ExploreScenario, cropped_cells, river_and_rocks
-from swarm_field.experiments.pests import PestScenario
+from swarm_field.experiments.pests import KILLERS_ONLY, PestScenario
 from swarm_field.experiments.run import LiveRun
 
 __all__ = [
+    "KILLERS_ONLY",
     "ExploreScenario",
     "LiveRun",
     "PestScenario",

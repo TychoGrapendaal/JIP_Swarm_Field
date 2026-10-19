@@ -124,6 +124,30 @@ class FailureSpec:
 
 
 @dataclass(frozen=True)
+class PestSourceSpec:
+    """A mock source on every pest, standing in for an explorer hovering above it.
+
+    Every ``period`` each infested cell broadcasts its infestation to the robots within
+    ``radio_range_m`` of the cell, so robots learn of a pest without a robot having found it.
+    An infinite range tells every robot at once, which is an oracle.
+
+    Attributes:
+        period: Time between two broadcasts in simulation milliseconds.
+        radio_range_m: How far a source's broadcast reaches.
+    """
+
+    period: int = 15 * TimeUnit.SECOND
+    radio_range_m: float = 0.0
+
+    def __post_init__(self) -> None:
+        """Validate the supported parameter ranges."""
+        if self.period <= 0:
+            raise ValueError("pest source period must be positive")
+        if self.radio_range_m < 0.0:
+            raise ValueError("pest source range must not be negative")
+
+
+@dataclass(frozen=True)
 class PositionErrorSpec:
     """Recurring chance that a robot mislocates itself, for testing recovery from drift.
 
@@ -184,6 +208,7 @@ class ScenarioConfig:
         energy: Parameters for the battery model the simulation drains.
         failures: Recurring chance that a robot fails, for robustness runs.
         position_error: Recurring chance that a robot mislocates itself, for robustness runs.
+        pest_sources: Mock sources broadcasting every pest, or ``None`` for none.
     """
 
     field: FieldGeometry
@@ -196,3 +221,4 @@ class ScenarioConfig:
     energy: EnergySpec = EnergySpec()
     failures: FailureSpec = FailureSpec()
     position_error: PositionErrorSpec = PositionErrorSpec()
+    pest_sources: PestSourceSpec | None = None

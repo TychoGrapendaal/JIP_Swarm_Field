@@ -45,6 +45,7 @@ from swarm_field.simulation import (
     MetricsCollector,
     MetricsConfig,
     PestDynamicsConfig,
+    PestSourceBroadcast,
     RobotDecision,
     SimulationContext,
     SimulationLoop,
@@ -545,6 +546,8 @@ def seed_initial_events(ctx: SimulationContext, config: ExperimentConfig) -> Non
     ctx.schedule(
         WorldTick(time=0, config=PestDynamicsConfig.from_spec(config.scenario.pest_dynamics))
     )
+    if config.scenario.pest_sources is not None:
+        ctx.schedule(PestSourceBroadcast(time=0, spec=config.scenario.pest_sources))
     if config.scenario.failures.probability > 0.0:
         ctx.schedule(FailureCheck(time=0, config=FailureConfig.from_spec(config.scenario.failures)))
     ctx.schedule(MetricSample(time=0, config=config.metrics))

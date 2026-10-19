@@ -16,8 +16,12 @@ from swarm_field.contracts import (
     CellId,
     FailureMode,
     FailureSpec,
+    InfestationObservation,
+    Message,
+    MessageKind,
     Perception,
     PestDynamicsSpec,
+    PestSourceSpec,
     RobotId,
     Time,
     TimeUnit,
@@ -193,6 +197,58 @@ class FailureCheck:
             if ctx.noise.random() < self.config.probability:
                 ctx.world.fail_robot(robot_id, self.config.mode)
         ctx.schedule(FailureCheck(time=self.time + self.config.period, config=self.config))
+
+
+@dataclass
+class PestSourceBroadcast:
+    """Broadcast every pest from its own cell, as an explorer hovering above it would.
+
+    Each infested cell sends a ``KNOWLEDGE`` message with the infestation fact that own-cell
+    sensing gives, from a synthetic sender of its own. A pest cleared since the last broadcast
+    is reported once more, as clean, and then falls silent. Draws nothing from ``ctx.rng``.
+
+    Attributes:
+        time: Simulation time of this broadcast.
+        spec: How often to broadcast and how far.
+        infested: The cells that were infested at the previous broadcast.
+    """
+
+    time: Time
+    spec: PestSourceSpec
+    infested: frozenset[CellId] = frozenset()
+
+    def handle(self, ctx: SimulationContext) -> None:
+        """Broadcast the infested and the just-cleared cells, then schedule the next round."""
+        infested_now: set[CellId] = set()
+        for cell, state in ctx.world.cells.items():
+            if state.infestation > 0.0:
+                infested_now.add(cell)
+        for cell in sorted(infested_now | self.infested):
+            source = _pest_source_id(cell, ctx.world.field.width)
+            fact = InfestationObservation(
+                cell=cell,
+                confidence=1.0,
+                observed_at=self.time,
+                source=source,
+                severity=ctx.world.cells[cell].infestation,
+                pest=None,
+            )
+            message = Message(
+                sender=source, sent_at=self.time, kind=MessageKind.KNOWLEDGE, payload=(fact,)
+            )
+            ctx.channel.broadcast_from_cell(
+                ctx.world, self.time, cell, self.spec.radio_range_m, message
+            )
+        ctx.schedule(
+            PestSourceBroadcast(
+                time=self.time + self.spec.period, spec=self.spec, infested=frozenset(infested_now)
+            )
+        )
+
+
+def _pest_source_id(cell: CellId, width: int) -> RobotId:
+    """A sender id for the source on ``cell``: negative, so it never clashes with a robot's."""
+    return -(1 + cell[0] + cell[1] * width)
 
 
 @dataclass

@@ -17,15 +17,19 @@ from swarm_field.contracts import (
     Idle,
     InfestationObservation,
     InjectInfestation,
+    Message,
+    MessageKind,
     Move,
     Pause,
     Perception,
+    PestSourceSpec,
     SetTimeScale,
     StepOnce,
     Time,
 )
 from swarm_field.simulation import (
     PestDynamicsConfig,
+    PestSourceBroadcast,
     RobotDecision,
     RobotState,
     SimulationContext,
@@ -398,3 +402,52 @@ def test_robot_decision_delivers_outbox_to_next_perception() -> None:
     assert len(receiver_agent.perceptions) == 1
     inbox = receiver_agent.perceptions[0].inbox
     assert inbox == [message]
+
+
+def _pest_source_world() -> WorldState:
+    near = RobotState(robot_id=1, position=(1, 1), body=BodyType.KILLER, speed_mps=0.1)
+    far = RobotState(robot_id=2, position=(8, 8), body=BodyType.KILLER, speed_mps=0.1)
+    field = FieldGeometry(
+        width=10, height=10, cell_size=10.0, row_sp=0.0, in_row_sp=0.0, headland=0.0
+    )
+    return WorldState(field, robots=[near, far])
+
+
+def _broadcast_severities(message_list: list[Message]) -> list[float]:
+    severities: list[float] = []
+    for message in message_list:
+        assert message.kind is MessageKind.KNOWLEDGE
+        assert isinstance(message.payload, tuple)
+        for fact in message.payload:
+            assert isinstance(fact, InfestationObservation)
+            assert fact.cell == (2, 1)
+            severities.append(fact.severity)
+    return severities
+
+
+def test_a_pest_source_reaches_only_the_robots_in_range() -> None:
+    ctx = SimulationContext(now=0, rng=Random(0), agents={}, world=_pest_source_world())
+    ctx.world.cells[(2, 1)].infestation = 0.5
+
+    PestSourceBroadcast(time=0, spec=PestSourceSpec(radio_range_m=15.0)).handle(ctx)
+
+    assert _broadcast_severities(ctx.channel.take_inbox(1)) == [0.5]
+    assert ctx.channel.take_inbox(2) == []
+    assert ctx.channel.sent == 0
+
+
+def test_a_cleared_pest_is_reported_clean_once_then_falls_silent() -> None:
+    ctx = SimulationContext(now=0, rng=Random(0), agents={}, world=_pest_source_world())
+    ctx.world.cells[(2, 1)].infestation = 0.5
+    PestSourceBroadcast(time=0, spec=PestSourceSpec(radio_range_m=15.0)).handle(ctx)
+    ctx.channel.take_inbox(1)
+    ctx.world.cells[(2, 1)].infestation = 0.0
+
+    severities: list[list[float]] = []
+    for _ in range(2):
+        event = ctx.queue.pop()
+        assert isinstance(event, PestSourceBroadcast)
+        event.handle(ctx)
+        severities.append(_broadcast_severities(ctx.channel.take_inbox(1)))
+
+    assert severities == [[0.0], []]
