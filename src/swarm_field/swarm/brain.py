@@ -118,11 +118,17 @@ class ComposedAgent:
         return Decision(action=action, outbox=self._messages_to_send(perception))
 
     def inspect(self) -> AgentInspection:
+        known_pests: list[CellId] = []
+        for pest in self.memory.infestations():
+            if pest.severity > 0:
+                known_pests.append(pest.cell)
         return AgentInspection(
             robot_id=self.robot_id,
             current_goal=self._current_goal,
             belief=self.memory.snapshot(),
             current_target=self._current_target,
+            current_objective=self._current_objective,
+            known_pests=tuple(known_pests),
         )
 
     def _action_for(self, intent: Intent, robot: CellId, now: Time) -> tuple[Action, CellId | None]:

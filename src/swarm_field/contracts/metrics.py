@@ -38,6 +38,19 @@ class MetricsSample:
         worst_idleness_ms: The largest age of a crop cell in those samples.
         redundancy: The share of the robots' visits to a crop cell sensed less than
             ``MetricsConfig.fresh_age`` before, 0..1.
+        pests_appeared: Pests that have appeared on crop cells so far, including those present
+            at the start; a cell infested again after it was cleared counts again.
+        pests_cleared: Of those, the pests cleared.
+        knowledge_latency_ms: Mean time from a pest's first detection to the first killer
+            knowing of it, over the pests a killer has heard of; ``None`` before any.
+        response_time_ms: Mean time from a pest's first detection to its clearing, over the
+            pests cleared; ``None`` before any.
+        killer_idle_share: The share of the killers' decisions so far with nothing to do.
+        killer_exploring_share: The share spent exploring.
+        killer_driving_share: The share spent driving to a pest.
+        killer_treating_share: The share spent treating.
+        duplicate_trip_share: Of the killers' decisions driving to a pest, the share heading for
+            a pest another killer was heading for as well.
     """
 
     time: Time
@@ -51,6 +64,15 @@ class MetricsSample:
     mean_idleness_ms: float = 0.0
     worst_idleness_ms: float = 0.0
     redundancy: float = 0.0
+    pests_appeared: int = 0
+    pests_cleared: int = 0
+    knowledge_latency_ms: float | None = None
+    response_time_ms: float | None = None
+    killer_idle_share: float = 0.0
+    killer_exploring_share: float = 0.0
+    killer_driving_share: float = 0.0
+    killer_treating_share: float = 0.0
+    duplicate_trip_share: float = 0.0
 
     def to_row(self) -> dict[str, Any]:
         """This sample as a flat ``dict`` of field name to value, for CSV and JSON export."""
