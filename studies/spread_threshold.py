@@ -2,12 +2,17 @@
 
 Question: up to which spread rate do utility robots that each sweep a strip of the field keep the
 pests under control, and does the swarm hold out longer? Three systems, on the pest experiment's
-field with its pests (``PestScenario``):
+field (``PestScenario``):
 
 - ``grid-10``: ten utility robots at 0.5 m/s that sweep their own strip and treat what they drive
   over, sharing nothing (``tests/baselines.py``);
 - ``swarm-5+5``: the base demo of #67 (``PestScenario.smoke``): five scouts, five killers;
 - ``swarm-10+10``: the same swarm with twice the robots of each kind.
+
+Every run starts with ``INITIAL_PESTS`` pests of severity ``INITIAL_SEVERITY`` on random cells
+off the bottom row, drawn from the seed, so all systems face the same pests for the same seed. No
+pest appears after that: the only way pests multiply is by spreading, so the spread rate is the
+only variable.
 
 Each system is run at every spread rate with the same seeds. A run is out of control when its
 infested cells still grow at the end: their mean over the last hour is more than ``GROWTH_FACTOR``
@@ -19,7 +24,7 @@ Every run writes its metrics series, and the study one summary row per run, to `
 (``runs/spread_threshold`` by default), with a plot of the infested cells against the spread rate.
 Runs are spread over processes. Run from the repository root with:
 
-    uv run python -m studies.spread_threshold --seeds 5 --hours 3 --jobs 16
+    uv run python -m studies.spread_threshold --seeds 5 --hours 3 --jobs 8
 """
 
 from __future__ import annotations
@@ -29,6 +34,7 @@ from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
+from random import Random
 from statistics import mean, stdev
 
 from tests.baselines import grid_sweep_brain
@@ -43,7 +49,10 @@ from swarm_field.runner import (
     run_experiment,
 )
 
-DEFAULT_SPREADS = (0.0, 0.002, 0.005, 0.01, 0.02)
+DEFAULT_SPREADS = (0.0, 0.005, 0.01, 0.02, 0.05)
+INITIAL_PESTS = 10
+INITIAL_SEVERITY = 0.1
+"""The severity of a pest that has just appeared, as ``PestScenario.spawn_severity``."""
 GROWTH_FACTOR = 1.5
 GROWTH_FLOOR = 10
 
@@ -56,6 +65,7 @@ def _grid_sweep(robots: int) -> Callable[[int, float, float], ExperimentConfig]:
             scouts=0,
             killers=robots,
             radio_range_m=0.0,
+            pests_per_hour=0.0,
             spread_probability=spread,
             until=int(hours * TimeUnit.HOUR),
         )
@@ -71,6 +81,7 @@ def _swarm(scouts: int, killers: int) -> Callable[[int, float, float], Experimen
             PestScenario.smoke(seed),
             scouts=scouts,
             killers=killers,
+            pests_per_hour=0.0,
             spread_probability=spread,
             until=int(hours * TimeUnit.HOUR),
         )
@@ -104,9 +115,25 @@ class Job:
     hours: float
 
 
+def with_initial_pests(config: ExperimentConfig, seed: int) -> ExperimentConfig:
+    """``config`` with ``INITIAL_PESTS`` pests at the start, on random cells off the bottom row.
+
+    The cells depend only on the seed and the field, not on the robots, so every system faces the
+    same pests for the same seed; the bottom row is left free because the robots start there.
+    """
+    free: list[tuple[int, int]] = []
+    for cell in sorted(config.scenario.crops):
+        if cell[1] > 0:
+            free.append(cell)
+    infestation: dict[tuple[int, int], float] = {}
+    for cell in sorted(Random(seed).sample(free, INITIAL_PESTS)):
+        infestation[cell] = INITIAL_SEVERITY
+    return replace(config, scenario=replace(config.scenario, initial_infestation=infestation))
+
+
 def run(job: Job) -> RunSummary:
     """Build and run one job, labelled ``SYSTEM/spread-SPREAD/SEED``."""
-    config = SYSTEMS[job.system](job.seed, job.hours, job.spread)
+    config = with_initial_pests(SYSTEMS[job.system](job.seed, job.hours, job.spread), job.seed)
     label = f"{job.system}/spread-{job.spread:g}/{job.seed}"
     return run_experiment(replace(config, label=label, scenario_name="spread-threshold"))
 
@@ -160,12 +187,16 @@ class Point:
         spread_infested: Their standard deviation over the seeds; 0 for one seed.
         out_of_control: How many seeds ended out of control.
         seeds: How many seeds ran.
+        clean: How many seeds cleared every pest before the end.
+        clean_after: When those seeds' fields were clean, averaged over them, or ``None``.
     """
 
     mean_infested: float
     spread_infested: float
     out_of_control: int
     seeds: int
+    clean: int
+    clean_after: float | None
 
     @classmethod
     def from_runs(cls, runs: list[RunSummary]) -> Point:
@@ -174,10 +205,18 @@ class Point:
         if len(infested) > 1:
             deviation = stdev(infested)
         lost = 0
+        clean_times: list[int] = []
         for summary in runs:
             if is_out_of_control(summary):
                 lost += 1
-        return cls(mean(infested), deviation, lost, len(runs))
+            for sample in summary.series:
+                if sample.targets_remaining == 0:
+                    clean_times.append(sample.time)
+                    break
+        clean_after = None
+        if clean_times:
+            clean_after = mean(clean_times)
+        return cls(mean(infested), deviation, lost, len(runs), len(clean_times), clean_after)
 
     def is_lost(self) -> bool:
         """Whether most seeds ended out of control."""
@@ -210,6 +249,18 @@ def print_table(
                 f"{point.mean_infested:.1f} (sd {point.spread_infested:.1f}; "
                 f"{point.out_of_control}/{point.seeds} lost)"
             )
+        print(f"| {spread:g} | " + " | ".join(cells) + " |")
+    print("\n### Field clean: seeds that cleared every pest, and after how many minutes\n")
+    print("| Spread | " + " | ".join(systems) + " |")
+    print("| --- |" + " --- |" * len(systems))
+    for spread in spreads:
+        cells = []
+        for system in systems:
+            point = points[(system, spread)]
+            after = "-"
+            if point.clean_after is not None:
+                after = f"{point.clean_after / TimeUnit.MINUTE:.0f} min"
+            cells.append(f"{point.clean}/{point.seeds}, {after}")
         print(f"| {spread:g} | " + " | ".join(cells) + " |")
     print("\n### Threshold: the lowest spread rate at which most seeds are out of control\n")
     for system in systems:
