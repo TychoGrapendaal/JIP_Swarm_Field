@@ -1,4 +1,4 @@
-"""The smoke test of the whole pest pipeline: scouts find a pest, killers hear of it and clear it.
+"""Smoke tests of the pest pipeline: the swarm, and the grid-search baseline it is compared with.
 
 Sensing, memory, sharing, the TREAT field, navigation and ``Treat`` all have to work for this to
 pass, so a regression in any of them shows up here.
@@ -6,8 +6,9 @@ pass, so a regression in any of them shows up here.
 
 from dataclasses import replace
 
-from swarm_field.contracts import InjectInfestation, TimeUnit
+from swarm_field.contracts import BodyType, InjectInfestation, TimeUnit
 from swarm_field.experiments import LiveRun, PestScenario
+from tests.baselines import grid_sweep_brain
 
 _PEST = (4, 4)
 """A cell a few cells from where the scouts start, on the bottom row."""
@@ -25,3 +26,27 @@ def test_the_killers_clear_a_pest_the_scouts_find() -> None:
     assert pest.known_at is not None
     assert pest.cleared_at is not None
     assert run.context.world.cell(_PEST).infestation == 0.0
+
+
+def test_a_grid_sweep_robot_clears_a_pest_on_its_strip() -> None:
+    scenario = PestScenario(
+        scouts=0,
+        killers=10,
+        speed_mps_ground=0.5,
+        radio_range_m=0.0,
+        pests_per_hour=0.0,
+        sample_period=TimeUnit.MINUTE,
+        until=10 * TimeUnit.MINUTE,
+    )
+    config = replace(
+        scenario.into_experiment("grid-sweep-test"),
+        brains_by_body={BodyType.KILLER: grid_sweep_brain(10)},
+    )
+    run = LiveRun.from_config(config)
+    # The first robot sweeps the leftmost strip, up column 0 first.
+    run.apply_command(InjectInfestation(cell=(0, 5), severity=0.5))
+
+    run.advance_to(run.horizon)
+
+    (pest,) = run.metrics.pests()
+    assert pest.cleared_at is not None
