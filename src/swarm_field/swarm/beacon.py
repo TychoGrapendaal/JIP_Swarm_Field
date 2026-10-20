@@ -6,22 +6,43 @@ The values form a hop gradient that falls towards the pest.
 """
 
 from dataclasses import dataclass
+from math import exp
 
 from swarm_field.contracts import AgentObjective, Beacon, CellId, RobotId, Time, TimeUnit
-from swarm_field.swarm.memory import MemoryView
+from swarm_field.swarm.memory import HeardBeacon, MemoryView
 
 
 @dataclass(frozen=True)
 class BeaconConfig:
-    """When a heard beacon or a robot's own sighting stops counting.
+    """How long beacons and sightings count, and how strongly a beacon attracts.
 
     Attributes:
         fresh_for: How long a heard beacon counts after it was sent.
         source_for: How long a robot stays a pest's source after it saw the pest itself.
+        gamma: The hop discount, between 0 and 1: each hop further away attracts this much less.
+        decay: The decay time of a beacon's attraction with its age.
     """
 
     fresh_for: Time = TimeUnit.MINUTE
     source_for: Time = TimeUnit.MINUTE
+    gamma: float = 0.5
+    decay: Time = TimeUnit.MINUTE
+
+
+def fresh_beacons(
+    memory: MemoryView, objective: AgentObjective, now: Time, config: BeaconConfig
+) -> list[HeardBeacon]:
+    """The beacons for ``objective`` heard within ``fresh_for``."""
+    fresh: list[HeardBeacon] = []
+    for heard in memory.beacons(objective):
+        if now - heard.sent_at <= config.fresh_for:
+            fresh.append(heard)
+    return fresh
+
+
+def beacon_strength(heard: HeardBeacon, now: Time, config: BeaconConfig) -> float:
+    """How strongly a beacon attracts: ``gamma`` per hop, decaying with the beacon's age."""
+    return config.gamma**heard.beacon.value * exp(-(now - heard.sent_at) / config.decay)
 
 
 def treat_beacon(
@@ -40,12 +61,8 @@ def treat_beacon(
     if sighting_cell is not None:
         return Beacon(AgentObjective.TREAT, 0.0, sighting_cell)
 
-    lowest: float | None = None
-    for heard in memory.beacons(AgentObjective.TREAT):
-        if now - heard.sent_at > config.fresh_for:
-            continue
-        if lowest is None or heard.beacon.value < lowest:
-            lowest = heard.beacon.value
-    if lowest is None:
+    fresh = fresh_beacons(memory, AgentObjective.TREAT, now, config)
+    if not fresh:
         return None
+    lowest = min(heard.beacon.value for heard in fresh)
     return Beacon(AgentObjective.TREAT, lowest + 1, position)

@@ -162,7 +162,7 @@ class ComposedAgent:
             return intent, None
         field = self.fields.field_for(intent.seeder, robot, now)
         if field is None:
-            logger.warning("FollowField couldn't find the corresponding field %s", intent.seeder)
+            logger.warning("Field %s has nothing to guide the robot to; idling", intent.seeder)
             return Idle(), None
         return self.navigator.step_towards(field, robot)
 

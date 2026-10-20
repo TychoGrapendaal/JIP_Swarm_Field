@@ -56,6 +56,8 @@ class PestScenario:
         lattice_jitter: How far a lattice start may move from its slot's centre, as a fraction
             of the lattice pitch.
         killers_explore: Whether killers also carry the explore behaviour.
+        hop_treat: Whether killers respond to pests on hop beacons (``TreatByBeacon`` on the
+            hop field) instead of on remembered pest cells; needs ``beacons``.
         scouts_relay: Whether scouts only relay: they carry no behaviour, so they stand still
             and only broadcast.
         cell_size: The side of a cell in metres.
@@ -88,6 +90,7 @@ class PestScenario:
     lattice_starts: bool = False
     lattice_jitter: float = 0.3
     killers_explore: bool = True
+    hop_treat: bool = False
     scouts_relay: bool = False
     cell_size: float = 10.0
     speed_mps_drone: float = 1.5
@@ -196,7 +199,8 @@ class PestScenario:
         """The run as an experiment for ``swarm_field.runner``.
 
         Scouts get the explore brain, or none with ``scouts_relay``. Killers get the treat brain,
-        with the explore behaviour too when ``killers_explore``.
+        on hop beacons with ``hop_treat``, with the explore behaviour too when
+        ``killers_explore``.
         """
         robots: list[RobotSpec] = []
         for index, (body, start) in enumerate(zip(self.bodies(), self.starts(), strict=True)):
@@ -229,9 +233,12 @@ class PestScenario:
         explore = self._brain(("explore",), ("explore",), params)
         if self.scouts_relay:
             explore = self._brain((), (), {})
-        treat = self._brain(("treat-infestation",), ("treat",), {})
+        behavior, field = ("treat-infestation", "treat")
+        if self.hop_treat:
+            behavior, field = ("treat-hop", "treat-hop")
+        treat = self._brain((behavior,), (field,), {})
         if self.killers_explore:
-            treat = self._brain(("treat-infestation", "explore"), ("treat", "explore"), params)
+            treat = self._brain((behavior, "explore"), (field, "explore"), params)
         return ExperimentConfig(
             label=label,
             scenario=scenario,
@@ -275,5 +282,7 @@ RELAYED_KILLERS = PestScenario(
 The scouts only relay, and a mock source on every pest stands in for the explorer that found
 it. The radio reaches 1.25 relay pitches, so a pest reaches the nearest killer through several
 relays. The oracle arm is ``replace(RELAYED_KILLERS, pest_source_range_m=math.inf,
-sharing=KnowledgeSharing.NOTHING)``: every killer hears every pest at once.
+sharing=KnowledgeSharing.NOTHING)``: every killer hears every pest at once. The hop arm is
+``replace(RELAYED_KILLERS, hop_treat=True, beacons=BeaconConfig(),
+sharing=KnowledgeSharing.NOTHING)``: killers know of pests only through relayed hop values.
 """

@@ -31,7 +31,7 @@ from statistics import mean
 from swarm_field.contracts import BodyType, CellId, RobotId, Time, TimeUnit
 from swarm_field.experiments import RELAYED_KILLERS, PestScenario
 from swarm_field.experiments.run import LiveRun
-from swarm_field.swarm import KnowledgeSharing
+from swarm_field.swarm import BeaconConfig, KnowledgeSharing
 
 
 @dataclass(frozen=True)
@@ -43,12 +43,19 @@ class Arm:
 
 
 def arms() -> Iterator[Arm]:
-    """The seeded arm and the oracle, which hears every pest at once."""
+    """The seeded arm, the oracle, which hears every pest at once, and the hop arm."""
     yield Arm("seeded", RELAYED_KILLERS)
     oracle = replace(
         RELAYED_KILLERS, pest_source_range_m=math.inf, sharing=KnowledgeSharing.NOTHING
     )
     yield Arm("oracle", oracle)
+    hop = replace(
+        RELAYED_KILLERS,
+        hop_treat=True,
+        beacons=BeaconConfig(),
+        sharing=KnowledgeSharing.NOTHING,
+    )
+    yield Arm("hop", hop)
 
 
 @dataclass(frozen=True)

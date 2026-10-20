@@ -16,7 +16,7 @@ from swarm_field.swarm.arbiter import (
     Commitment,
     UtilityArbiter,
 )
-from swarm_field.swarm.beacon import BeaconConfig, treat_beacon
+from swarm_field.swarm.beacon import BeaconConfig, beacon_strength, fresh_beacons, treat_beacon
 from swarm_field.swarm.behavior import (
     ActionCandidate,
     Behavior,
@@ -25,11 +25,13 @@ from swarm_field.swarm.behavior import (
     FollowField,
     FollowSeederField,
     Intent,
+    TreatByBeacon,
     TreatInfestation,
 )
 from swarm_field.swarm.brain import ComposedAgent, KnowledgeSharing
 from swarm_field.swarm.explore import ExploreConfig, ExploreSeeder
 from swarm_field.swarm.guidance import Guidance, Heading, ObjectiveField
+from swarm_field.swarm.hop_field import HopField
 from swarm_field.swarm.memory import AgentMemory, DecayConfig, HeardBeacon, MemoryView
 from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.provider import FieldProvider, SeededObjectiveField
@@ -67,6 +69,7 @@ __all__ = [
     "Guidance",
     "Heading",
     "HeardBeacon",
+    "HopField",
     "Intent",
     "KnowledgeSharing",
     "MemoryView",
@@ -78,9 +81,12 @@ __all__ = [
     "Sensing",
     "Steerer",
     "SteeringConfig",
+    "TreatByBeacon",
     "TreatInfestation",
     "TreatSeeder",
     "UtilityArbiter",
     "Vector2",
+    "beacon_strength",
+    "fresh_beacons",
     "treat_beacon",
 ]

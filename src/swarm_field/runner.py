@@ -67,8 +67,11 @@ from swarm_field.swarm import (
     FieldProvider,
     FieldSeeder,
     FollowSeederField,
+    HopField,
     KnowledgeSharing,
     Navigator,
+    ObjectiveField,
+    TreatByBeacon,
     TreatInfestation,
     TreatSeeder,
     UtilityArbiter,
@@ -107,6 +110,8 @@ class Registry[T]:
 
 BEHAVIORS: Registry[Behavior] = Registry()
 SEEDERS: Registry[FieldSeeder] = Registry()
+FIELDS: Registry[ObjectiveField] = Registry()
+"""Objective fields that are not seeders, such as the hop field."""
 
 _NOISE_SEED_OFFSET = 0x5EED
 """Keeps the fault-injection random stream distinct from the world's for a given seed."""
@@ -123,6 +128,33 @@ def _build_treat_infestation(params: dict[str, Any], rng: Random) -> TreatInfest
     if not seeders:
         raise ValueError("treat-infestation needs a seeder to follow")
     return TreatInfestation(seeders[0])
+
+
+@BEHAVIORS.register("treat-hop")
+def _build_treat_by_beacon(params: dict[str, Any], rng: Random) -> TreatByBeacon:
+    """Build the pest response on hop beacons, following the field the spec names first."""
+    seeders: tuple[str, ...] = tuple(params.get("seeders", (HopField.name,)))
+    if not seeders:
+        raise ValueError("treat-hop needs a field to follow")
+    return TreatByBeacon(_beacon_config(params, "treat-hop"), seeders[0])
+
+
+@FIELDS.register("treat-hop")
+def _build_hop_field(params: dict[str, Any], rng: Random) -> HopField:
+    """Build the hop field of the TREAT beacons."""
+    return HopField(_beacon_config(params, "the treat-hop field"))
+
+
+def _beacon_config(params: dict[str, Any], part: str) -> BeaconConfig:
+    """The spec's ``BeaconConfig``.
+
+    Raises:
+        ValueError: If the spec has none, so its robots keep and broadcast no beacons.
+    """
+    config: BeaconConfig | None = params.get("beacons")
+    if config is None:
+        raise ValueError(f"{part} needs BrainSpec.beacons")
+    return config
 
 
 @SEEDERS.register("treat")
@@ -154,9 +186,9 @@ class BrainSpec:
     Attributes:
         behaviors: Registry names of the behaviors, combined at every decision point. Order
             does not matter, the orchestrator scores them all.
-        seeders: Registry names of the seeders to register in the navigator, which is how a
-            behaviour reaches a field: it names one of them. A behaviour that follows a single
-            seeder takes the first name.
+        seeders: Registry names of the seeders and objective fields to register in the
+            navigator, which is how a behaviour reaches a field: it names one of them. A
+            behaviour that follows a single field takes the first name.
         navigator: Registry name of the movement layer. Only ``"potential-field"`` exists.
         params: Per-part parameters, passed through to the named factory, e.g. an
             ``ExploreConfig`` under ``"explore"`` for the EXPLORE seeder.
@@ -604,27 +636,35 @@ def terrain_map(world: WorldState) -> list[TerrainObservation]:
 def _params_for(spec: BrainSpec) -> dict[str, Any]:
     """The spec's shared parameters, with the seeders the spec names folded in.
 
-    The seeders are a field of their own rather than parameters so that swapping one does not
-    mean restating it, and so that ``BrainSpec.seeders`` is the only place the names are given.
+    The seeders and beacons are fields of their own rather than parameters so that swapping one
+    does not mean restating it, and so that the spec gives each in one place.
     """
-    return {**spec.params, "seeders": spec.seeders}
+    return {**spec.params, "seeders": spec.seeders, "beacons": spec.beacons}
 
 
 def build_field_provider(spec: BrainSpec, memory: AgentMemory, rng: Random) -> FieldProvider:
-    """Build the potential fields of the navigator named by a spec, over the seeders it names.
+    """Build the objective fields of the navigator named by a spec: its seeders and its fields.
+
+    A name is looked up in ``FIELDS`` first, then in ``SEEDERS``.
 
     Every v1 body is a ground robot, so the potential field is planned over land the robot
     believes it can enter. An aerial body would pass ``flies=True`` and ignore crop cells.
 
     Raises:
         ValueError: If the spec names a navigator that is not registered yet.
-        KeyError: If the spec names a seeder that is not registered.
+        KeyError: If the spec names a field or seeder that is not registered.
     """
     if spec.navigator != "potential-field":
         raise ValueError(f"unknown navigator: {spec.navigator}")
     params = _params_for(spec)
-    seeders: list[FieldSeeder] = [SEEDERS.build(name, params, rng) for name in spec.seeders]
-    return FieldProvider(memory, flies=False, seeders=seeders)
+    seeders: list[FieldSeeder] = []
+    fields: list[ObjectiveField] = []
+    for name in spec.seeders:
+        if name in FIELDS.names():
+            fields.append(FIELDS.build(name, params, rng))
+        else:
+            seeders.append(SEEDERS.build(name, params, rng))
+    return FieldProvider(memory, flies=False, seeders=seeders, fields=fields)
 
 
 def build_experiment(

@@ -12,13 +12,16 @@ from swarm_field.contracts import (
     CellId,
     Charge,
     Idle,
+    InfestationObservation,
     Message,
     Observation,
     RobotSelfState,
     Time,
     Treat,
 )
+from swarm_field.swarm.beacon import BeaconConfig, beacon_strength, fresh_beacons
 from swarm_field.swarm.explore import ExploreConfig, ExploreSeeder, revisit_worths
+from swarm_field.swarm.hop_field import HopField
 from swarm_field.swarm.memory import MemoryView
 from swarm_field.swarm.seeder import TreatSeeder
 
@@ -145,6 +148,36 @@ class TreatInfestation:
         # The more pests are left per killer already known, the more this robot is needed.
         score = 1 / (1 + math.exp(-(num_pests - num_killers)))
         return (ActionCandidate(FollowField(self._seeder), score, self.name, None, _TREAT),)
+
+
+class TreatByBeacon:
+    """The pest-response behaviour on hop beacons: follow the hop field and treat on arrival.
+
+    It knows of a pest only through the beacons the robot heard and its own sensing, never
+    through remembered pest cells. Its bid is the strongest fresh beacon's strength.
+    """
+
+    name: str = "treat-hop"
+
+    def __init__(self, config: BeaconConfig, field: str = HopField.name) -> None:
+        self._config: BeaconConfig = config
+        self._field: str = field
+
+    def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
+        position = ctx.self_state.position
+        for fact in ctx.sensed:
+            if not isinstance(fact, InfestationObservation):
+                continue
+            if fact.cell == position and fact.severity > 0:
+                treat = Treat(position)
+                return (ActionCandidate(treat, _TREAT_SCORE, self.name, position, _TREAT),)
+
+        strongest = 0.0
+        for heard in fresh_beacons(ctx.memory, _TREAT, ctx.time, self._config):
+            strongest = max(strongest, beacon_strength(heard, ctx.time, self._config))
+        if strongest == 0.0:
+            return ()
+        return (ActionCandidate(FollowField(self._field), strongest, self.name, None, _TREAT),)
 
 
 class ExploreBehaviour:
