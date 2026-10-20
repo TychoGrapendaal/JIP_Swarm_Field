@@ -69,7 +69,7 @@ class ComposedAgent:
         robot_id: The robot this brain drives.
         behaviors: The composable pieces of decision logic, combined at each decision point.
         memory: The robot's facts about the field and its peers.
-        fields: The robot's quadtree, and the grid potential fields of its seeders. Only the
+        fields: The robot's quadtree, and its objective fields by name. Only the
             winner's field is built, to pick its target and for the navigator to follow.
         navigator: Moves the robot along the winning candidate's field.
         arbiter: Picks the candidate the robot acts on and holds the robot to its choice. Every

@@ -1,13 +1,15 @@
-"""The robot's navigator: the one seam that turns a grid potential field into a movement action.
+"""The robot's navigator: the one seam that turns an objective's guidance into a movement action.
 
 The navigator only moves the robot for the winning candidate: :meth:`Navigator.step_towards`
-follows the field the brain hands it, from the ``FieldProvider``, and hands over to the
-reactive ``Steerer`` when the field cannot guide the robot, which is the fallback that keeps a
-robot moving over ground it has no plan for.
+follows the guidance the brain hands it, from the ``FieldProvider``. A grid potential field is
+followed step by step, and the reactive ``Steerer`` takes over when the field cannot guide the
+robot, which is the fallback that keeps a robot moving over ground it has no plan for. A
+``Heading`` goes to the steerer directly.
 """
 
 from swarm_field.contracts import CellId, Idle, Move
 from swarm_field.swarm.field import Quadtree, Seed
+from swarm_field.swarm.guidance import Guidance, Heading
 from swarm_field.swarm.seeder import SeededField
 from swarm_field.swarm.steering import QuadtreeSensing, Steerer, SteeringConfig
 
@@ -33,8 +35,11 @@ class Navigator:
         self._best_value: float | None = None
         self._no_progress_ticks: int = 0
 
-    def step_towards(self, seeded: SeededField, robot: CellId) -> tuple[Move | Idle, CellId | None]:
+    def step_towards(self, guidance: Guidance, robot: CellId) -> tuple[Move | Idle, CellId | None]:
         """The one movement action of this decision point, on the way towards a field's targets.
+
+        A ``Heading`` is handed to the steerer as it is. The rest of this describes a
+        ``SeededField``.
 
         A field guides the robot while it can: the robot steps into the neighbouring cell the
         field points at, which is one step of a route that is near-optimal around the obstacles
@@ -45,10 +50,15 @@ class Navigator:
         forward once more.
 
         Args:
-            seeded: The field to follow, from ``FieldProvider.field_for``. A different field
+            guidance: What to follow, from ``FieldProvider.field_for``. A different field
                 than at the last call (another seeder's, or a rebuild) starts a new plan.
             robot: The robot's current cell, the origin the step is taken from.
         """
+        if isinstance(guidance, Heading):
+            self._followed = None
+            self._forget_plan()
+            return self._steerer.steer(guidance.offset, robot), guidance.target
+        seeded = guidance
         if seeded is not self._followed:
             self._followed = seeded
             self._forget_plan()

@@ -29,9 +29,10 @@ from swarm_field.swarm.behavior import (
 )
 from swarm_field.swarm.brain import ComposedAgent, KnowledgeSharing
 from swarm_field.swarm.explore import ExploreConfig, ExploreSeeder
+from swarm_field.swarm.guidance import Guidance, Heading, ObjectiveField
 from swarm_field.swarm.memory import AgentMemory, DecayConfig, HeardBeacon, MemoryView
 from swarm_field.swarm.navigator import Navigator
-from swarm_field.swarm.provider import FieldProvider
+from swarm_field.swarm.provider import FieldProvider, SeededObjectiveField
 from swarm_field.swarm.seeder import (
     FieldSeeder,
     SeededField,
@@ -63,13 +64,17 @@ __all__ = [
     "FieldSeeder",
     "FollowField",
     "FollowSeederField",
+    "Guidance",
+    "Heading",
     "HeardBeacon",
     "Intent",
     "KnowledgeSharing",
     "MemoryView",
     "Navigator",
+    "ObjectiveField",
     "QuadtreeSensing",
     "SeededField",
+    "SeededObjectiveField",
     "Sensing",
     "Steerer",
     "SteeringConfig",
