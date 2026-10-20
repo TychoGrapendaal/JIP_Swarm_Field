@@ -1,6 +1,6 @@
 """The hop field: an objective field that sums the attraction of downhill beacons.
 
-The robot's own value is the lowest fresh beacon it heard plus one hop (``own_value``). Every
+The robot's own value is the lowest fresh beacon it heard plus the hop to it (``own_value``). Every
 fresh beacon below that value attracts the robot towards its cell, with its
 ``beacon_strength``. The sum of those attractions is the robot's ``Heading``. The field reads
 only beacons, never a pest's cell.

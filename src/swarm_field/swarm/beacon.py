@@ -1,8 +1,9 @@
 """Hop beacons: the value a robot broadcasts so that its peers can find an objective.
 
 A robot that saw a pest itself is the TREAT source: it beacons 0 on the pest's cell. Every
-other robot relays its ``own_value`` on its own cell: the lowest fresh beacon it heard plus one
-hop. The values form a hop gradient that falls towards the pest.
+other robot relays its ``own_value`` on its own cell: the lowest fresh beacon it heard plus the
+hop to it, which costs 1 or, with metric hops, the distance in radio ranges. The values form a
+hop gradient that falls towards the pest.
 """
 
 from dataclasses import dataclass
@@ -14,12 +15,13 @@ from swarm_field.swarm.memory import HeardBeacon, MemoryView
 
 @dataclass(frozen=True)
 class BeaconConfig:
-    """How long beacons and sightings count, and how strongly a beacon attracts.
+    """How beacons are kept, relayed and weighed.
 
     Attributes:
         fresh_for: How long a heard beacon counts after it was sent.
         source_for: How long a robot stays a pest's source after it saw the pest itself.
-        gamma: The hop discount, between 0 and 1: each hop further away attracts this much less.
+        gamma: The hop discount, between 0 and 1: a beacon attracts ``gamma`` to the power of
+            its value.
         decay: The decay time of a beacon's attraction with its age.
         hop_cells: With a length, a hop costs the distance to the beacon's cell in units of
             this many cells (metric hops); without one, every hop costs 1.

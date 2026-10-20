@@ -103,6 +103,9 @@ class Registry[T]:
         """Build the part registered under ``name``."""
         return self._factories[name](params, rng)
 
+    def __contains__(self, name: str) -> bool:
+        return name in self._factories
+
     def names(self) -> tuple[str, ...]:
         """Every registered name, sorted, for error messages and documentation."""
         return tuple(sorted(self._factories))
@@ -130,19 +133,19 @@ def _build_treat_infestation(params: dict[str, Any], rng: Random) -> TreatInfest
     return TreatInfestation(seeders[0])
 
 
-@BEHAVIORS.register("treat-hop")
+@BEHAVIORS.register(TreatByBeacon.name)
 def _build_treat_by_beacon(params: dict[str, Any], rng: Random) -> TreatByBeacon:
     """Build the pest response on hop beacons, following the field the spec names first."""
     seeders: tuple[str, ...] = tuple(params.get("seeders", (HopField.name,)))
     if not seeders:
-        raise ValueError("treat-hop needs a field to follow")
-    return TreatByBeacon(_beacon_config(params, "treat-hop"), seeders[0])
+        raise ValueError(f"{TreatByBeacon.name} needs a field to follow")
+    return TreatByBeacon(_beacon_config(params, TreatByBeacon.name), seeders[0])
 
 
-@FIELDS.register("treat-hop")
+@FIELDS.register(HopField.name)
 def _build_hop_field(params: dict[str, Any], rng: Random) -> HopField:
     """Build the hop field of the TREAT beacons."""
-    return HopField(_beacon_config(params, "the treat-hop field"))
+    return HopField(_beacon_config(params, f"the {HopField.name} field"))
 
 
 def _beacon_config(params: dict[str, Any], part: str) -> BeaconConfig:
@@ -194,8 +197,8 @@ class BrainSpec:
             ``ExploreConfig`` under ``"explore"`` for the EXPLORE seeder.
         arbiter: The overrides and hysteresis of the robot's ``UtilityArbiter``.
         sharing: Which memory facts the robot broadcasts to its peers.
-        beacons: When beacons count, or ``None`` for a robot that neither keeps nor broadcasts
-            them.
+        beacons: How beacons are kept, relayed and weighed, or ``None`` for a robot that
+            neither keeps nor broadcasts them.
     """
 
     behaviors: tuple[str, ...] = ("treat-infestation",)
@@ -660,7 +663,7 @@ def build_field_provider(spec: BrainSpec, memory: AgentMemory, rng: Random) -> F
     seeders: list[FieldSeeder] = []
     fields: list[ObjectiveField] = []
     for name in spec.seeders:
-        if name in FIELDS.names():
+        if name in FIELDS:
             fields.append(FIELDS.build(name, params, rng))
         else:
             seeders.append(SEEDERS.build(name, params, rng))

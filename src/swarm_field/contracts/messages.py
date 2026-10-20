@@ -36,7 +36,8 @@ class Beacon:
 
     Attributes:
         objective: The objective the value guides to.
-        value: How far the objective is, in hops. 0 is the objective itself.
+        value: How far the objective is, in hops: whole hops, or distances in radio ranges
+            with metric hops. 0 is the objective itself.
         cell: Where the value holds: the sender's cell, or the objective's cell for a source.
     """
 

@@ -228,27 +228,8 @@ class PestSourceBroadcast:
                 infested_now.add(cell)
         for cell in sorted(infested_now | self.infested):
             source = _pest_source_id(cell, ctx.world.field.width)
-            fact = InfestationObservation(
-                cell=cell,
-                confidence=1.0,
-                observed_at=self.time,
-                source=source,
-                severity=ctx.world.cells[cell].infestation,
-                pest=None,
-            )
-            messages = [
-                Message(
-                    sender=source, sent_at=self.time, kind=MessageKind.KNOWLEDGE, payload=(fact,)
-                )
-            ]
-            if cell in infested_now:
-                beacon = Beacon(AgentObjective.TREAT, 0.0, cell)
-                messages.append(
-                    Message(
-                        sender=source, sent_at=self.time, kind=MessageKind.BEACON, payload=(beacon,)
-                    )
-                )
-            for message in messages:
+            severity = ctx.world.cells[cell].infestation
+            for message in self._source_messages(cell, source, severity):
                 ctx.channel.broadcast_from_cell(
                     ctx.world, self.time, cell, self.spec.radio_range_m, message
                 )
@@ -257,6 +238,28 @@ class PestSourceBroadcast:
                 time=self.time + self.spec.period, spec=self.spec, infested=frozenset(infested_now)
             )
         )
+
+    def _source_messages(self, cell: CellId, source: RobotId, severity: float) -> list[Message]:
+        """What the source on ``cell`` sends: the infestation fact, and a beacon while infested."""
+        fact = InfestationObservation(
+            cell=cell,
+            confidence=1.0,
+            observed_at=self.time,
+            source=source,
+            severity=severity,
+            pest=None,
+        )
+        messages = [
+            Message(sender=source, sent_at=self.time, kind=MessageKind.KNOWLEDGE, payload=(fact,))
+        ]
+        if severity > 0.0:
+            beacon = Beacon(AgentObjective.TREAT, 0.0, cell)
+            messages.append(
+                Message(
+                    sender=source, sent_at=self.time, kind=MessageKind.BEACON, payload=(beacon,)
+                )
+            )
+        return messages
 
 
 def _pest_source_id(cell: CellId, width: int) -> RobotId:

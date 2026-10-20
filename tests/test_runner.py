@@ -2,6 +2,7 @@
 
 import csv
 import json
+from dataclasses import replace
 from pathlib import Path
 from random import Random
 
@@ -22,7 +23,7 @@ from swarm_field.runner import (
     sweep_scenarios,
 )
 from swarm_field.simulation import MetricsConfig, build_scenario
-from swarm_field.swarm import TreatInfestation, TreatSeeder
+from swarm_field.swarm import BeaconConfig, HopField, TreatByBeacon, TreatInfestation, TreatSeeder
 
 
 def _config(
@@ -199,6 +200,18 @@ def test_the_named_seeder_reaches_the_behaviour_and_the_field_provider() -> None
     assert isinstance(behavior, TreatInfestation)
     # None rather than a KeyError: the TREAT seeder is registered but has no targets yet (#40).
     assert agent.fields.field_for(TreatSeeder.name, (0, 0), 0) is None
+
+
+def test_a_hop_brain_gets_the_hop_field_and_needs_beacons() -> None:
+    spec = BrainSpec(behaviors=(TreatByBeacon.name,), seeders=(HopField.name,))
+    field = build_scenario(ScenarioId.S1).field
+
+    agent = build_agent(replace(spec, beacons=BeaconConfig()), 1, field, Random(0))
+
+    assert isinstance(agent.behaviors[0], TreatByBeacon)
+    assert agent.fields.field_for(HopField.name, (0, 0), 0) is None
+    with pytest.raises(ValueError):
+        build_agent(spec, 1, field, Random(0))
 
 
 def test_build_run_leaves_the_pest_dynamics_the_run_random_source() -> None:

@@ -75,7 +75,7 @@ class ComposedAgent:
         arbiter: Picks the candidate the robot acts on and holds the robot to its choice. Every
             robot needs its own, since an arbiter remembers its robot's commitment.
         sharing: Which memory facts the robot broadcasts to its peers.
-        beacons: When heard beacons and the robot's own sightings count, or ``None`` for a robot
+        beacons: How beacons are kept, relayed and weighed, or ``None`` for a robot
             that neither keeps nor broadcasts beacons.
     """
 

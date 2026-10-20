@@ -38,7 +38,16 @@ from swarm_field.contracts import (
 from swarm_field.experiments.explore import cropped_cells, river_and_rocks
 from swarm_field.runner import BrainSpec, ExperimentConfig
 from swarm_field.simulation import MetricsConfig
-from swarm_field.swarm import ArbiterConfig, BeaconConfig, ExploreConfig, KnowledgeSharing
+from swarm_field.swarm import (
+    ArbiterConfig,
+    BeaconConfig,
+    ExploreConfig,
+    HopField,
+    KnowledgeSharing,
+    TreatByBeacon,
+    TreatInfestation,
+    TreatSeeder,
+)
 
 
 @dataclass(frozen=True)
@@ -65,10 +74,12 @@ class PestScenario:
         speed_mps_ground: The killers' speed.
         decision_interval: The time between two decisions of a robot.
         radio_range_m: How far a robot's broadcasts reach.
-        pest_source_range_m: How far the mock source on every pest broadcasts it, or ``None``
-            for no sources. ``math.inf`` tells every robot at once.
+        pest_source_range_m: How far the mock source on every pest broadcasts it, once per
+            ``decision_interval``, or ``None`` for no sources. ``math.inf`` tells every robot
+            at once.
         sharing: Which memory facts every robot broadcasts to its peers.
-        beacons: When beacons count for every robot, or ``None`` for robots without beacons.
+        beacons: How every robot keeps, relays and weighs beacons, or ``None`` for robots
+            without beacons.
         robots_know_terrain: Whether every robot starts with the field's terrain map.
         pests_per_hour: How many pests spawn per hour, on average, on the free healthy cells.
         pest_period: The time between two pest updates (``WorldTick``).
@@ -112,6 +123,11 @@ class PestScenario:
     until: Time = 3 * TimeUnit.HOUR
     seed: int = 0
 
+    def __post_init__(self) -> None:
+        """Validate the supported parameter ranges."""
+        if not 0.0 <= self.lattice_jitter < 0.5:
+            raise ValueError("lattice jitter must be at least 0 and below half a pitch")
+
     def field_geometry(self) -> FieldGeometry:
         return FieldGeometry(
             width=self.size,
@@ -140,10 +156,10 @@ class PestScenario:
     def starts(self) -> list[CellId]:
         """The robots' starting cells, side by side from ``(0, 0)``, skipping obstacles.
 
-        With ``lattice_starts`` they are the ``lattice_start_cells`` instead.
+        With ``lattice_starts`` they are on lattices instead (``_lattice_start_cells``).
         """
         if self.lattice_starts:
-            return self.lattice_start_cells()
+            return self._lattice_start_cells()
         blocked = set(self.blocked_cells())
         free = [(x, 0) for x in range(self.size) if (x, 0) not in blocked]
         robots = self.scouts + self.killers
@@ -151,7 +167,7 @@ class PestScenario:
             raise ValueError(f"the bottom row has room for {len(free)} robots, not {robots}")
         return free[:robots]
 
-    def lattice_start_cells(self) -> list[CellId]:
+    def _lattice_start_cells(self) -> list[CellId]:
         """The robots' starting cells: the scouts on one jittered lattice, the killers on another.
 
         A lattice has as many columns as rows, or one more. Each robot starts in its slot's
@@ -233,9 +249,9 @@ class PestScenario:
         explore = self._brain(("explore",), ("explore",), params)
         if self.scouts_relay:
             explore = self._brain((), (), {})
-        behavior, field = ("treat-infestation", "treat")
+        behavior, field = TreatInfestation.name, TreatSeeder.name
         if self.hop_treat:
-            behavior, field = ("treat-hop", "treat-hop")
+            behavior, field = TreatByBeacon.name, HopField.name
         treat = self._brain((behavior,), (field,), {})
         if self.killers_explore:
             treat = self._brain((behavior, "explore"), (field, "explore"), params)
@@ -281,8 +297,5 @@ RELAYED_KILLERS = PestScenario(
 
 The scouts only relay, and a mock source on every pest stands in for the explorer that found
 it. The radio reaches 1.25 relay pitches, so a pest reaches the nearest killer through several
-relays. The oracle arm is ``replace(RELAYED_KILLERS, pest_source_range_m=math.inf,
-sharing=KnowledgeSharing.NOTHING)``: every killer hears every pest at once. The hop arm is
-``replace(RELAYED_KILLERS, hop_treat=True, beacons=BeaconConfig(),
-sharing=KnowledgeSharing.NOTHING)``: killers know of pests only through relayed hop values.
+relays. The other arms of the benchmark are variants of it, in ``tests/benchmark_pests.py``.
 """
