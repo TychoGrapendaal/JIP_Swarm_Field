@@ -16,6 +16,7 @@ from swarm_field.swarm.arbiter import (
     Commitment,
     UtilityArbiter,
 )
+from swarm_field.swarm.beacon import BeaconConfig, treat_beacon
 from swarm_field.swarm.behavior import (
     ActionCandidate,
     Behavior,
@@ -28,7 +29,7 @@ from swarm_field.swarm.behavior import (
 )
 from swarm_field.swarm.brain import ComposedAgent, KnowledgeSharing
 from swarm_field.swarm.explore import ExploreConfig, ExploreSeeder
-from swarm_field.swarm.memory import AgentMemory, DecayConfig, MemoryView
+from swarm_field.swarm.memory import AgentMemory, DecayConfig, HeardBeacon, MemoryView
 from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.provider import FieldProvider
 from swarm_field.swarm.seeder import (
@@ -49,6 +50,7 @@ __all__ = [
     "Arbiter",
     "ArbiterChoice",
     "ArbiterConfig",
+    "BeaconConfig",
     "Behavior",
     "Commitment",
     "ComposedAgent",
@@ -61,6 +63,7 @@ __all__ = [
     "FieldSeeder",
     "FollowField",
     "FollowSeederField",
+    "HeardBeacon",
     "Intent",
     "KnowledgeSharing",
     "MemoryView",
@@ -74,4 +77,5 @@ __all__ = [
     "TreatSeeder",
     "UtilityArbiter",
     "Vector2",
+    "treat_beacon",
 ]

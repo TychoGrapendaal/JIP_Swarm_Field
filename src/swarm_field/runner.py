@@ -59,6 +59,7 @@ from swarm_field.simulation import (
 from swarm_field.swarm import (
     AgentMemory,
     ArbiterConfig,
+    BeaconConfig,
     Behavior,
     ComposedAgent,
     ExploreConfig,
@@ -161,6 +162,8 @@ class BrainSpec:
             ``ExploreConfig`` under ``"explore"`` for the EXPLORE seeder.
         arbiter: The overrides and hysteresis of the robot's ``UtilityArbiter``.
         sharing: Which memory facts the robot broadcasts to its peers.
+        beacons: When beacons count, or ``None`` for a robot that neither keeps nor broadcasts
+            them.
     """
 
     behaviors: tuple[str, ...] = ("treat-infestation",)
@@ -169,6 +172,7 @@ class BrainSpec:
     params: dict[str, Any] = field(default_factory=dict)
     arbiter: ArbiterConfig = field(default_factory=ArbiterConfig)
     sharing: KnowledgeSharing = KnowledgeSharing.EVERYTHING
+    beacons: BeaconConfig | None = None
 
 
 @dataclass(frozen=True)
@@ -580,6 +584,7 @@ def build_agent(
         navigator=Navigator(fields.quadtree),
         arbiter=UtilityArbiter(spec.arbiter),
         sharing=spec.sharing,
+        beacons=spec.beacons,
     )
 
 

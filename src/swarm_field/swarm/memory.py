@@ -5,6 +5,7 @@ identity (the cell for terrain and infestation, the peer's id for peers) and kee
 recently observed one. Confidence decays with age, but is computed when read, so nothing in
 memory changes as time passes. Memory also keeps two arrays over the field, for seeders that read
 every cell at once: when each cell was last observed, and whether it is worth monitoring.
+Apart from the facts, it keeps the newest beacon heard from each sender per objective.
 """
 
 from collections.abc import Iterable, Iterator
@@ -17,6 +18,8 @@ import numpy as np
 from numpy.typing import NDArray
 
 from swarm_field.contracts import (
+    AgentObjective,
+    Beacon,
     CellId,
     FieldGeometry,
     InfestationObservation,
@@ -57,6 +60,21 @@ class DecayConfig:
                 return None
 
 
+@dataclass(frozen=True)
+class HeardBeacon:
+    """A beacon as the robot heard it.
+
+    Attributes:
+        sender: Who sent it: a robot, or a mock pest source.
+        sent_at: When it was sent.
+        beacon: The hop value and where it holds.
+    """
+
+    sender: RobotId
+    sent_at: Time
+    beacon: Beacon
+
+
 class MemoryView(Protocol):
     """The read-only queries on memory that behaviours and field seeders are typed against."""
 
@@ -67,6 +85,8 @@ class MemoryView(Protocol):
     def infestations(self) -> Iterator[InfestationObservation]: ...
 
     def peers(self) -> Iterator[PeerObservation]: ...
+
+    def beacons(self, objective: AgentObjective) -> Iterator[HeardBeacon]: ...
 
     def confidence(self, fact: Observation, now: Time) -> float: ...
 
@@ -93,6 +113,7 @@ class AgentMemory:
         self._terrain: dict[CellId, TerrainObservation] = {}
         self._infestation: dict[CellId, InfestationObservation] = {}
         self._peers: dict[RobotId, PeerObservation] = {}
+        self._beacons: dict[tuple[RobotId, AgentObjective], HeardBeacon] = {}
         self._last_seen: NDArray[np.float64] = np.full((field.width, field.height), -np.inf)
         self._monitorable: NDArray[np.bool_] = np.ones((field.width, field.height), dtype=np.bool_)
 
@@ -131,6 +152,17 @@ class AgentMemory:
                 case _:
                     pass
 
+    def hear_beacons(self, sender: RobotId, sent_at: Time, beacons: Iterable[Beacon]) -> None:
+        """Keep the newest beacon per sender and objective.
+
+        Beacons are not facts: they never enter ``records``, so they are never gossiped.
+        """
+        for beacon in beacons:
+            key = (sender, beacon.objective)
+            stored = self._beacons.get(key)
+            if stored is None or sent_at > stored.sent_at:
+                self._beacons[key] = HeardBeacon(sender, sent_at, beacon)
+
     def records(self) -> Iterator[Observation]:
         """Every stored fact, e.g. to share with a peer."""
         return chain(self._terrain.values(), self._infestation.values(), self._peers.values())
@@ -160,6 +192,12 @@ class AgentMemory:
 
     def peers(self) -> Iterator[PeerObservation]:
         return iter(self._peers.values())
+
+    def beacons(self, objective: AgentObjective) -> Iterator[HeardBeacon]:
+        """The newest beacon heard from each sender for ``objective``, however old."""
+        for heard in self._beacons.values():
+            if heard.beacon.objective is objective:
+                yield heard
 
     def confidence(self, fact: Observation, now: Time) -> float:
         """How far a fact can be trusted at ``now``: its initial confidence, decayed by age."""

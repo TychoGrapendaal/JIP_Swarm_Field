@@ -38,7 +38,7 @@ from swarm_field.contracts import (
 from swarm_field.experiments.explore import cropped_cells, river_and_rocks
 from swarm_field.runner import BrainSpec, ExperimentConfig
 from swarm_field.simulation import MetricsConfig
-from swarm_field.swarm import ArbiterConfig, ExploreConfig, KnowledgeSharing
+from swarm_field.swarm import ArbiterConfig, BeaconConfig, ExploreConfig, KnowledgeSharing
 
 
 @dataclass(frozen=True)
@@ -66,6 +66,7 @@ class PestScenario:
         pest_source_range_m: How far the mock source on every pest broadcasts it, or ``None``
             for no sources. ``math.inf`` tells every robot at once.
         sharing: Which memory facts every robot broadcasts to its peers.
+        beacons: When beacons count for every robot, or ``None`` for robots without beacons.
         robots_know_terrain: Whether every robot starts with the field's terrain map.
         pests_per_hour: How many pests spawn per hour, on average, on the free healthy cells.
         pest_period: The time between two pest updates (``WorldTick``).
@@ -95,6 +96,7 @@ class PestScenario:
     radio_range_m: float = 300.0
     pest_source_range_m: float | None = None
     sharing: KnowledgeSharing = KnowledgeSharing.EVERYTHING
+    beacons: BeaconConfig | None = None
     robots_know_terrain: bool = True
     pests_per_hour: float = 15.0
     pest_period: Time = TimeUnit.MINUTE
@@ -224,32 +226,12 @@ class PestScenario:
             pest_sources=pest_sources,
         )
         params = {"explore": self.explore}
-        explore = BrainSpec(
-            behaviors=("explore",),
-            seeders=("explore",),
-            params=params,
-            arbiter=self.arbiter,
-            sharing=self.sharing,
-        )
-        treat = BrainSpec(
-            behaviors=("treat-infestation",),
-            seeders=("treat",),
-            params={},
-            arbiter=self.arbiter,
-            sharing=self.sharing,
-        )
+        explore = self._brain(("explore",), ("explore",), params)
         if self.scouts_relay:
-            explore = BrainSpec(
-                behaviors=(), seeders=(), params={}, arbiter=self.arbiter, sharing=self.sharing
-            )
+            explore = self._brain((), (), {})
+        treat = self._brain(("treat-infestation",), ("treat",), {})
         if self.killers_explore:
-            treat = BrainSpec(
-                behaviors=("treat-infestation", "explore"),
-                seeders=("treat", "explore"),
-                params=params,
-                arbiter=self.arbiter,
-                sharing=self.sharing,
-            )
+            treat = self._brain(("treat-infestation", "explore"), ("treat", "explore"), params)
         return ExperimentConfig(
             label=label,
             scenario=scenario,
@@ -260,6 +242,19 @@ class PestScenario:
             until=self.until,
             metrics=MetricsConfig(period=self.sample_period, fresh_age=self.explore.revisit_age),
             decision_interval=self.decision_interval,
+        )
+
+    def _brain(
+        self, behaviors: tuple[str, ...], seeders: tuple[str, ...], params: dict[str, ExploreConfig]
+    ) -> BrainSpec:
+        """A brain with the scenario's arbiter, sharing and beacons."""
+        return BrainSpec(
+            behaviors=behaviors,
+            seeders=seeders,
+            params=params,
+            arbiter=self.arbiter,
+            sharing=self.sharing,
+            beacons=self.beacons,
         )
 
 

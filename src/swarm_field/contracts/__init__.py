@@ -30,7 +30,7 @@ from swarm_field.contracts.ids import (
     Time,
     TimeUnit,
 )
-from swarm_field.contracts.messages import Message, MessageKind
+from swarm_field.contracts.messages import Beacon, Message, MessageKind
 from swarm_field.contracts.metrics import MetricsSample
 from swarm_field.contracts.navigation import Vector2
 from swarm_field.contracts.observations import (
@@ -59,6 +59,7 @@ __all__ = [
     "Action",
     "AgentInspection",
     "AgentObjective",
+    "Beacon",
     "BodyType",
     "CellId",
     "CellState",

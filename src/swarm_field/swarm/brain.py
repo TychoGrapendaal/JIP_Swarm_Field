@@ -18,6 +18,7 @@ from swarm_field.contracts import (
     Action,
     AgentInspection,
     AgentObjective,
+    Beacon,
     CellId,
     Decision,
     Idle,
@@ -32,6 +33,7 @@ from swarm_field.contracts import (
     Time,
 )
 from swarm_field.swarm.arbiter import Arbiter
+from swarm_field.swarm.beacon import BeaconConfig, treat_beacon
 from swarm_field.swarm.behavior import (
     ActionCandidate,
     Behavior,
@@ -73,6 +75,8 @@ class ComposedAgent:
         arbiter: Picks the candidate the robot acts on and holds the robot to its choice. Every
             robot needs its own, since an arbiter remembers its robot's commitment.
         sharing: Which memory facts the robot broadcasts to its peers.
+        beacons: When heard beacons and the robot's own sightings count, or ``None`` for a robot
+            that neither keeps nor broadcasts beacons.
     """
 
     def __init__(
@@ -84,6 +88,7 @@ class ComposedAgent:
         navigator: Navigator,
         arbiter: Arbiter,
         sharing: KnowledgeSharing = KnowledgeSharing.EVERYTHING,
+        beacons: BeaconConfig | None = None,
     ) -> None:
         self.robot_id: RobotId = robot_id
         self.behaviors: list[Behavior] = behaviors
@@ -92,6 +97,7 @@ class ComposedAgent:
         self.navigator: Navigator = navigator
         self.arbiter: Arbiter = arbiter
         self.sharing: KnowledgeSharing = sharing
+        self.beacons: BeaconConfig | None = beacons
         self._current_goal: str | None = None
         self._current_target: CellId | None = None
         self._current_objective: AgentObjective | None = None
@@ -100,6 +106,8 @@ class ComposedAgent:
         received = self._facts_received(perception.inbox)
         self.memory.ingest(perception)
         self.memory.merge(received)
+        if self.beacons is not None:
+            self._hear_beacons(perception.inbox)
         terrain_cells = [
             fact.cell
             for fact in [*perception.sensed, *received]
@@ -179,13 +187,33 @@ class ComposedAgent:
                 facts.append(message.payload)
         return facts
 
+    def _hear_beacons(self, inbox: list[Message]) -> None:
+        """Store the beacons of every received beacon message."""
+        for message in inbox:
+            if message.kind is not MessageKind.BEACON:
+                continue
+            beacons: list[Beacon] = []
+            if isinstance(message.payload, tuple):
+                for item in cast(tuple[object, ...], message.payload):
+                    if isinstance(item, Beacon):
+                        beacons.append(item)
+            if not beacons:
+                logger.warning(
+                    "Skipping a beacon message from %s with payload %r",
+                    message.sender,
+                    message.payload,
+                )
+                continue
+            self.memory.hear_beacons(message.sender, message.sent_at, beacons)
+
     def _messages_to_send(self, perception: Perception) -> list[Message]:
         """The messages to broadcast at this decision point: the robot's status and its memory.
 
         The status tells peers where the robot is, which target it is heading for (the target
         of the winner's field, or else the winning candidate's ``target``) and for which
         objective, so that they can avoid the same region. The memory message carries the facts
-        ``sharing`` selects, and is left out at ``KnowledgeSharing.NOTHING``.
+        ``sharing`` selects, and is left out at ``KnowledgeSharing.NOTHING``. With ``beacons``
+        the robot also broadcasts its TREAT beacon, if it has one.
         """
         status = PeerObservation(
             cell=perception.self_state.position,
@@ -203,17 +231,42 @@ class ComposedAgent:
             kind=MessageKind.STATUS,
             payload=status,
         )
+        messages = [status_message]
+        knowledge = self._knowledge_message(perception.time)
+        if knowledge is not None:
+            messages.append(knowledge)
+        beacon = self._beacon_message(perception)
+        if beacon is not None:
+            messages.append(beacon)
+        return messages
+
+    def _knowledge_message(self, now: Time) -> Message | None:
+        """The memory facts ``sharing`` selects, or ``None`` at ``KnowledgeSharing.NOTHING``."""
         match self.sharing:
             case KnowledgeSharing.EVERYTHING:
                 facts: tuple[Observation, ...] = tuple(self.memory.records())
             case KnowledgeSharing.INFESTATIONS:
                 facts = tuple(self.memory.infestations())
             case KnowledgeSharing.NOTHING:
-                return [status_message]
-        memory_message = Message(
+                return None
+        return Message(sender=self.robot_id, sent_at=now, kind=MessageKind.KNOWLEDGE, payload=facts)
+
+    def _beacon_message(self, perception: Perception) -> Message | None:
+        """The robot's TREAT beacon, or ``None`` without ``beacons`` or without a beacon."""
+        if self.beacons is None:
+            return None
+        beacon = treat_beacon(
+            self.memory,
+            self.robot_id,
+            perception.self_state.position,
+            perception.time,
+            self.beacons,
+        )
+        if beacon is None:
+            return None
+        return Message(
             sender=self.robot_id,
             sent_at=perception.time,
-            kind=MessageKind.KNOWLEDGE,
-            payload=facts,
+            kind=MessageKind.BEACON,
+            payload=(beacon,),
         )
-        return [status_message, memory_message]

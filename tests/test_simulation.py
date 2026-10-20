@@ -10,6 +10,8 @@ import pytest
 from swarm_field.contracts import (
     Action,
     AgentInspection,
+    AgentObjective,
+    Beacon,
     BodyType,
     CellId,
     Decision,
@@ -416,7 +418,8 @@ def _pest_source_world() -> WorldState:
 def _broadcast_severities(message_list: list[Message]) -> list[float]:
     severities: list[float] = []
     for message in message_list:
-        assert message.kind is MessageKind.KNOWLEDGE
+        if message.kind is not MessageKind.KNOWLEDGE:
+            continue
         assert isinstance(message.payload, tuple)
         for fact in message.payload:
             assert isinstance(fact, InfestationObservation)
@@ -431,7 +434,10 @@ def test_a_pest_source_reaches_only_the_robots_in_range() -> None:
 
     PestSourceBroadcast(time=0, spec=PestSourceSpec(radio_range_m=15.0)).handle(ctx)
 
-    assert _broadcast_severities(ctx.channel.take_inbox(1)) == [0.5]
+    inbox = ctx.channel.take_inbox(1)
+    assert _broadcast_severities(inbox) == [0.5]
+    beacons = [message.payload for message in inbox if message.kind is MessageKind.BEACON]
+    assert beacons == [(Beacon(AgentObjective.TREAT, 0.0, (2, 1)),)]
     assert ctx.channel.take_inbox(2) == []
     assert ctx.channel.sent == 0
 
@@ -444,10 +450,14 @@ def test_a_cleared_pest_is_reported_clean_once_then_falls_silent() -> None:
     ctx.world.cells[(2, 1)].infestation = 0.0
 
     severities: list[list[float]] = []
+    kinds: list[set[MessageKind]] = []
     for _ in range(2):
         event = ctx.queue.pop()
         assert isinstance(event, PestSourceBroadcast)
         event.handle(ctx)
-        severities.append(_broadcast_severities(ctx.channel.take_inbox(1)))
+        inbox = ctx.channel.take_inbox(1)
+        severities.append(_broadcast_severities(inbox))
+        kinds.append({message.kind for message in inbox})
 
     assert severities == [[0.0], []]
+    assert kinds == [{MessageKind.KNOWLEDGE}, set()]

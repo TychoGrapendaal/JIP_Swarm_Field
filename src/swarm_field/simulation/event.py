@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
 from swarm_field.contracts import (
+    AgentObjective,
+    Beacon,
     CellId,
     FailureMode,
     FailureSpec,
@@ -204,8 +206,9 @@ class PestSourceBroadcast:
     """Broadcast every pest from its own cell, as an explorer hovering above it would.
 
     Each infested cell sends a ``KNOWLEDGE`` message with the infestation fact that own-cell
-    sensing gives, from a synthetic sender of its own. A pest cleared since the last broadcast
-    is reported once more, as clean, and then falls silent. Draws nothing from ``ctx.rng``.
+    sensing gives, and a ``BEACON`` message with a TREAT beacon of 0 on the cell, from a
+    synthetic sender of its own. A pest cleared since the last broadcast is reported once more,
+    as clean and without a beacon, and then falls silent. Draws nothing from ``ctx.rng``.
 
     Attributes:
         time: Simulation time of this broadcast.
@@ -233,12 +236,22 @@ class PestSourceBroadcast:
                 severity=ctx.world.cells[cell].infestation,
                 pest=None,
             )
-            message = Message(
-                sender=source, sent_at=self.time, kind=MessageKind.KNOWLEDGE, payload=(fact,)
-            )
-            ctx.channel.broadcast_from_cell(
-                ctx.world, self.time, cell, self.spec.radio_range_m, message
-            )
+            messages = [
+                Message(
+                    sender=source, sent_at=self.time, kind=MessageKind.KNOWLEDGE, payload=(fact,)
+                )
+            ]
+            if cell in infested_now:
+                beacon = Beacon(AgentObjective.TREAT, 0.0, cell)
+                messages.append(
+                    Message(
+                        sender=source, sent_at=self.time, kind=MessageKind.BEACON, payload=(beacon,)
+                    )
+                )
+            for message in messages:
+                ctx.channel.broadcast_from_cell(
+                    ctx.world, self.time, cell, self.spec.radio_range_m, message
+                )
         ctx.schedule(
             PestSourceBroadcast(
                 time=self.time + self.spec.period, spec=self.spec, infested=frozenset(infested_now)

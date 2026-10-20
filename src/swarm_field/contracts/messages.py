@@ -7,7 +7,7 @@ The simulation's channel reads only the header (sender, time) to decide delivery
 from dataclasses import dataclass
 from enum import Enum, auto
 
-from swarm_field.contracts.ids import RobotId, Time
+from swarm_field.contracts.ids import AgentObjective, CellId, RobotId, Time
 
 
 class MessageKind(Enum):
@@ -21,11 +21,28 @@ class MessageKind(Enum):
         KNOWLEDGE: A robot's current memory snapshot, as a tuple of facts.
         STATUS: A robot's report of itself: a ``PeerObservation`` of its own cell and the
             target it is heading for.
+        BEACON: A robot's hop values, as a tuple of ``Beacon``s, one per objective.
     """
 
     HELLO = auto()
     KNOWLEDGE = auto()
     STATUS = auto()
+    BEACON = auto()
+
+
+@dataclass(frozen=True)
+class Beacon:
+    """A hop value for one objective, which robots relay to guide each other towards it.
+
+    Attributes:
+        objective: The objective the value guides to.
+        value: How far the objective is, in hops. 0 is the objective itself.
+        cell: Where the value holds: the sender's cell, or the objective's cell for a source.
+    """
+
+    objective: AgentObjective
+    value: float
+    cell: CellId
 
 
 @dataclass(frozen=True)
