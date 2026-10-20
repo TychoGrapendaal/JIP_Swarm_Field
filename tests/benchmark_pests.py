@@ -10,6 +10,10 @@ steps. A row reports the mean over the seeds:
 - ``open``: pests still infested at the end;
 - ``cells/treat``: cells moved by all killers per treated pest;
 - ``msgs``: messages received per robot per hour;
+- ``stuck``: the share of the time a killer committed to treating stands idle, e.g. at a
+  dead end of the hop field;
+- ``commit hop``: the median beacon value of a killer when it commits to treating, for arms
+  with beacons;
 - ``drift 1/2/3 h``: mean distance in cells of the killers from their start after each hour;
 - ``wall``: seconds of computation per run.
 
@@ -26,12 +30,12 @@ import time
 from collections.abc import Iterator
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, replace
-from statistics import mean
+from statistics import mean, median
 
-from swarm_field.contracts import BodyType, CellId, RobotId, Time, TimeUnit
+from swarm_field.contracts import BodyType, CellId, Idle, RobotId, Time, TimeUnit
 from swarm_field.experiments import RELAYED_KILLERS, PestScenario
 from swarm_field.experiments.run import LiveRun
-from swarm_field.swarm import BeaconConfig, KnowledgeSharing
+from swarm_field.swarm import BeaconConfig, KnowledgeSharing, treat_beacon
 
 
 @dataclass(frozen=True)
@@ -77,6 +81,8 @@ class Result:
     open: int
     cells_per_treatment: float | None
     messages_per_robot_hour: float
+    stuck: float
+    commit_hops: tuple[float, ...]
     drift: tuple[float, ...]
     wall: float
 
@@ -89,6 +95,9 @@ class PestTracker:
         responses: How long each cleared pest stayed infested.
         infested_samples: The number of infested cells at every sample.
         cells_moved: Cells moved by all killers so far.
+        committed: Killer samples in which the killer was committed to treating.
+        stuck: Committed killer samples in which the killer stood idle, not in a move.
+        commit_hops: The killer's beacon value each time it committed, if it had beacons.
         drift: The killers' mean distance from their start, at each hour.
     """
 
@@ -99,7 +108,11 @@ class PestTracker:
         self.responses: list[Time] = []
         self.infested_samples: list[int] = []
         self.cells_moved: int = 0
+        self.committed: int = 0
+        self.stuck: int = 0
+        self.commit_hops: list[float] = []
         self.drift: list[float] = []
+        self._treating: set[RobotId] = set()
 
     def sample(self, run: LiveRun, now: Time) -> None:
         """Record the pests and the killers' moves at ``now``."""
@@ -118,8 +131,32 @@ class PestTracker:
             position = world.robots[robot_id].position
             self.cells_moved += max(abs(position[0] - before[0]), abs(position[1] - before[1]))
             self._positions[robot_id] = position
+        self._sample_commitments(run, now)
         if now % TimeUnit.HOUR == 0:
             self.drift.append(self.mean_distance_from_start())
+
+    def _sample_commitments(self, run: LiveRun, now: Time) -> None:
+        """Count the killers committed to treating, those standing idle, and new commitments."""
+        world = run.context.world
+        agents = run.agents()
+        for robot_id in self._positions:
+            agent = agents[robot_id]
+            goal = agent.inspect().current_goal
+            if goal is None or not goal.startswith("treat"):
+                self._treating.discard(robot_id)
+                continue
+            self.committed += 1
+            robot = world.robots[robot_id]
+            if isinstance(robot.current_action, Idle) and robot.move_target is None:
+                self.stuck += 1
+            if robot_id in self._treating:
+                continue
+            self._treating.add(robot_id)
+            if agent.beacons is not None:
+                position = world.robots[robot_id].position
+                beacon = treat_beacon(agent.memory, robot_id, position, now, agent.beacons)
+                if beacon is not None:
+                    self.commit_hops.append(beacon.value)
 
     def mean_distance_from_start(self) -> float:
         """The killers' mean straight-line distance in cells from where they started."""
@@ -163,6 +200,8 @@ def run(job: Job) -> Result:
         open=len(tracker.appeared),
         cells_per_treatment=cells_per_treatment,
         messages_per_robot_hour=live.context.channel.received / robots / job.hours,
+        stuck=tracker.stuck / max(tracker.committed, 1),
+        commit_hops=tuple(tracker.commit_hops),
         drift=tuple(tracker.drift),
         wall=time.perf_counter() - started,
     )
@@ -178,11 +217,23 @@ def table_row(name: str, results: list[Result], hours: int) -> str:
         f"{mean(result.open for result in results):.1f}",
         _mean_or_dash([result.cells_per_treatment for result in results]),
         f"{mean(result.messages_per_robot_hour for result in results):.0f}",
+        f"{mean(result.stuck for result in results):.2f}",
+        _median_or_dash(results),
     ]
     for hour in range(hours):
         cells.append(f"{mean(result.drift[hour] for result in results):.1f}")
     cells.append(f"{mean(result.wall for result in results):.0f}")
     return "| " + " | ".join(cells) + " |"
+
+
+def _median_or_dash(results: list[Result]) -> str:
+    """The median commit hop over every seed's commitments, or ``-`` for an arm without any."""
+    hops: list[float] = []
+    for result in results:
+        hops.extend(result.commit_hops)
+    if not hops:
+        return "-"
+    return f"{median(hops):g}"
 
 
 def _mean_or_dash(values: list[float | None]) -> str:
@@ -215,6 +266,7 @@ def main() -> None:
         f"{scenario.radio_range_m:g} m radio, {args.hours} h, mean over {args.seeds} seeds\n"
     )
     headers = ["arm", "pests", "treated", "response", "open", "cells/treat", "msgs"]
+    headers.extend(["stuck", "commit hop"])
     for hour in range(1, args.hours + 1):
         headers.append(f"drift {hour} h")
     headers.append("wall (s)")
