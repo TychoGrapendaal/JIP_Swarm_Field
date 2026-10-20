@@ -1,6 +1,7 @@
 """Tests for rendering a run driven by the runner (C.1 over B.5)."""
 
 from swarm_field.contracts import FailureMode, FailureSpec, ScenarioId, WorldSnapshot
+from swarm_field.experiments import build_named_experiment
 from swarm_field.runner import (
     ExperimentConfig,
     RobustnessCase,
@@ -13,6 +14,13 @@ from swarm_field.runner import (
 from swarm_field.simulation import MetricsConfig, SimulationLoop
 
 HOUR = 3_600_000
+
+
+def _s2() -> ExperimentConfig:
+    """The S2 preset from seed 101 for one hour, the base of the robustness conditions."""
+    return build_named_experiment("S2", 101, HOUR)
+
+
 BASE_STEP_MS = 500
 
 
@@ -91,11 +99,11 @@ def test_a_snapshot_distinguishes_a_fault_condition_from_the_baseline() -> None:
     faulty = RecordingRenderer()
 
     run_experiment(
-        robustness_case_config(ScenarioId.S2, RobustnessCase(label="baseline"), 101, until=HOUR),
+        robustness_case_config(_s2(), RobustnessCase(label="baseline")),
         baseline,
     )
     run_experiment(
-        robustness_case_config(ScenarioId.S2, _all_fail(), 101, until=HOUR),
+        robustness_case_config(_s2(), _all_fail()),
         faulty,
     )
 
@@ -127,7 +135,7 @@ def test_a_robustness_sweep_passes_its_renderer_to_every_case() -> None:
     renderer = RecordingRenderer()
     cases = (RobustnessCase(label="baseline"), _all_fail())
 
-    runs = robustness_sweep(ScenarioId.S2, cases, seed=101, until=HOUR, renderer=renderer)
+    runs = robustness_sweep(_s2(), cases, renderer=renderer)
 
     # Two cases, each rendering at time zero and one hour: the renderer is shared, so the frames
     # arrive as one stream rather than being attributable to a condition.
@@ -138,9 +146,9 @@ def test_a_robustness_sweep_passes_its_renderer_to_every_case() -> None:
 def test_a_case_configured_again_produces_the_same_run() -> None:
     """The basis for rendering one condition after the sweep has tabled it."""
     case = _all_fail()
-    swept = robustness_sweep(ScenarioId.S2, (case,), seed=101, until=HOUR)[0]
+    swept = robustness_sweep(_s2(), (case,))[0]
 
-    redone = run_experiment(robustness_case_config(ScenarioId.S2, case, 101, until=HOUR))
+    redone = run_experiment(robustness_case_config(_s2(), case))
 
     assert swept.to_row() == redone.to_row()
 

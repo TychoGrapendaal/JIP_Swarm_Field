@@ -71,3 +71,5 @@ class SimulationContext:
         """
         if isinstance(command, InjectInfestation):
             self.world.cell(command.cell).infestation = command.severity
+            if self.metrics is not None:
+                self.metrics.track_infestation(self.world, self.now)
