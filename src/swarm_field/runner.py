@@ -335,6 +335,20 @@ class RunSummary:
         messages_sent: Messages handed to the channel over the run.
         messages_received: Times a message reached a robot in range over the run.
         active_robots: Robots still taking part when the run ended.
+        mean_infested_cells: Infested crop cells, averaged over the samples.
+        peak_infested_cells: The most infested crop cells at any sample.
+        pests_appeared: Pests that appeared over the run, including those present at the start.
+        pests_cleared: Of those, the pests cleared.
+        knowledge_latency_ms: Mean time from a pest's detection to a killer knowing of it, or
+            ``None`` if no killer heard of a pest.
+        response_time_ms: Mean time from a pest's detection to its clearing, or ``None`` if none
+            was cleared.
+        killer_idle_share: The share of the killers' decisions with nothing to do.
+        killer_exploring_share: The share spent exploring.
+        killer_driving_share: The share spent driving to a pest.
+        killer_treating_share: The share spent treating.
+        duplicate_trip_share: The share of the killers' trip decisions that another killer
+            duplicated.
     """
 
     label: str
@@ -349,6 +363,17 @@ class RunSummary:
     messages_sent: int
     messages_received: int
     active_robots: int
+    mean_infested_cells: float
+    peak_infested_cells: int
+    pests_appeared: int
+    pests_cleared: int
+    knowledge_latency_ms: float | None
+    response_time_ms: float | None
+    killer_idle_share: float
+    killer_exploring_share: float
+    killer_driving_share: float
+    killer_treating_share: float
+    duplicate_trip_share: float
 
     @classmethod
     def from_run(cls, config: ExperimentConfig, series: Iterable[MetricsSample]) -> RunSummary:
@@ -376,6 +401,17 @@ class RunSummary:
             messages_sent=final.messages_sent,
             messages_received=final.messages_received,
             active_robots=final.active_robots,
+            mean_infested_cells=sum(sample.targets_remaining for sample in taken) / len(taken),
+            peak_infested_cells=max(sample.targets_remaining for sample in taken),
+            pests_appeared=final.pests_appeared,
+            pests_cleared=final.pests_cleared,
+            knowledge_latency_ms=final.knowledge_latency_ms,
+            response_time_ms=final.response_time_ms,
+            killer_idle_share=final.killer_idle_share,
+            killer_exploring_share=final.killer_exploring_share,
+            killer_driving_share=final.killer_driving_share,
+            killer_treating_share=final.killer_treating_share,
+            duplicate_trip_share=final.duplicate_trip_share,
         )
 
     def to_row(self) -> dict[str, int | float | str | bool | None]:
@@ -396,6 +432,17 @@ class RunSummary:
             "messages_sent": self.messages_sent,
             "messages_received": self.messages_received,
             "active_robots": self.active_robots,
+            "mean_infested_cells": self.mean_infested_cells,
+            "peak_infested_cells": self.peak_infested_cells,
+            "pests_appeared": self.pests_appeared,
+            "pests_cleared": self.pests_cleared,
+            "knowledge_latency_ms": self.knowledge_latency_ms,
+            "response_time_ms": self.response_time_ms,
+            "killer_idle_share": self.killer_idle_share,
+            "killer_exploring_share": self.killer_exploring_share,
+            "killer_driving_share": self.killer_driving_share,
+            "killer_treating_share": self.killer_treating_share,
+            "duplicate_trip_share": self.duplicate_trip_share,
         }
         row.update(self.metadata.to_row())
         return row

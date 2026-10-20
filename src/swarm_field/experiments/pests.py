@@ -12,6 +12,9 @@ them as ``PestDynamicsSpec`` says. Robots share their memory and status only thr
 channel, within ``radio_range_m``, so a killer learns of a pest when a robot that knows of it
 comes in range. Robots start with the field's terrain map, so they plan around obstacles they
 have not seen yet. ``MetricsCollector`` measures the run.
+
+``PestScenario.smoke`` is the base demo and smoke test: five scouts that only explore and five
+killers that only treat, so every robot has one objective and the arbiter never has to choose.
 """
 
 from __future__ import annotations
@@ -59,6 +62,7 @@ class PestScenario:
         explore: The parameters of every robot's EXPLORE field.
         arbiter: The overrides and hysteresis of every robot's ``UtilityArbiter``.
         sample_period: The time between two metrics samples.
+        measure_from: Idleness is averaged from this time on, after the first exploration.
         until: How long the run lasts.
         seed: Seeds the pests and when each robot decides first.
     """
@@ -81,8 +85,29 @@ class PestScenario:
     explore: ExploreConfig = field(default_factory=ExploreConfig)
     arbiter: ArbiterConfig = field(default_factory=ArbiterConfig)
     sample_period: Time = TimeUnit.SECOND
+    measure_from: Time = 0
     until: Time = 3 * TimeUnit.HOUR
     seed: int = 0
+
+    @classmethod
+    def smoke(cls, seed: int = 0) -> PestScenario:
+        """The base demo: five scouts that only explore and five killers that only treat.
+
+        Killers drive at 0.5 m/s, 20 s per cell, so a pest across the field is minutes away
+        rather than the better part of an hour, and the 300 m radio reaches across most of the
+        field, so news of a pest reaches the killers. Sampled every minute, with idleness
+        measured after a warm-up of half an hour.
+        """
+        return cls(
+            scouts=5,
+            killers=5,
+            killers_explore=False,
+            speed_mps_ground=0.5,
+            radio_range_m=300.0,
+            sample_period=TimeUnit.MINUTE,
+            measure_from=30 * TimeUnit.MINUTE,
+            seed=seed,
+        )
 
     def field_geometry(self) -> FieldGeometry:
         return FieldGeometry(
@@ -179,6 +204,10 @@ class PestScenario:
             robots_know_terrain=True,
             stagger_decisions=True,
             until=self.until,
-            metrics=MetricsConfig(period=self.sample_period, fresh_age=self.explore.revisit_age),
+            metrics=MetricsConfig(
+                period=self.sample_period,
+                fresh_age=self.explore.revisit_age,
+                measure_from=self.measure_from,
+            ),
             decision_interval=self.decision_interval,
         )

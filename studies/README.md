@@ -10,6 +10,7 @@ uv run python -m studies.radio_range --ranges 50 150 300 --seeds 3 --hours 1
 
 | Study | Question | Results |
 |---|---|---|
+| [`smoke.py`](smoke.py) | Does the base demo (five scouts that only explore, five killers that only treat) clear the pests its scouts find, and which part of the pipeline limits it: the killers, the EXPLORE field, the radio range, the killers' speed or spreading pests? | `runs/smoke/`, results in [`docs/research/smoke.md`](../docs/research/smoke.md) |
 | [`radio_range.py`](radio_range.py) | How do detection latency, untreated pests and communication change with the radio range, in the pest experiment? | `runs/radio_range/` |
 | [`explore_variants.py`](explore_variants.py) | Which variant and parameters of the EXPLORE seeder keep a field covered and fresh best? | printed as Markdown tables, recorded in [`docs/explore.md`](../docs/explore.md) |
 

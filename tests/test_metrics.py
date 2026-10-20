@@ -8,14 +8,19 @@ from random import Random
 import pytest
 
 from swarm_field.contracts import (
+    AgentInspection,
+    AgentObjective,
     BodyType,
+    CellId,
     CropObservation,
     CropType,
     FieldGeometry,
+    Idle,
     InfestationObservation,
     MetricsSample,
     Move,
     Time,
+    Treat,
 )
 from swarm_field.simulation import (
     EnergyConfig,
@@ -319,3 +324,69 @@ def test_a_pest_is_dated_at_the_world_tick_that_spawns_it_not_at_the_next_sample
     collector.observe([_infestation((1, 1), 0.5, 50)], now=50)
 
     assert collector.sample(world, now=10_000, messages_sent=0).detection_latency_ms == 20
+
+
+def _killer(
+    target: tuple[int, int] | None, objective: AgentObjective | None, known: tuple[CellId, ...] = ()
+) -> AgentInspection:
+    return AgentInspection(
+        robot_id=0,
+        current_goal=None,
+        belief=(),
+        current_target=target,
+        current_objective=objective,
+        known_pests=known,
+    )
+
+
+def test_a_pest_is_followed_from_appearing_to_being_cleared() -> None:
+    world = _cropped_world()
+    collector = _collector(world)
+    world.cell((2, 2)).infestation = 0.5
+    collector.track_infestation(world, now=100)
+    collector.observe([_infestation((2, 2), 0.5, 160)], now=160)
+    collector.observe_killer(7, Idle(), _killer(None, None, known=((2, 2),)), now=170)
+    world.cell((2, 2)).infestation = 0.0
+    collector.track_infestation(world, now=400)
+
+    taken = collector.sample(world, now=500, messages_sent=0)
+
+    (pest,) = collector.pests()
+    assert (pest.appeared_at, pest.detected_at, pest.known_at, pest.cleared_at) == (
+        100,
+        160,
+        170,
+        400,
+    )
+    assert (taken.pests_appeared, taken.pests_cleared) == (1, 1)
+    assert (taken.knowledge_latency_ms, taken.response_time_ms) == (10, 240)
+
+
+def test_a_cell_infested_again_after_clearing_is_a_new_pest() -> None:
+    world = _cropped_world()
+    collector = _collector(world)
+    for now, severity in ((10, 0.5), (20, 0.0), (30, 0.5)):
+        world.cell((1, 1)).infestation = severity
+        collector.track_infestation(world, now=now)
+
+    taken = collector.sample(world, now=40, messages_sent=0)
+
+    assert (taken.pests_appeared, taken.pests_cleared) == (2, 1)
+
+
+def test_the_killers_time_is_split_by_activity_and_shared_trips_are_counted() -> None:
+    world = _cropped_world()
+    collector = _collector(world)
+    pest = (3, 3)
+    collector.observe_killer(1, Move(to=(0, 1)), _killer(pest, AgentObjective.TREAT), now=0)
+    collector.observe_killer(2, Move(to=(1, 0)), _killer(pest, AgentObjective.TREAT), now=0)
+    collector.observe_killer(1, Treat(cell=pest), _killer(pest, AgentObjective.TREAT), now=5)
+    collector.observe_killer(2, Idle(), _killer(None, None), now=5)
+
+    taken = collector.sample(world, now=10, messages_sent=0)
+
+    assert taken.killer_driving_share == 0.5
+    assert taken.killer_treating_share == 0.25
+    assert taken.killer_idle_share == 0.25
+    # The second killer's trip went to a pest the first was heading for.
+    assert taken.duplicate_trip_share == 0.5
