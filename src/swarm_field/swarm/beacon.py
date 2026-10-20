@@ -1,12 +1,12 @@
 """Hop beacons: the value a robot broadcasts so that its peers can find an objective.
 
 A robot that saw a pest itself is the TREAT source: it beacons 0 on the pest's cell. Every
-other robot relays: it beacons one more than the lowest fresh beacon it heard, on its own cell.
-The values form a hop gradient that falls towards the pest.
+other robot relays its ``own_value`` on its own cell: the lowest fresh beacon it heard plus one
+hop. The values form a hop gradient that falls towards the pest.
 """
 
 from dataclasses import dataclass
-from math import exp
+from math import exp, hypot
 
 from swarm_field.contracts import AgentObjective, Beacon, CellId, RobotId, Time, TimeUnit
 from swarm_field.swarm.memory import HeardBeacon, MemoryView
@@ -21,22 +21,35 @@ class BeaconConfig:
         source_for: How long a robot stays a pest's source after it saw the pest itself.
         gamma: The hop discount, between 0 and 1: each hop further away attracts this much less.
         decay: The decay time of a beacon's attraction with its age.
+        hop_cells: With a length, a hop costs the distance to the beacon's cell in units of
+            this many cells (metric hops); without one, every hop costs 1.
+        min_hop_cells: With metric hops, the distance a hop costs at least. Without it, two
+            robots on one cell would hold each other's value at no cost, forever.
+        max_value: Beacons above this value are ignored, and a robot above it beacons nothing,
+            so that values left behind by a cleared pest rise past it and vanish; ``None``
+            for no limit.
     """
 
     fresh_for: Time = TimeUnit.MINUTE
     source_for: Time = TimeUnit.MINUTE
     gamma: float = 0.5
     decay: Time = TimeUnit.MINUTE
+    hop_cells: float | None = None
+    min_hop_cells: float = 1.0
+    max_value: float | None = None
 
 
 def fresh_beacons(
     memory: MemoryView, objective: AgentObjective, now: Time, config: BeaconConfig
 ) -> list[HeardBeacon]:
-    """The beacons for ``objective`` heard within ``fresh_for``."""
+    """The beacons for ``objective`` heard within ``fresh_for``, up to ``max_value``."""
     fresh: list[HeardBeacon] = []
     for heard in memory.beacons(objective):
-        if now - heard.sent_at <= config.fresh_for:
-            fresh.append(heard)
+        if now - heard.sent_at > config.fresh_for:
+            continue
+        if config.max_value is not None and heard.beacon.value > config.max_value:
+            continue
+        fresh.append(heard)
     return fresh
 
 
@@ -45,12 +58,29 @@ def beacon_strength(heard: HeardBeacon, now: Time, config: BeaconConfig) -> floa
     return config.gamma**heard.beacon.value * exp(-(now - heard.sent_at) / config.decay)
 
 
+def own_value(fresh: list[HeardBeacon], position: CellId, config: BeaconConfig) -> float:
+    """The value at ``position``: the lowest of the beacons' values plus the hop to each.
+
+    ``fresh`` must not be empty.
+    """
+    values: list[float] = []
+    for heard in fresh:
+        hop = 1.0
+        if config.hop_cells is not None:
+            cell = heard.beacon.cell
+            distance = hypot(cell[0] - position[0], cell[1] - position[1])
+            hop = max(distance, config.min_hop_cells) / config.hop_cells
+        values.append(heard.beacon.value + hop)
+    return min(values)
+
+
 def treat_beacon(
     memory: MemoryView, robot: RobotId, position: CellId, now: Time, config: BeaconConfig
 ) -> Beacon | None:
     """The robot's TREAT beacon, or ``None`` if it neither saw a pest nor heard a fresh beacon.
 
-    A robot that saw several pests within ``source_for`` beacons the one it saw last.
+    A robot that saw several pests within ``source_for`` beacons the one it saw last. A relay
+    whose value would be above ``max_value`` beacons nothing.
     """
     sighting_cell: CellId | None = None
     sighting_time: Time = now - config.source_for
@@ -64,5 +94,7 @@ def treat_beacon(
     fresh = fresh_beacons(memory, AgentObjective.TREAT, now, config)
     if not fresh:
         return None
-    lowest = min(heard.beacon.value for heard in fresh)
-    return Beacon(AgentObjective.TREAT, lowest + 1, position)
+    value = own_value(fresh, position, config)
+    if config.max_value is not None and value > config.max_value:
+        return None
+    return Beacon(AgentObjective.TREAT, value, position)

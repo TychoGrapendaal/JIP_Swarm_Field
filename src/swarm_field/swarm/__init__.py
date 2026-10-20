@@ -16,7 +16,13 @@ from swarm_field.swarm.arbiter import (
     Commitment,
     UtilityArbiter,
 )
-from swarm_field.swarm.beacon import BeaconConfig, beacon_strength, fresh_beacons, treat_beacon
+from swarm_field.swarm.beacon import (
+    BeaconConfig,
+    beacon_strength,
+    fresh_beacons,
+    own_value,
+    treat_beacon,
+)
 from swarm_field.swarm.behavior import (
     ActionCandidate,
     Behavior,
@@ -88,5 +94,6 @@ __all__ = [
     "Vector2",
     "beacon_strength",
     "fresh_beacons",
+    "own_value",
     "treat_beacon",
 ]

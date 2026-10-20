@@ -27,6 +27,7 @@ from swarm_field.swarm import (
     Navigator,
     TreatByBeacon,
     UtilityArbiter,
+    treat_beacon,
 )
 
 _FIELD = FieldGeometry(width=10, height=10, cell_size=10.0, row_sp=0.0, in_row_sp=0.0, headland=0.0)
@@ -114,3 +115,44 @@ def test_a_hop_killer_steps_towards_the_beacon_it_hears() -> None:
 
     assert decision.action == Move((1, 0))
     assert killer.inspect().current_target == (5, 0)
+
+
+def test_with_metric_hops_a_small_gamma_follows_the_lowest_beacon() -> None:
+    memory = _memory_hearing((1.0, (0, 4)), (2.0, (4, 0)))
+    near_literal = BeaconConfig(gamma=0.01, hop_cells=2.0)
+
+    heading = HopField(near_literal).guidance_for(memory, (0, 0), 0)
+
+    assert heading is not None
+    assert heading.target == (0, 4)
+    assert heading.offset[1] > 0
+    assert abs(heading.offset[0]) < 0.1
+
+
+def test_with_metric_hops_a_robot_on_a_relay_follows_the_relays_downhill_beacons() -> None:
+    memory = _memory_hearing((2.0, (0, 0)), (1.5, (3, 0)))
+
+    heading = HopField(BeaconConfig(hop_cells=2.0)).guidance_for(memory, (0, 0), 0)
+
+    assert heading is not None
+    assert heading.target == (3, 0)
+
+
+def test_two_robots_on_one_cell_do_not_hold_each_others_value() -> None:
+    memory = _memory_hearing((3.0, (0, 0)))
+
+    heading = HopField(BeaconConfig(hop_cells=2.0)).guidance_for(memory, (0, 0), 0)
+    beacon = treat_beacon(memory, 1, (0, 0), 0, BeaconConfig(hop_cells=2.0))
+
+    assert heading is None
+    assert beacon == Beacon(AgentObjective.TREAT, 3.5, (0, 0))
+
+
+def test_beacons_above_the_cap_are_ignored_and_not_relayed() -> None:
+    capped = BeaconConfig(max_value=4.0)
+
+    assert treat_beacon(_memory_hearing((4.5, (1, 0))), 1, (0, 0), 0, capped) is None
+    assert treat_beacon(_memory_hearing((3.5, (1, 0))), 1, (0, 0), 0, capped) is None
+    assert treat_beacon(_memory_hearing((3.0, (1, 0))), 1, (0, 0), 0, capped) == Beacon(
+        AgentObjective.TREAT, 4.0, (0, 0)
+    )

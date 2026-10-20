@@ -37,6 +37,12 @@ from swarm_field.experiments import RELAYED_KILLERS, PestScenario
 from swarm_field.experiments.run import LiveRun
 from swarm_field.swarm import BeaconConfig, KnowledgeSharing, treat_beacon
 
+METRIC_BEACONS = BeaconConfig(
+    hop_cells=RELAYED_KILLERS.radio_range_m / RELAYED_KILLERS.cell_size,
+    max_value=math.log(0.05) / math.log(0.5),
+)
+"""Metric hops of one radio range, capped where a beacon's strength falls below 0.05."""
+
 
 @dataclass(frozen=True)
 class Arm:
@@ -47,7 +53,7 @@ class Arm:
 
 
 def arms() -> Iterator[Arm]:
-    """The seeded arm, the oracle, which hears every pest at once, and the hop arm."""
+    """The seeded arm, the oracle, which hears every pest at once, and the hop arms."""
     yield Arm("seeded", RELAYED_KILLERS)
     oracle = replace(
         RELAYED_KILLERS, pest_source_range_m=math.inf, sharing=KnowledgeSharing.NOTHING
@@ -60,6 +66,7 @@ def arms() -> Iterator[Arm]:
         sharing=KnowledgeSharing.NOTHING,
     )
     yield Arm("hop", hop)
+    yield Arm("hop metric", replace(hop, beacons=METRIC_BEACONS))
 
 
 @dataclass(frozen=True)
