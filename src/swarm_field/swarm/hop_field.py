@@ -8,8 +8,8 @@ only beacons, never a pest's cell.
 
 from math import hypot
 
-from swarm_field.contracts import AgentObjective, CellId, Time
-from swarm_field.swarm.beacon import BeaconConfig, beacon_strength, fresh_beacons, own_value
+from swarm_field.contracts import CellId, Time
+from swarm_field.swarm.beacon import BeaconConfig, beacon_strength, downhill_beacons
 from swarm_field.swarm.guidance import Heading
 from swarm_field.swarm.memory import HeardBeacon, MemoryView
 
@@ -27,28 +27,18 @@ class HopField:
         self._config: BeaconConfig = config
 
     def guidance_for(self, memory: MemoryView, robot: CellId, now: Time) -> Heading | None:
-        """The summed attraction of the downhill beacons, or ``None`` if none pulls the robot.
+        """The summed attraction of the ``downhill_beacons``, or ``None`` if none pulls the robot.
 
         The heading reaches as far as the strongest downhill beacon, whose cell is the target.
-        Beacons on the robot's own cell pull in no direction, so they are left out.
         """
-        fresh = fresh_beacons(memory, AgentObjective.TREAT, now, self._config)
-        if not fresh:
-            return None
-        here = own_value(fresh, robot, self._config)
-
         pull_x = 0.0
         pull_y = 0.0
         strongest: HeardBeacon | None = None
         strongest_strength = 0.0
-        for heard in fresh:
-            if heard.beacon.value >= here:
-                continue
+        for heard in downhill_beacons(memory, robot, now, self._config):
             dx = heard.beacon.cell[0] - robot[0]
             dy = heard.beacon.cell[1] - robot[1]
             distance = hypot(dx, dy)
-            if distance == 0:
-                continue
             strength = beacon_strength(heard, now, self._config)
             pull_x += strength * dx / distance
             pull_y += strength * dy / distance

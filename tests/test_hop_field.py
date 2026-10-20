@@ -89,6 +89,12 @@ def test_a_robot_on_a_pest_treats_it_and_bids_on_beacons_otherwise() -> None:
     assert _bids(AgentMemory(1, _FIELD), (0, 0), []) == []
 
 
+def test_a_robot_does_not_bid_on_a_beacon_on_its_own_cell() -> None:
+    cleared_pest = _memory_hearing((0.0, (3, 3)))
+
+    assert _bids(cleared_pest, (3, 3), []) == []
+
+
 def test_a_hop_killer_steps_towards_the_beacon_it_hears() -> None:
     memory = AgentMemory(1, _FIELD)
     fields = FieldProvider(memory, flies=False, fields=[HopField(_CONFIG)])

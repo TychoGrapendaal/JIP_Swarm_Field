@@ -76,6 +76,24 @@ def own_value(fresh: list[HeardBeacon], position: CellId, config: BeaconConfig) 
     return min(values)
 
 
+def downhill_beacons(
+    memory: MemoryView, position: CellId, now: Time, config: BeaconConfig
+) -> list[HeardBeacon]:
+    """The fresh TREAT beacons that pull the robot: below its own value and off its cell.
+
+    A beacon on the robot's own cell pulls in no direction, so it is left out.
+    """
+    fresh = fresh_beacons(memory, AgentObjective.TREAT, now, config)
+    if not fresh:
+        return []
+    here = own_value(fresh, position, config)
+    downhill: list[HeardBeacon] = []
+    for heard in fresh:
+        if heard.beacon.value < here and heard.beacon.cell != position:
+            downhill.append(heard)
+    return downhill
+
+
 def treat_beacon(
     memory: MemoryView, robot: RobotId, position: CellId, now: Time, config: BeaconConfig
 ) -> Beacon | None:
