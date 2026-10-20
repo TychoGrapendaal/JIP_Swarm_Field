@@ -2,15 +2,17 @@
 
 from dataclasses import replace
 
-from swarm_field.experiments import KILLERS_ONLY
+from swarm_field.experiments import RELAYED_KILLERS
 
 
-def test_lattice_starts_are_distinct_inside_the_field_and_reproducible() -> None:
-    starts = KILLERS_ONLY.starts()
+def test_lattice_starts_are_inside_the_field_and_reproducible() -> None:
+    starts = RELAYED_KILLERS.starts()
 
-    assert len(set(starts)) == KILLERS_ONLY.killers
+    assert len(starts) == RELAYED_KILLERS.scouts + RELAYED_KILLERS.killers
+    killers = starts[RELAYED_KILLERS.scouts :]
+    assert len(set(killers)) == RELAYED_KILLERS.killers
     for x, y in starts:
-        assert 0 <= x < KILLERS_ONLY.size
-        assert 0 <= y < KILLERS_ONLY.size
-    assert KILLERS_ONLY.starts() == starts
-    assert replace(KILLERS_ONLY, seed=1).starts() != starts
+        assert 0 <= x < RELAYED_KILLERS.size
+        assert 0 <= y < RELAYED_KILLERS.size
+    assert RELAYED_KILLERS.starts() == starts
+    assert replace(RELAYED_KILLERS, seed=1).starts() != starts

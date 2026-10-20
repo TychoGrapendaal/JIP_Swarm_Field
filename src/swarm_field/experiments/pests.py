@@ -13,8 +13,9 @@ channel, within ``radio_range_m``, so a killer learns of a pest when a robot tha
 comes in range. Robots start with the field's terrain map, so they plan around obstacles they
 have not seen yet. ``MetricsCollector`` measures the run.
 
-``KILLERS_ONLY`` is a variant without scouts: killers on a lattice hear of pests from a mock
-source on every pest (``PestSourceSpec``), which stands in for an explorer hovering above it.
+``RELAYED_KILLERS`` is a variant in which the scouts only relay: they stand still on a lattice,
+and a few killers hear of pests through them from a mock source on every pest
+(``PestSourceSpec``), which stands in for an explorer hovering above it.
 """
 
 from __future__ import annotations
@@ -50,11 +51,13 @@ class PestScenario:
             ``river_and_rocks``.
         scouts: How many scouts start, side by side from cell ``(0, 0)`` along the bottom row.
         killers: How many killers start, along the bottom row after the scouts.
-        lattice_starts: Whether the robots start on a jittered lattice over the whole field
-            instead of on the bottom row.
+        lattice_starts: Whether the scouts and the killers each start on a jittered lattice
+            over the whole field instead of on the bottom row.
         lattice_jitter: How far a lattice start may move from its slot's centre, as a fraction
             of the lattice pitch.
         killers_explore: Whether killers also carry the explore behaviour.
+        scouts_relay: Whether scouts only relay: they carry no behaviour, so they stand still
+            and only broadcast.
         cell_size: The side of a cell in metres.
         speed_mps_drone: The scouts' speed; a straight move takes ``cell_size / speed`` seconds.
         speed_mps_ground: The killers' speed.
@@ -84,6 +87,7 @@ class PestScenario:
     lattice_starts: bool = False
     lattice_jitter: float = 0.3
     killers_explore: bool = True
+    scouts_relay: bool = False
     cell_size: float = 10.0
     speed_mps_drone: float = 1.5
     speed_mps_ground: float = 0.1
@@ -143,29 +147,36 @@ class PestScenario:
         return free[:robots]
 
     def lattice_start_cells(self) -> list[CellId]:
-        """The robots' starting cells on a lattice over the field, each jittered at random.
+        """The robots' starting cells: the scouts on one jittered lattice, the killers on another.
 
-        The lattice has as many columns as rows, or one more. Each robot starts in its slot's
+        A lattice has as many columns as rows, or one more. Each robot starts in its slot's
         centre, moved by up to ``lattice_jitter`` of the pitch along each axis. The jitter is
         drawn from its own ``Random(seed)``, so the run's random streams are untouched.
         """
-        robots = self.scouts + self.killers
+        jitter = Random(self.seed)
+        starts = self._jittered_lattice(self.scouts, jitter)
+        starts.extend(self._jittered_lattice(self.killers, jitter))
+        blocked = set(self.blocked_cells())
+        for cell in starts:
+            if cell in blocked:
+                raise ValueError(f"the lattice start {cell} is an obstacle")
+        return starts
+
+    def _jittered_lattice(self, robots: int, jitter: Random) -> list[CellId]:
+        """``robots`` cells on a lattice over the field, each moved at random within its slot."""
+        if robots == 0:
+            return []
         columns = math.ceil(math.sqrt(robots))
         rows = math.ceil(robots / columns)
         pitch_x = self.size / columns
         pitch_y = self.size / rows
-        jitter = Random(self.seed)
-        blocked = set(self.blocked_cells())
-        starts: list[CellId] = []
+        cells: list[CellId] = []
         for index in range(robots):
             row, column = divmod(index, columns)
             x = (column + 0.5 + jitter.uniform(-self.lattice_jitter, self.lattice_jitter)) * pitch_x
             y = (row + 0.5 + jitter.uniform(-self.lattice_jitter, self.lattice_jitter)) * pitch_y
-            cell = (min(int(x), self.size - 1), min(int(y), self.size - 1))
-            if cell in blocked:
-                raise ValueError(f"the lattice start {cell} is an obstacle")
-            starts.append(cell)
-        return starts
+            cells.append((min(int(x), self.size - 1), min(int(y), self.size - 1)))
+        return cells
 
     def pest_dynamics(self) -> PestDynamicsSpec:
         """``pests_per_hour`` as the chance per free cell and pest update that a pest spawns."""
@@ -182,8 +193,8 @@ class PestScenario:
     def into_experiment(self, label: str = "pests") -> ExperimentConfig:
         """The run as an experiment for ``swarm_field.runner``.
 
-        Scouts get the explore brain, killers the treat brain, with the explore behaviour too
-        when ``killers_explore``.
+        Scouts get the explore brain, or none with ``scouts_relay``. Killers get the treat brain,
+        with the explore behaviour too when ``killers_explore``.
         """
         robots: list[RobotSpec] = []
         for index, (body, start) in enumerate(zip(self.bodies(), self.starts(), strict=True)):
@@ -227,6 +238,10 @@ class PestScenario:
             arbiter=self.arbiter,
             sharing=self.sharing,
         )
+        if self.scouts_relay:
+            explore = BrainSpec(
+                behaviors=(), seeders=(), params={}, arbiter=self.arbiter, sharing=self.sharing
+            )
         if self.killers_explore:
             treat = BrainSpec(
                 behaviors=("treat-infestation", "explore"),
@@ -248,20 +263,22 @@ class PestScenario:
         )
 
 
-KILLERS_ONLY = PestScenario(
+RELAYED_KILLERS = PestScenario(
     obstacles=(),
-    scouts=0,
-    killers=40,
+    scouts=400,
+    killers=8,
     lattice_starts=True,
+    scouts_relay=True,
     killers_explore=False,
-    radio_range_m=63.0,
-    pest_source_range_m=63.0,
+    radio_range_m=20.0,
+    pest_source_range_m=20.0,
     sharing=KnowledgeSharing.INFESTATIONS,
     robots_know_terrain=False,
 )
-"""The seeded arm of the killers-only benchmark (#70): a mock source on every pest, no scouts.
+"""The seeded arm of the pest-response benchmark (#70): relays on a lattice, a few killers.
 
-The radio reaches 1.25 lattice pitches, so a killer hears a pest through several relays. The
-oracle arm is ``replace(KILLERS_ONLY, pest_source_range_m=math.inf,
+The scouts only relay, and a mock source on every pest stands in for the explorer that found
+it. The radio reaches 1.25 relay pitches, so a pest reaches the nearest killer through several
+relays. The oracle arm is ``replace(RELAYED_KILLERS, pest_source_range_m=math.inf,
 sharing=KnowledgeSharing.NOTHING)``: every killer hears every pest at once.
 """
