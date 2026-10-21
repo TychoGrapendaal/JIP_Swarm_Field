@@ -4,7 +4,7 @@
 >
 > **Scope.** The module **receives** goals from the Decision Engine (A.1); which cells are worth walking to is a decision, not a navigation concern. As in the decomposition doc, the type sketches are real contract shapes but field lists may grow — they fix the seam between A.1 (what is wanted) and A.3 (how to move), never the internals of other modules.
 >
-> **A note on the architecture's `Navigator` port.** [`architecture.md`](./architecture.md) sketches a `Navigator.step_towards(target: CellId) -> Action`. The port in the code is two calls: `FieldProvider.field_for(seeder, robot, now)` builds (or reuses) the potential field of the targets a `FieldSeeder` scored, not a single trusted cell address, and `Navigator.step_towards(seeded, robot)` turns that field into one `Move` (or `Idle`). A behaviour never calls the second: it proposes `FollowField(seeder)`, and the brain steps along that field only for the winning candidate. The goal therefore *is* a set of cells — the module plans over the terrain the robot believes in, and the only absolute cell it trusts is the one it is standing on. This document designs the *reactive* half of that seam — the policy that turns a goal into a step with no map — as the `Steerer` of `swarm/steering.py`, which is handed a goal as a relative vector and probes clearance one cell at a time. Where the robot *does* have a map of believed terrain — the quadtree of its own memory — the `Navigator` in front of it prefers a Dijkstra potential field and only calls the `Steerer` when that field cannot guide, so everything below still holds as the fallback path (see §10.1).
+> **A note on the architecture's `Navigator` port.** [`architecture.md`](./architecture.md) sketches a `Navigator.step_towards(target: CellId) -> Action`. The port in the code is two calls: `FieldProvider.field_for(name, robot, now)` hands out the `Guidance` of the objective field registered under that name, and `Navigator.step_towards(guidance, robot)` turns it into one `Move` (or `Idle`) and the target the robot reports. For a `FieldSeeder` the guidance is the potential field of the targets it scored, not a single trusted cell address. For the hop field it is a `Heading` instead (Section 7). A behaviour never calls either: it proposes `FollowField(name)`, and the brain steps along that field only for the winning candidate. The goal therefore *is* a set of cells — the module plans over the terrain the robot believes in, and the only absolute cell it trusts is the one it is standing on. This document designs the *reactive* half of that seam — the policy that turns a goal into a step with no map — as the `Steerer` of `swarm/steering.py`, which is handed a goal as a relative vector and probes clearance one cell at a time. Where the robot *does* have a map of believed terrain — the quadtree of its own memory — the `Navigator` in front of it prefers a Dijkstra potential field and only calls the `Steerer` when that field cannot guide, so everything below still holds as the fallback path (see §10.1).
 
 ---
 
@@ -87,16 +87,24 @@ class FieldSeeder(Protocol):
     def field_key(self, memory: MemoryView, robot: CellId, now: Time) -> Hashable: ...  # changes when the seeds do
     def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]: ...
 
+# swarm_field.swarm.guidance
+@dataclass(frozen=True)
+class Heading:
+    offset: Vector2       # relative, in cells, to the point the robot walks towards
+    target: CellId | None # the target the robot reports to its peers
+
+Guidance = SeededField | Heading
+
 # swarm_field.swarm.behavior
 @dataclass(frozen=True)
 class FollowField:
-    seeder: str           # the winning candidate's goal: step along this seeder's field
+    seeder: str           # the winning candidate's goal: step along the objective field of this name
 
 # swarm_field.swarm.provider.FieldProvider
-def field_for(self, seeder: str, robot: CellId, now: Time) -> SeededField | None: ...
+def field_for(self, name: str, robot: CellId, now: Time) -> Guidance | None: ...
 
 # swarm_field.swarm.navigator.Navigator
-def step_towards(self, seeded: SeededField, robot: CellId) -> Move | Idle: ...
+def step_towards(self, guidance: Guidance, robot: CellId) -> tuple[Move | Idle, CellId | None]: ...
 ```
 
 Design intent:
@@ -105,7 +113,7 @@ Design intent:
 - **No targets is a real answer.** A seeder with nothing worth walking to returns no seeds, `field_for` returns `None`, and the robot idles rather than inventing a target. Whether to re-issue or drop such an objective is the brain's (A.1) call, made from its own memory — navigation just holds still.
 - **The reactive fallback is handed a vector, not cells.** When a plan cannot guide, the module measures the offset from the robot to the cell it is walking towards and hands that `Vector2` to the `Steerer`, which needs nothing else (§3.1).
 
-There is deliberately no second goal shape — no "wander along a drift" and no "follow a chain" mode. A goal is a set of cells; how the robot gets there, and what it does when it cannot get there, is internal to A.3.
+There is one second goal shape, the `Heading`: a relative direction plus the target the robot reports. The `HopField` hands it out to follow a chain of beacons (Section 7), and the `Navigator` passes it straight to the `Steerer`. A seeder's goal is still a set of cells; how the robot gets there, and what it does when it cannot get there, is internal to A.3.
 
 ---
 
@@ -143,20 +151,20 @@ The situation at the start of the swarm:
 - Because no pest has been found, a utility robot has no target at all, so the seam returns `Idle` and it stays where it was deployed.
 - The scenario calls for a **spread**: A.1 draws one random drift vector per robot from the seeded RNG — for example *10 m west, 20 m north* — and the robot follows that heading, bouncing or sliding on the border (Section 5), until A.1 hands over real targets. Only a very small number of utility robots are deployed now, typically 1 or 2, possibly none.
 
-This has **no representation on the seam**: with no targets there is nothing for `step_towards` to walk towards, and a drift is not a target. No behaviour can do it today: an intent names a field to follow or an on-the-spot action, never a bare `Move`, so a drift would have to become targets of its own seeder, or a new intent. The `Steerer`'s `steer(drift, position)` is public and tested, should that intent be added. When the team decides this is worth building properly, the question is whether "spread" becomes a goal shape on the A.1 ↔ A.3 seam or a behaviour that sidesteps it. Recorded as an open decision (Section 12, #3).
+No behaviour does this today, but the seam can now carry it: a `Heading` is a direction rather than a target, and the `Navigator` hands it straight to the `Steerer`. A drift would be an `ObjectiveField` whose guidance is a `Heading` along the drift vector, followed through `FollowField` like any other field. When the team decides this is worth building properly, the question is whether "spread" becomes such a field on the A.1 ↔ A.3 seam or a behaviour that sidesteps it. Recorded as an open decision (Section 12, #3).
 
 The *purpose* of the random vector is to keep the few utility robots out of local optima and out of the truck's shadow: without it a "no goal" robot would just sit where it was spawned. A fixed drift per deployment also guarantees a spread that is reproducible for a given seed — two runs with the same seed deploy the same 1–2 utility robots drifting to the same places.
 
 ---
 
-## 7. Deferred: reaching a pest a peer discovered
+## 7. Reaching a pest a peer discovered
 
-Scenario 2 of the problem statement is the interesting one: an explorer finds the pest, and a *different* robot has to walk to it. Nothing on the seam today represents that, and an earlier design for it — a chain of hop numbers in which each explorer broadcasts its own hop plus the vector toward the next hop down, and the pursuer composes `r + v` into a target — was removed, because nothing ran it and the seam it needed was the seam this document no longer has. The two live options for A.4 (Communication & Knowledge), which owns pest knowledge, are:
+Scenario 2 of the problem statement is the interesting one: an explorer finds the pest, and a *different* robot has to walk to it. An earlier design for it, a chain of hop numbers in which the pursuer composed `r + v` into a target, was removed because nothing ran it. A hop chain is now back, as the second objective-field adapter next to the seeded field. Both options for A.4 (Communication & Knowledge), which owns pest knowledge, now run:
 
-- **Cells, not vectors.** The explorer that sees the pest writes the infested `CellId` into shared memory, and every robot believes it through the same merge path as any other map fact. Navigation is then unchanged: a seeder turns that cell into a `Seed` and the quadtree plans to it. This is what the code already expresses, and it costs one shared cell.
-- **A relative hop chain.** Explorers keep broadcasting a hop number plus a parent vector, and the pursuer composes a target from the freshest qualifying beacon. This keeps a robot from trusting a peer's absolute cell, at the cost of a second goal shape, a staleness rule, and a new protocol payload in A.4.
+- **Cells, not vectors.** The explorer that sees the pest writes the infested `CellId` into shared memory, and every robot believes it through the same merge path as any other map fact. Navigation is then unchanged: a seeder turns that cell into a `Seed` and the quadtree plans to it. This is `TreatInfestation` on the `TreatSeeder`, and it costs one shared cell.
+- **A hop chain.** Every robot broadcasts a TREAT hop value as a `Beacon`: 0 on the pest's cell if it saw the pest, and otherwise its own value on its own cell (`treat_beacon`). The `HopField` sums the pull of the beacons below the robot's own value into a `Heading`, and `TreatByBeacon` bids on those same beacons. A pursuer needs no pest cell in its memory, at the cost of a second goal shape, a staleness rule (`BeaconConfig.fresh_for`) and a new payload (`MessageKind.BEACON`). The design and its measurements are in [`research/hop-field.md`](research/hop-field.md).
 
-The trade is *trust a peer's cell* against *trust a peer's measurement plus a chain that has to stay fresh*. The cell version is what the seam expresses today, so it is the default until the team rules the absolute-address error of a peer unacceptable for pest response. Recorded as an open decision (Section 12, #2).
+The trade is *a pest cell every pursuer has to hold* against *a chain of relays that has to stay fresh*. A brain picks one by the behaviour and field its `BrainSpec` names, so the two can be benchmarked against each other in `tests/benchmark_pests.py`. Recorded as an open decision (Section 12, #2).
 
 The reactive `Steerer` does not care which way this goes: it is handed a `Vector2` to the cell being walked towards, so both options end in the same one-step `Move`. What they must both answer is *arrival* — a land robot cannot enter the crop cell holding the pest, so "the cell to walk to" and "the cell to stand in" are different cells, and the objective handing out the `Seed` has to know which one it means. That is open as well (Section 12, #5).
 
@@ -168,7 +176,7 @@ The walkthrough that used to live here is gone, but its hard half survives as te
 
 Every decision point, navigation runs one deterministic procedure:
 
-1. **Read the goal.** The winning candidate's `FollowField` names a seeder; `field_for` hands out its field. No targets → no field → `Idle`, done.
+1. **Read the goal.** The winning candidate's `FollowField` names an objective field; `field_for` hands out its guidance. No targets → no field → `Idle`, done. A `Heading` skips step 2 and goes straight to the reactive `Steerer`.
 2. **Ask the field first.** Build or reuse the potential field over the quadtree for those targets, and read the neighbouring cell it points at (Section 10.1).
    - **The field guides** — the target is reachable and the potential at the robot's cell still beats its running minimum. Step into that cell. The field is built once per block travelled, not once per step.
    - **The field cannot guide** — either no wave reaches the robot at all, or three ticks went by without progress, which is how a window's edge can make a robot turn back and forth over approximate leaf distances. Hand the relative offset to the reactive `Steerer`, which walks towards the most attractive target and stalls if it is walled off.
@@ -221,7 +229,7 @@ The policy, one physical action per decision point (Section 8): the goal is name
 
 The reactive policy described above assumes the robot has no map, only the clearance ring. A robot that also builds a local map does better with one: a Dijkstra potential field over the quadtree of its believed terrain (`swarm/field/`) gives a near-optimal route around every obstacle it knows, at any distance, and one step of that route is still just a `Move(to=<adjacent cell>)`. So `swarm/navigator.py` puts the field, from `swarm/provider.py`, in front of that policy, and the `Steerer` became the fallback rather than the way:
 
-- **The field guides.** `FieldProvider.field_for(seeder, robot, now)` builds (or reuses) the field for the seeder's targets, and `step_towards(seeded, robot)` returns the neighbouring cell the field points at. Distance to the target is irrelevant: a field is better than a wall-follow at every range, because it sees the whole window instead of one cell.
+- **The field guides.** `FieldProvider.field_for(name, robot, now)` builds (or reuses) the field for the seeder's targets, and `step_towards(guidance, robot)` returns the neighbouring cell the field points at. Distance to the target is irrelevant: a field is better than a wall-follow at every range, because it sees the whole window instead of one cell.
 - **The steerer guides when the field cannot.** Either no wave reaches the robot at all — nothing is reachable, so the steerer walks towards the objective's most attractive target and stalls if it is walled off — or the field stopped guiding: the potential at the robot's cell stopped beating its running minimum for a few ticks, which is how a robot near the edge of its window would turn back and forth over approximate leaf distances. Three ticks without progress is enough to hand over.
 - **The handover is not latched.** Every decision point the field is asked first, so the robot returns to the field route as soon as the field points forward again.
 
@@ -233,13 +241,13 @@ Two consequences for the design above. The policy is now a *fallback* with a nar
 
 | Neighbour | Gives to navigation | Expects from navigation |
 |---|---|---|
-| A.1 Decision Engine | the winner's `FollowField`, naming a registered `FieldSeeder`, each decision point | exactly one `Move` / `Idle`; nothing else |
+| A.1 Decision Engine | the winner's `FollowField`, naming a registered objective field, each decision point | exactly one `Move` / `Idle`; nothing else |
 | A.2 Memory | the terrain facts the quadtree is built from, and `Perception.self_state` (position) to name the `Move(to)` target cell (Section 3.1) | nothing directly |
-| A.4 Communication & Knowledge | — (pest knowledge reaches A.3 only as map facts, merged into A.2; see Section 7) | — |
+| A.4 Communication & Knowledge | — (pest knowledge reaches A.3 only through A.2: as map facts, or as heard beacons the `HopField` reads; see Section 7) | — |
 | B.2 Act / Simulation | (translation of the action into world movement) | `Move(to=CellId)` / `Idle`, exactly one |
 | C.1 Visualization | — (via `inspect()`) | short human-readable `explain` string for the "click a robot" panel |
 
-The boundary is deliberately narrow: A.1 is the *only* module that may put a goal in front of navigation, a goal is always a set of cells, and there is no channel back. A robot that is making no progress is a fact about the world that A.1 already holds — the robot's own position, tick by tick, in A.2 — so navigation does not need to report it. If that turns out not to be enough, the place to add a reason is `Idle` (Section 12, #8), not a second goal shape.
+The boundary is deliberately narrow: A.1 is the *only* module that may put a goal in front of navigation, a goal is a set of cells or a `Heading`, and there is no channel back. A robot that is making no progress is a fact about the world that A.1 already holds — the robot's own position, tick by tick, in A.2 — so navigation does not need to report it. If that turns out not to be enough, the place to add a reason is `Idle` (Section 12, #8), not a third goal shape.
 
 ---
 
@@ -250,7 +258,7 @@ All open items below are internal to A.3 (or a B.2 translation detail), so the m
 | # | Decision | Affects boundary? |
 |---|---|---|
 | 1 | **Heading hysteresis.** **Resolved (v1): no turn model.** The world's direct `Move(to=CellId)` removes grid snapping and turn hysteresis altogether; a straight run to a target shows no turning oscillation, and alignment ties break by fixed enum order | No |
-| 2 | **How a peer shares a pest location.** A shared `CellId` in the memory map, or a relative hop chain of broadcast vectors (Section 7). The cell is what the seam expresses today; the chain is what A.4 would have to carry | No — it decides what A.1 hands over, not the shape of the call |
+| 2 | **How a peer shares a pest location.** A shared `CellId` in the memory map, or a hop chain of broadcast `Beacon`s (Section 7). Both run now: the `TreatSeeder` for the cell, the `HopField` with `TreatByBeacon` for the chain, see [`research/hop-field.md`](research/hop-field.md). Which one to keep is open | No — both fit the `Guidance` the seam already carries |
 | 3 | **Spread on stuck detection.** Single drift per deployment vs. re-roll after a stuck timeout; who detects "stuck" (Section 6) | No |
 | 4 | **Robot–robot collisions.** Currently both bodies ignore the `occupant` cell field; land robots might later yield to each other | No |
 | 5 | **Arrival semantics at a target the body cannot enter.** Stop on the row edge (`STAND`) vs. continuous pursuit around it while it "lives". **Resolved: STAND** — the utility robot ends on the aisle cell next to the crop cell holding the pest, and treatment proceeds from there. **Not implemented**: the chase layer that owned this rule is gone, and the generic arrival rule (`target_tolerance`, 0.75 cells) only fires once the robot is *within* that distance, which a robot standing next to a crop cell never is. It has to land wherever targets become non-traversable cells | No |
@@ -258,7 +266,7 @@ All open items below are internal to A.3 (or a B.2 translation detail), so the m
 | 7 | *Removed with the explorer separation impulse (#37).* | — |
 | 8 | **Telling "arrived" from "walled off".** A `Seed` on a cell the body can never enter — a crop cell, a cell outside the field — produces no wave, so today the steerer wall-follows the row indefinitely and A.3 reports nothing (Section 10). Either the objective seeds the nearest cell the body *can* stand in, or the seam grows a reason on `Idle` | **Yes, if the seam grows a reason** |
 
-Every entry marked "Affects boundary? No" — the same success criterion as the decomposition doc: the A.1 ↔ A.3 seam (targets in, one action out) holds no matter which option the implementers pick. #8 is the one item that could still change it, and only by *adding* to the output, never by adding a second goal shape.
+Every entry marked "Affects boundary? No" — the same success criterion as the decomposition doc: the A.1 ↔ A.3 seam (targets in, one action out) holds no matter which option the implementers pick. #8 is the one item that could still change it, and only by *adding* to the output, never by adding a third goal shape.
 
 ---
 
@@ -283,4 +291,4 @@ flowchart TB
 ```
 
 - Navigation depends only on `contracts` and on the values its neighbours hand it behind that contract — it is unit-testable with hand-built `Seed`s and a hand-built terrain view, no simulation.
-- Navigation never reads ground truth, never picks its own target, and never sends `Message`s. A.4 is not in its dependency list at all: knowledge a peer shares reaches navigation only as map facts, merged into A.2 first (Section 7).
+- Navigation never reads ground truth, never picks its own target, and never sends `Message`s. A.4 is not in its dependency list at all: knowledge a peer shares reaches navigation only through A.2, as map facts or heard beacons (Section 7).

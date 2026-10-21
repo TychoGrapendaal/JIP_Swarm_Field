@@ -194,6 +194,7 @@ Action = Move | Turn | Sense | Treat | Charge | Idle
 class MessageKind(Enum):
     KNOWLEDGE = auto()          # belief-sharing ("what is there")
     STATUS    = auto()          # the sender's own position and current target
+    BEACON    = auto()          # hop values, as a tuple of Beacons ("how far to an objective")
     CLAIM     = auto()          # task lease, if the algorithm uses one
     STIGMERGY = auto()          # pheromone-style mark ("where to go")
 
@@ -204,7 +205,15 @@ class Message:
     kind: MessageKind
     payload: object             # opaque to B; A owns its shape. Must be serializable if A/B/C
                                 #   ever run as separate processes.
+
+@dataclass(frozen=True)
+class Beacon:                   # a BEACON payload item, relayed to guide robots to an objective
+    objective: AgentObjective
+    value: float                # hops to the objective, whole or metric; 0 is the objective itself
+    cell: CellId                # the sender's cell, or the objective's cell for a source
 ```
+
+`Beacon` sits in `contracts` because B sends one too: the mock pest sources of `PestSourceSpec` broadcast a TREAT beacon of 0 from each infested cell.
 
 ### 3.6 The per‑robot exchange (B ⇄ A)
 
@@ -340,6 +349,12 @@ class ScenarioConfig:
     host_match: bool                 # S3 spread modifier
     robots: list[RobotSpec]
     seed: int                        # determinism for reproducible benchmarks
+    pest_sources: PestSourceSpec | None   # mock broadcasts from every pest, standing in for an explorer above it
+
+@dataclass(frozen=True)
+class PestSourceSpec:
+    period: Time                     # time between two broadcasts
+    radio_range_m: float             # how far each broadcast reaches; infinite is an oracle
 
 @dataclass(frozen=True)
 class MetricsSample:
@@ -438,7 +453,7 @@ flowchart LR
 - **Requirements:** must handle obstacle avoidance and stay within movement constraints; must support both "go to a known target" and "explore the unknown / under‑observed".
 - **Consumes:** goal from A.1 + local map from A.2. **Provides:** a `Move` / `Turn` (or "arrived") to A.1.
 - **NOT its concern:** *choosing* the target (A.1); global path truth (it only has the local map).
-- **Status:** goal‑directed movement is implemented in A.3 as one seam on the `Navigator`: a behaviour proposes `FollowField(seeder)`, and for the winning candidate `step_towards(field_for(seeder, robot, now), robot)` returns one `Move` or `Idle`, with the field from the `FieldProvider`, which caches one field per seeder; a Dijkstra potential field over the quadtree of believed terrain guides the robot, and the reactive right‑hand wall‑following `Steerer` takes over whenever the field cannot guide (no reachable target, or following it stopped bringing the robot closer). Exploration runs on the same grid potential fields: the `ExploreSeeder` draws robots to the cells whose information is the stalest, see [`explore.md`](./explore.md).
+- **Status:** goal‑directed movement is implemented in A.3 as one seam on the `Navigator`: a behaviour proposes `FollowField(name)`, and for the winning candidate `step_towards(field_for(name, robot, now), robot)` returns one `Move` or `Idle`, with the `Guidance` from the `FieldProvider`, which holds one objective field per name; a Dijkstra potential field over the quadtree of believed terrain guides the robot, and the reactive right‑hand wall‑following `Steerer` takes over whenever the field cannot guide (no reachable target, or following it stopped bringing the robot closer). Exploration runs on the same grid potential fields: the `ExploreSeeder` draws robots to the cells whose information is the stalest, see [`explore.md`](./explore.md). A second objective field, the `HopField`, guides by a `Heading` the `Steerer` follows instead, see [`navigation-module.md`](./navigation-module.md) §7.
 - **Open decisions (team):** potential‑field vs. coverage‑control vs. other (mind map A.3 / lit review §3); whether exploration uses a separate algorithm from navigation.
 
 ### A.4 Communication & Knowledge
@@ -448,6 +463,7 @@ flowchart LR
 - **Consumes:** `inbox` from Perception + knowledge from A.2. **Provides:** `outbox` messages; merged updates back into A.2.
 - **NOT its concern:** *who* receives a message (B.3 owns range / delivery); rendering.
 - **Open decisions (team):** map‑merge (share specific points) vs. vicinity‑vector (share aggregated attraction / repulsion) — mind map A.3 / A.4. **This choice lives entirely inside the opaque `Message.payload` and does not affect any other module.**
+- **Status:** `ComposedAgent` broadcasts its `STATUS` every decision. It adds a `KNOWLEDGE` message with the facts its `KnowledgeSharing` selects. With a `BeaconConfig` it also broadcasts a `BEACON` message with its TREAT hop value. The beacons form a hop gradient towards a pest, which the `HopField` follows, see [`research/hop-field.md`](./research/hop-field.md).
 
 ---
 
@@ -478,6 +494,7 @@ Owns ground truth, drives time, delivers messages, defines scenarios, records me
 - **Requirements:** at a robot's broadcast, deliver the message immediately to every robot within the sender's radio range and append it to their inbox (read at the recipient's next decision); range is computed from robots' whole‑cell positions (radio range is fuzzy, so sub‑cell error is irrelevant); **treat payload as opaque**.
 - **Consumes:** `outbox` from each robot + robot positions from B.1. **Provides:** each robot's `inbox`.
 - **NOT its concern:** message *meaning* (A owns that); knowledge merging (A.4).
+- **Status:** `Channel.broadcast_from_cell` also delivers a message sent from a cell rather than a robot, for the mock pest sources of `PestSourceBroadcast`. Those messages are left out of the robots' message counts.
 - **Seam for later:** two‑tier radio / aerial relay / store‑and‑forward (lit review §2.4.4) refine this module only.
 
 ### B.4 Scenarios & Robots

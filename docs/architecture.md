@@ -105,11 +105,12 @@ The pluggable ports inside the brain:
 |---|---|---|
 | `Memory` | hold + decay the local belief map and self‑state | grid‑cell map, continuous markers, bounded LRU map |
 | `Behavior` | bid for what the robot does next: scored candidates carrying an intent, from the robot's state and memory; never from a field | scout‑coverage, treat‑nearest‑pest, return‑to‑charge |
+| `ObjectiveField` | turn memory into the `Guidance` for one objective, under a name a behaviour can follow | `SeededObjectiveField` (a Dijkstra field over a `FieldSeeder`), `HopField` (a `Heading` from hop beacons) |
 | `FieldSeeder` | turn memory into the targets (`Seed`s) of one potential field, and say when they change | TREAT pests, EXPLORE stale cells, RECHARGE docks |
 | `AgentObjective` | the stable objective a candidate serves, reported to peers with the robot's target | `TREAT`, `EXPLORE`, `VERIFY`, `RECHARGE` |
 | `Arbiter` | fuse candidates into one chosen action | max‑utility, weighted sum, priority with hysteresis |
-| `FieldProvider` | build the winner's field, which picks its target, and cache one per seeder, for the navigator | quadtree potential field, uniform grid |
-| `Navigator` | turn the winner's field into a concrete `Move` | potential‑field, coverage‑control, greedy‑grid |
+| `FieldProvider` | hold the quadtree and the objective fields by name, and hand out the winner's guidance, for the navigator | quadtree potential field, uniform grid |
+| `Navigator` | turn the winner's guidance into a concrete `Move` | potential‑field, coverage‑control, greedy‑grid |
 | `CommsStrategy` | decode inbox → memory, encode memory → outbox | map‑merge, vicinity‑vector, stigmergy marks |
 | `CapabilitySet` | declare which action types the body can perform | scout (senses), killer (Treat), battery (Charge) |
 
@@ -130,15 +131,26 @@ class FieldSeeder(Protocol):      # the targets of one potential field, register
     def field_key(self, memory: "MemoryView", robot: CellId, now: Time) -> Hashable: ...  # changes when the seeds do
     def seeds(self, memory: "MemoryView", robot: CellId, now: Time) -> tuple[Seed, ...]: ...
 
-class FieldProvider:              # holds the seeders and the quadtree, caches one field per seeder
-    def field_for(self, seeder: str, robot: CellId, now: Time) -> SeededField | None: ...
+@dataclass(frozen=True)
+class Heading:                    # a direction to walk in, rather than a route
+    offset: Vector2               # relative, in cells
+    target: CellId | None         # the target the robot reports to its peers
 
-class Navigator:                  # moves the winner along its field
-    def step_towards(self, seeded: SeededField, robot: CellId) -> Move | Idle: ...
+Guidance = SeededField | Heading  # a cost grid to plan along, or a heading for the Steerer
+
+class ObjectiveField(Protocol):   # guides the robot towards one objective, registered by name
+    name: str
+    def guidance_for(self, memory: "MemoryView", robot: CellId, now: Time) -> Guidance | None: ...
+
+class FieldProvider:              # holds the quadtree and the objective fields; each field caches its own
+    def field_for(self, name: str, robot: CellId, now: Time) -> Guidance | None: ...
+
+class Navigator:                  # moves the winner along its guidance
+    def step_towards(self, guidance: Guidance, robot: CellId) -> tuple[Move | Idle, CellId | None]: ...
 
 @dataclass(frozen=True)
-class FollowField:                # "step along this seeder's field"; only the navigator moves
-    seeder: str
+class FollowField:                # "step along this objective field"; only the navigator moves
+    seeder: str                   # the field's name
 
 Intent = FollowField | Treat | Charge | Idle   # what a behavior wants done; no bare Move
 
@@ -177,6 +189,8 @@ class CapabilitySet:
     capabilities: tuple[Capability, ...]
     def can(self, action_type: type[Action]) -> bool: ...
 ```
+
+**The guidance port.** An `ObjectiveField` turns the robot's memory into `Guidance` for one objective. Two adapters exist. `SeededObjectiveField` wraps a `FieldSeeder` and returns a `SeededField`, the Dijkstra potential field the `Navigator` plans along. `HopField` reads the hop beacons the robot heard and returns a `Heading`, which the `Navigator` hands straight to its `Steerer`. A brain picks one field per objective by name: a behaviour proposes `FollowField(name)`, and the runner registers that name in `SEEDERS` (a seeder, wrapped by the provider) or in `FIELDS` (any other objective field). Behaviours still never read a field: `TreatByBeacon` bids from the beacons in the robot's memory, not from the `HopField`. The hop field is described in [`research/hop-field.md`](research/hop-field.md).
 
 ### A.3 The orchestrator
 
@@ -230,6 +244,8 @@ flowchart TB
     OUT --> D
 ```
 
+In the code, communication is not a separate `CommsStrategy` part yet: `ComposedAgent` encodes and decodes its messages itself. Every decision it broadcasts a `STATUS` message with its cell and target. It adds a `KNOWLEDGE` message with the memory facts its `KnowledgeSharing` selects, which may be none. With a `BeaconConfig` it also broadcasts a `BEACON` message with its TREAT hop value from `treat_beacon`. Received beacons are kept in memory apart from the facts, so they are never gossiped on. `BrainSpec.sharing` and `BrainSpec.beacons` set both per robot.
+
 ### A.4 Assembly (data‑driven)
 
 Parts register under names; a `BrainSpec` names the parts to use; `build_agent` resolves them. Testing a different configuration is editing a spec, not code — and specs can come from a config file, so assembly can be dynamic.
@@ -253,6 +269,8 @@ class BrainSpec:
 def build_agent(spec: BrainSpec, body: BodyType, rng: Random) -> SwarmAgent:
     ...   # resolve names -> instances, build CapabilitySet from body, wire ComposedAgent
 ```
+
+The objective fields resolve the same way: each name in `BrainSpec.seeders` is looked up in `FIELDS` first, then in `SEEDERS`.
 
 ### A.5 How the brain grows (worked cases)
 
@@ -326,6 +344,7 @@ flowchart LR
 | `WorldTick` | advance infestation dynamics one step | itself, at the next coarse cadence |
 | `MetricSample` | record a metrics sample, and hand the world to the run's `Renderer` if it has one | itself, periodically |
 | `FailureCheck` | fail each live robot that draws a fault from `ctx.noise` | itself, at the next coarse cadence |
+| `PestSourceBroadcast` | broadcast each pest's infestation fact and a TREAT beacon of 0 from its own cell, through `Channel.broadcast_from_cell`, standing in for an explorer above it (`ScenarioConfig.pest_sources`) | itself, every `PestSourceSpec.period` |
 
 ### B.4 Keeping handlers uncoupled
 
