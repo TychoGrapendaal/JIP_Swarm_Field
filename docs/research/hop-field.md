@@ -8,54 +8,76 @@ An explorer that finds a pest has to bring a killer to it. The seeded approach s
 
 ## The model
 
+In one sentence: a robot walks in the weighted average direction of the nearby beacons that are closer to the pest than itself, where a beacon weighs more the fewer hops it is from the pest and the more recently it was heard.
+
 ### Beacons
 
-A **beacon** is a hop value for one objective, broadcast with the cell where it holds (`Beacon` in `contracts/messages.py`). A robot that saw a pest itself within `source_for` beacons 0 on the pest's cell. Every other robot relays: it beacons its own value on its own cell. Beacons travel in their own `BEACON` messages, are kept per sender in memory, and are never gossiped, so a pest's cell never travels further than one hop.
+A **beacon** is a message with three things in it: a hop number, a cell, and the time it was sent (`Beacon` in `contracts/messages.py`). Every robot broadcasts one beacon per decision.
 
-A robot's own value is the lowest fresh beacon it heard plus the hop to it:
+- A robot that saw a pest itself within `source_for` broadcasts hop number 0 on the pest's cell. It is the **source**.
+- Every other robot is a **relay**. It broadcasts its own hop number on its own cell.
 
-$$h_i = \min_{j} \left( h_j + c_{ij} \right), \qquad c_{ij} = \frac{\max\left(\lVert p_j - x_i \rVert,\; d_\text{min}\right)}{L}$$
+A robot remembers the newest beacon from each sender. A remembered beacon counts as long as it was sent within `fresh_for` and its hop number is at most `max_value`. These are the robot's **heard beacons**.
 
-| Symbol | Meaning |
-| --- | --- |
-| $h_i$ | The robot's own value at its cell $x_i$. A source has 0. |
-| $h_j$, $p_j$ | The value and cell of a beacon $j$ the robot heard within `fresh_for`. |
-| $c_{ij}$ | The cost of the hop to beacon $j$: 1 with integer hops, or the distance in radio ranges with metric hops (`hop_cells`). |
-| $L$ | `hop_cells`: the radio range in cells. |
-| $d_\text{min}$ | `min_hop_cells`: the distance a hop costs at least, one cell. |
+### A robot's own hop number
 
-Beacons above `max_value` are ignored, and a robot whose own value would exceed it beacons nothing.
+A robot's own hop number is the smallest "hop number of a heard beacon plus the cost of the hop to it":
 
-### From beacons to a direction
+$$\text{OwnHop}(\text{robot}) = \min_{\text{beacon} \,\in\, \text{Heard}} \Big( \text{Hop}(\text{beacon}) + \text{HopCost}(\text{robot}, \text{beacon}) \Big)$$
 
-The robot follows the **downhill beacons**: the fresh beacons below its own value and off its own cell. Each pulls the robot towards its cell with a strength that falls with its value and its age. A beacon sent by a killer pushes instead:
+$$\text{HopCost}(\text{robot}, \text{beacon}) = \frac{\max\big(\text{Distance}(\text{robot}, \text{beacon}),\ \text{MinHopDistance}\big)}{\text{RadioRange}}$$
 
-$$\mathbf{g}(x_i) = \sum_{j \in D_i \setminus K} s_j \, u_{ij} \;-\; \kappa \sum_{k \in D_i \cap K} s_k \, u_{ik}, \qquad s_j = \gamma^{h_j} e^{-(t - t_j)/\tau_b}, \qquad u_{ij} = \frac{p_j - x_i}{\lVert p_j - x_i \rVert}$$
+The cost of a hop is the distance to the beacon's cell in radio ranges, so a beacon at the edge of the radio range costs about 1 hop and one halfway costs about 0.5. A hop always costs at least `MinHopDistance` (one cell), so two robots on the same cell cannot hand each other the same value forever. With integer hops (no `hop_cells`) every hop costs exactly 1.
 
-| Symbol | Meaning |
-| --- | --- |
-| $\mathbf{g}(x_i)$ | The direction handed to the steerer, as a `Heading`. |
-| $D_i$ | The downhill beacons (`downhill_beacons`). |
-| $K$ | Beacons sent by killers, known from the senders' status messages. |
-| $s_j$ | The strength of beacon $j$ (`beacon_strength`). |
-| $\gamma$ | `gamma`, the hop discount. |
-| $t - t_j$, $\tau_b$ | The beacon's age and `decay`. |
-| $\kappa$ | `killer_repulsion`. |
+A relay broadcasts this own hop number, unless it is above `max_value`.
 
-`HopField` returns the heading towards the strongest attracting beacon's cell, and the existing `Steerer` walks it around obstacles. `TreatByBeacon` treats a pest the robot stands on, and otherwise bids the strongest downhill beacon's strength, so a killer commits only when the field has somewhere to send it. The supervisor's literal rule, "go to the robot with the next lower hop number", is the case of integer hops and $\kappa = 0$.
+### The direction a robot walks in
 
-### Parameters
+Only the heard beacons that are closer to the pest than the robot itself pull it. These are the **downhill beacons**: their hop number is below the robot's own, and they are not on the robot's own cell.
 
-| Parameter | Value in `hop repel` | Meaning |
+Each downhill beacon pulls the robot towards its cell with a strength:
+
+$$\text{Strength}(\text{beacon}) = \text{PullPerHop}^{\,\text{Hop}(\text{beacon})} \cdot e^{-\text{Age}(\text{beacon}) / \text{DecayTime}}$$
+
+A beacon at hop 0 pulls with strength 1, a beacon at hop 1 with 0.5, at hop 2 with 0.25, and so on (at `PullPerHop` = 0.5). A beacon heard one `DecayTime` ago pulls with $1/e \approx 0.37$ of that.
+
+The direction is the strength-weighted average of the directions to the downhill beacons:
+
+$$\text{Pull}(\text{robot}) = \sum_{\text{beacon} \,\in\, \text{Downhill}} \text{Sign}(\text{beacon}) \cdot \text{Strength}(\text{beacon}) \cdot \text{UnitVector}(\text{robot} \to \text{beacon})$$
+
+$$\text{Direction}(\text{robot}) = \frac{\text{Pull}(\text{robot})}{\lVert \text{Pull}(\text{robot}) \rVert}$$
+
+$\text{Sign}$ is $+1$ for a beacon sent by a relay or a source. For a beacon sent by another killer it is $-\text{KillerRepulsion}$: a killer closer to the pest pushes instead of pulls, so two killers do not walk to the same pest. Dividing by the length keeps only the direction, which is why a sum and an average point the same way.
+
+`HopField` hands the direction to the `Steerer` as a `Heading` towards the strongest attracting beacon's cell, and the steerer walks around obstacles on the way. `TreatByBeacon` bids to treat with the strength of that same strongest beacon, so a killer commits only when something pulls it.
+
+**Worked example.** A killer with own hop number 2.0 hears three beacons: a relay at hop 1.2 to the east, a relay at hop 1.5 to the north, and a relay at hop 2.4 to the west. The west one is not downhill. The east one pulls with $0.5^{1.2} = 0.44$, the north one with $0.5^{1.5} = 0.35$. The killer walks north-east, a little more towards the east than the north.
+
+### Obstacle beacons (optional)
+
+With `obstacle_repulsion` above 0, a robot whose direction runs it into a cell it cannot enter places an **obstacle beacon** on that cell. Obstacle beacons stay with the robot that placed them; they are never broadcast. Each pushes the robot away from its cell, within `obstacle_range_cells`:
+
+$$\text{Push}(\text{obstacle}) = \text{ObstacleRepulsion} \cdot e^{-\text{Age}(\text{obstacle}) / \text{ObstacleDecayTime}} \cdot \Big(1 - \frac{\text{Distance}(\text{robot}, \text{obstacle})}{\text{ObstacleRange}}\Big)$$
+
+The pushes are added to $\text{Pull}(\text{robot})$, each along $\text{UnitVector}(\text{obstacle} \to \text{robot})$, before the direction is taken.
+
+### Names in the formulas and in the code
+
+| Name in the formulas | `BeaconConfig` field | Value in `hop repel` |
 | --- | --- | --- |
-| `fresh_for` | 1 min | How long a heard beacon counts. |
-| `source_for` | 1 min | How long a robot that saw a pest stays its source. |
-| `gamma` | 0.5 | Hop discount of a beacon's pull. |
-| `decay` | 1 min | Decay time of a beacon's pull with age. |
-| `hop_cells` | 2 cells | Metric hops: one radio range of 20 m on 10 m cells. |
-| `min_hop_cells` | 1 cell | The least a hop costs. |
-| `max_value` | 4.3 | The cap, where a beacon's strength falls below 0.05. |
-| `killer_repulsion` | 2 | How hard a killer's beacon pushes. |
+| `fresh_for` | `fresh_for` | 1 min |
+| `source_for` | `source_for` | 1 min |
+| `max_value` | `max_value` | 4.3 hops |
+| RadioRange | `hop_cells` | 2 cells (20 m on 10 m cells) |
+| MinHopDistance | `min_hop_cells` | 1 cell |
+| PullPerHop | `gamma` | 0.5 |
+| DecayTime | `decay` | 1 min |
+| KillerRepulsion | `killer_repulsion` | 2 |
+| ObstacleRepulsion | `obstacle_repulsion` | 0 (off) |
+| ObstacleRange | `obstacle_range_cells` | 3 cells |
+| ObstacleDecayTime | `obstacle_decay` | 10 min |
+
+The supervisor's literal rule, "go to the robot with the next lower hop number", is the case of integer hops and no killer repulsion: only beacons at the lowest hop number are downhill, and they pull equally apart from their age.
 
 ## The scenario
 
