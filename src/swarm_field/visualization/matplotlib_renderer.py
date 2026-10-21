@@ -8,7 +8,8 @@ the ``visualization`` package) does not require matplotlib to be installed.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -26,6 +27,24 @@ BODY_COLORS: dict[BodyType, str] = {
     BodyType.KILLER: "crimson",
     BodyType.BATTERY: "goldenrod",
 }
+
+
+@dataclass(frozen=True)
+class RobotStyle:
+    """How the robots of one body are drawn.
+
+    Attributes:
+        color: The marker colour.
+        size: The marker area in points squared.
+        alpha: The marker opacity, from 0 to 1.
+        label: The legend name, or ``None`` for the body's name.
+    """
+
+    color: str
+    size: float = 26.0
+    alpha: float = 1.0
+    label: str | None = None
+
 
 _OBSTACLE_RGB: RGB = (0.35, 0.35, 0.35)
 _BARE_SOIL_RGB: RGB = (0.85, 0.80, 0.68)
@@ -90,6 +109,8 @@ class MatplotlibRenderer:
         axes: The single axes the snapshot is drawn on.
         show_targets: Whether to draw a line from each robot to its movement target.
         show_metrics: Whether to write the snapshot's metrics into the title.
+        body_styles: How each body's robots are drawn; a body without a style is drawn in its
+            ``BODY_COLORS`` colour.
     """
 
     def __init__(
@@ -97,6 +118,7 @@ class MatplotlibRenderer:
         figsize: tuple[float, float] = (9.0, 7.0),
         show_targets: bool = True,
         show_metrics: bool = True,
+        body_styles: Mapping[BodyType, RobotStyle] | None = None,
     ) -> None:
         import matplotlib.pyplot as plt
 
@@ -105,6 +127,11 @@ class MatplotlibRenderer:
         self.figure, self.axes = plt.subplots(figsize=figsize)
         self.show_targets: bool = show_targets
         self.show_metrics: bool = show_metrics
+        self.body_styles: dict[BodyType, RobotStyle] = {}
+        for body in BodyType:
+            self.body_styles[body] = RobotStyle(BODY_COLORS[body])
+        if body_styles is not None:
+            self.body_styles.update(body_styles)
 
     def render(self, snapshot: WorldSnapshot) -> None:
         """Redraw the axes from ``snapshot``."""
@@ -142,11 +169,13 @@ class MatplotlibRenderer:
     def _draw_robots(self, snapshot: WorldSnapshot) -> None:
         """Scatter live robots by body type, failed ones hollow, and link each to its target."""
         for body in BodyType:
+            style = self.body_styles[body]
             robots = [robot for robot in snapshot.robots if robot.body is body]
             live = [robot for robot in robots if not robot.failed]
             dead = [robot for robot in robots if robot.failed]
+            name = style.label if style.label is not None else body.name
             for group, color, filled in (
-                (live, BODY_COLORS[body], True),
+                (live, style.color, True),
                 (dead, _FAILED_COLOR, False),
             ):
                 if not group:
@@ -154,12 +183,13 @@ class MatplotlibRenderer:
                 self.axes.scatter(
                     [robot.position[0] + 0.5 for robot in group],
                     [robot.position[1] + 0.5 for robot in group],
-                    s=26,
+                    s=style.size,
                     color=color,
                     facecolors=color if filled else "none",
                     edgecolors=color,
                     linewidths=1.4,
-                    label=f"{body.name} ({len(group)})",
+                    alpha=style.alpha,
+                    label=f"{name} ({len(group)})",
                     zorder=2 if filled else 1,
                 )
             if self.show_targets:
@@ -174,7 +204,7 @@ class MatplotlibRenderer:
                                 robot.position[1] + 0.5,
                                 robot.target[1] + 0.5,
                             ],
-                            color=BODY_COLORS[body],
+                            color=style.color,
                             linewidth=0.8,
                             alpha=0.6,
                         )

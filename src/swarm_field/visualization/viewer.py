@@ -7,6 +7,8 @@ viewer knows nothing of the simulation or the algorithm:
 - an overlay: one value from 0 to 1 per cell, e.g. how stale each cell is;
 - trails: the last cells each robot stood on;
 - goals: a dashed line from each robot to the cell it is heading for;
+- arrows: any arrows between points of the field, e.g. the pull on a robot;
+- markers: labelled dots at points of the field, e.g. what a robot knows;
 - a text panel: lines describing the run, e.g. its metrics.
 
 The animation opens in a window, or is saved through ``save_frames``: a ``.gif``, an ``.mp4`` or a
@@ -17,16 +19,17 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
 from numpy.typing import NDArray
 
-from swarm_field.contracts import CellId, RobotId, Time, WorldSnapshot
+from swarm_field.contracts import BodyType, CellId, RobotId, Time, WorldSnapshot
 from swarm_field.visualization.matplotlib_renderer import (
-    BODY_COLORS,
     MatplotlibRenderer,
+    RobotStyle,
     save_frames,
 )
 
@@ -43,8 +46,54 @@ PanelSource = Callable[[WorldSnapshot], Sequence[str]]
 """The lines of the text panel."""
 
 
+@dataclass(frozen=True)
+class Arrow:
+    """An arrow between two points of the field, in cells; a cell's centre is ``x + 0.5``.
+
+    Attributes:
+        start: Where the arrow starts.
+        end: Where its head is.
+        color: Its colour.
+        width: Its line width in points.
+        alpha: Its opacity, from 0 to 1.
+    """
+
+    start: tuple[float, float]
+    end: tuple[float, float]
+    color: str
+    width: float = 1.0
+    alpha: float = 1.0
+
+
+ArrowSource = Callable[[WorldSnapshot], Sequence[Arrow]]
+"""The arrows to draw on a frame."""
+
+
+@dataclass(frozen=True)
+class Marker:
+    """A dot at a point of the field, in cells, with an optional label next to it.
+
+    Attributes:
+        position: Where the dot is.
+        color: Its colour.
+        size: Its area in points squared.
+        label: Text written next to it, or ``None``.
+    """
+
+    position: tuple[float, float]
+    color: str
+    size: float = 30.0
+    label: str | None = None
+
+
+MarkerSource = Callable[[WorldSnapshot], Sequence[Marker]]
+"""The markers to draw on a frame."""
+
+
 class SimulationViewer:
     """Draws frames of a running simulation, with optional overlay, trails, goals and panel.
+
+    A ``title`` is written above the renderer's own title, e.g. to name an experiment in a video.
 
     Attributes:
         renderer: Draws the snapshot itself; its figure and axes are the viewer's.
@@ -61,8 +110,14 @@ class SimulationViewer:
         panel: PanelSource | None = None,
         trail_length: int = 30,
         figsize: tuple[float, float] = (12.0, 8.0),
+        arrows: ArrowSource | None = None,
+        markers: MarkerSource | None = None,
+        body_styles: Mapping[BodyType, RobotStyle] | None = None,
+        title: str = "",
     ) -> None:
-        self.renderer: MatplotlibRenderer = MatplotlibRenderer(figsize, show_targets=False)
+        self.renderer: MatplotlibRenderer = MatplotlibRenderer(
+            figsize, show_targets=False, body_styles=body_styles
+        )
         self.trail_length: int = trail_length
         self._source: SnapshotSource = source
         self._overlay: CellOverlay | None = overlay
@@ -70,6 +125,9 @@ class SimulationViewer:
         self._overlay_colormap: str = overlay_colormap
         self._goals: GoalSource | None = goals
         self._panel: PanelSource | None = panel
+        self._arrows: ArrowSource | None = arrows
+        self._markers: MarkerSource | None = markers
+        self._title: str = title
         self._trails: dict[RobotId, deque[CellId]] = {}
         self.renderer.figure.subplots_adjust(right=0.68)
         self._panel_text: Text = self.renderer.figure.text(
@@ -99,6 +157,10 @@ class SimulationViewer:
                 axes.set_title(f"{axes.get_title()}\noverlay: {self._overlay_label}")
         self._draw_trails(snapshot)
         self._draw_goals(snapshot)
+        self._draw_markers(snapshot)
+        self._draw_arrows(snapshot)
+        if self._title:
+            axes.set_title(f"{self._title}\n{axes.get_title()}")
         if self._panel is not None:
             self._panel_text.set_text("\n".join(self._panel(snapshot)))
 
@@ -132,7 +194,8 @@ class SimulationViewer:
                 trail.append(robot.position)
             xs = [cell[0] + 0.5 for cell in trail]
             ys = [cell[1] + 0.5 for cell in trail]
-            self.renderer.axes.plot(xs, ys, color=BODY_COLORS[robot.body], alpha=0.5, linewidth=1)
+            color = self.renderer.body_styles[robot.body].color
+            self.renderer.axes.plot(xs, ys, color=color, alpha=0.5, linewidth=1)
 
     def _draw_goals(self, snapshot: WorldSnapshot) -> None:
         """Draw a dashed line from each robot to the cell it is heading for."""
@@ -143,13 +206,52 @@ class SimulationViewer:
             goal = goals.get(robot.robot_id)
             if goal is None:
                 continue
+            color = self.renderer.body_styles[robot.body].color
             self.renderer.axes.plot(
                 [robot.position[0] + 0.5, goal[0] + 0.5],
                 [robot.position[1] + 0.5, goal[1] + 0.5],
-                color=BODY_COLORS[robot.body],
+                color=color,
                 linestyle="--",
                 linewidth=0.8,
             )
-            self.renderer.axes.scatter(
-                [goal[0] + 0.5], [goal[1] + 0.5], marker="x", color=BODY_COLORS[robot.body]
+            self.renderer.axes.scatter([goal[0] + 0.5], [goal[1] + 0.5], marker="x", color=color)
+
+    def _draw_markers(self, snapshot: WorldSnapshot) -> None:
+        """Draw the markers of the frame, above the robots, each with its label."""
+        if self._markers is None:
+            return
+        axes = self.renderer.axes
+        for marker in self._markers(snapshot):
+            x, y = marker.position
+            axes.scatter(
+                [x], [y], s=marker.size, color=marker.color, edgecolors="black", zorder=2.5
+            )
+            if marker.label is not None:
+                axes.annotate(
+                    marker.label,
+                    (x, y),
+                    xytext=(4, 4),
+                    textcoords="offset points",
+                    fontsize=8,
+                    zorder=2.5,
+                )
+
+    def _draw_arrows(self, snapshot: WorldSnapshot) -> None:
+        """Draw the arrows of the frame, above the robots."""
+        if self._arrows is None:
+            return
+        for arrow in self._arrows(snapshot):
+            self.renderer.axes.annotate(
+                "",
+                xy=arrow.end,
+                xytext=arrow.start,
+                arrowprops={
+                    "arrowstyle": "-|>",
+                    "color": arrow.color,
+                    "lw": arrow.width,
+                    "alpha": arrow.alpha,
+                    "shrinkA": 0,
+                    "shrinkB": 0,
+                },
+                zorder=3,
             )

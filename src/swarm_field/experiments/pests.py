@@ -172,16 +172,30 @@ class PestScenario:
 
         A lattice has as many columns as rows, or one more. Each robot starts in its slot's
         centre, moved by up to ``lattice_jitter`` of the pitch along each axis. The jitter is
-        drawn from its own ``Random(seed)``, so the run's random streams are untouched.
+        drawn from its own ``Random(seed)``, so the run's random streams are untouched. A start
+        on an obstacle moves to the nearest free cell.
         """
         jitter = Random(self.seed)
-        starts = self._jittered_lattice(self.scouts, jitter)
-        starts.extend(self._jittered_lattice(self.killers, jitter))
+        lattice = self._jittered_lattice(self.scouts, jitter)
+        lattice.extend(self._jittered_lattice(self.killers, jitter))
         blocked = set(self.blocked_cells())
-        for cell in starts:
-            if cell in blocked:
-                raise ValueError(f"the lattice start {cell} is an obstacle")
+        starts: list[CellId] = []
+        for cell in lattice:
+            starts.append(self._nearest_free_cell(cell, blocked))
         return starts
+
+    def _nearest_free_cell(self, cell: CellId, blocked: set[CellId]) -> CellId:
+        """``cell`` if it is free, else the nearest free cell, searched ring by ring."""
+        for radius in range(self.size):
+            for dx in range(-radius, radius + 1):
+                for dy in range(-radius, radius + 1):
+                    if max(abs(dx), abs(dy)) != radius:
+                        continue
+                    candidate = (cell[0] + dx, cell[1] + dy)
+                    inside = 0 <= candidate[0] < self.size and 0 <= candidate[1] < self.size
+                    if inside and candidate not in blocked:
+                        return candidate
+        raise ValueError("the field has no free cell")
 
     def _jittered_lattice(self, robots: int, jitter: Random) -> list[CellId]:
         """``robots`` cells on a lattice over the field, each moved at random within its slot."""

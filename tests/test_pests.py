@@ -16,3 +16,11 @@ def test_lattice_starts_are_inside_the_field_and_reproducible() -> None:
         assert 0 <= y < RELAYED_KILLERS.size
     assert RELAYED_KILLERS.starts() == starts
     assert replace(RELAYED_KILLERS, seed=1).starts() != starts
+
+
+def test_lattice_starts_avoid_obstacles() -> None:
+    scenario = replace(RELAYED_KILLERS, obstacles=None, scouts=64, killers=1)
+    blocked = set(scenario.blocked_cells())
+
+    for cell in scenario.starts():
+        assert cell not in blocked

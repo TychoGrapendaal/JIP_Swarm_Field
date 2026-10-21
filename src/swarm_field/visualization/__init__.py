@@ -11,15 +11,19 @@ from swarm_field.contracts import Renderer
 from swarm_field.visualization.matplotlib_renderer import (
     FrameWriter,
     MatplotlibRenderer,
+    RobotStyle,
     save_frames,
 )
 from swarm_field.visualization.renderer import TextRenderer
-from swarm_field.visualization.viewer import SimulationViewer
+from swarm_field.visualization.viewer import Arrow, Marker, SimulationViewer
 
 __all__ = [
+    "Arrow",
     "FrameWriter",
+    "Marker",
     "MatplotlibRenderer",
     "Renderer",
+    "RobotStyle",
     "SimulationViewer",
     "TextRenderer",
     "save_frames",
