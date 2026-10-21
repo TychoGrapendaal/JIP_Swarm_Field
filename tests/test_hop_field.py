@@ -1,8 +1,8 @@
 """Tests for the hop field and the pest response on hop beacons."""
 
 from swarm_field.contracts import (
-    AgentObjective,
     Beacon,
+    BeaconKind,
     BodyType,
     CellId,
     FieldGeometry,
@@ -14,6 +14,8 @@ from swarm_field.contracts import (
     PeerObservation,
     Perception,
     RobotSelfState,
+    Terrain,
+    TerrainObservation,
     Treat,
 )
 from swarm_field.swarm import (
@@ -30,6 +32,7 @@ from swarm_field.swarm import (
     UtilityArbiter,
     treat_beacon,
 )
+from swarm_field.swarm.hop_field import cell_ahead
 
 _FIELD = FieldGeometry(width=10, height=10, cell_size=10.0, row_sp=0.0, in_row_sp=0.0, headland=0.0)
 _CONFIG = BeaconConfig()
@@ -38,7 +41,7 @@ _CONFIG = BeaconConfig()
 def _memory_hearing(*beacons: tuple[float, CellId]) -> AgentMemory:
     memory = AgentMemory(1, _FIELD)
     for sender, (value, cell) in enumerate(beacons, start=2):
-        memory.hear_beacons(sender, 0, [Beacon(AgentObjective.TREAT, value, cell)])
+        memory.hear_beacons(sender, 0, [Beacon(BeaconKind.TREAT, value, cell)])
     return memory
 
 
@@ -113,7 +116,7 @@ def test_a_hop_killer_steps_towards_the_beacon_it_hears() -> None:
         sender=2,
         sent_at=0,
         kind=MessageKind.BEACON,
-        payload=(Beacon(AgentObjective.TREAT, 0.0, (5, 0)),),
+        payload=(Beacon(BeaconKind.TREAT, 0.0, (5, 0)),),
     )
 
     decision = killer.decide(
@@ -152,7 +155,7 @@ def test_two_robots_on_one_cell_do_not_hold_each_others_value() -> None:
     beacon = treat_beacon(memory, 1, (0, 0), 0, BeaconConfig(hop_cells=2.0))
 
     assert heading is None
-    assert beacon == Beacon(AgentObjective.TREAT, 3.5, (0, 0))
+    assert beacon == Beacon(BeaconKind.TREAT, 3.5, (0, 0))
 
 
 def test_beacons_above_the_cap_are_ignored_and_not_relayed() -> None:
@@ -161,7 +164,7 @@ def test_beacons_above_the_cap_are_ignored_and_not_relayed() -> None:
     assert treat_beacon(_memory_hearing((4.5, (1, 0))), 1, (0, 0), 0, capped) is None
     assert treat_beacon(_memory_hearing((3.5, (1, 0))), 1, (0, 0), 0, capped) is None
     assert treat_beacon(_memory_hearing((3.0, (1, 0))), 1, (0, 0), 0, capped) == Beacon(
-        AgentObjective.TREAT, 4.0, (0, 0)
+        BeaconKind.TREAT, 4.0, (0, 0)
     )
 
 
@@ -201,3 +204,51 @@ def test_a_robot_does_not_bid_when_only_a_killer_is_downhill() -> None:
 
     assert TreatByBeacon(BeaconConfig(killer_repulsion=1.0)).propose(ctx) == ()
     assert TreatByBeacon(_CONFIG).propose(ctx) != ()
+
+
+def test_the_cell_ahead_is_the_neighbour_along_the_offset() -> None:
+    assert cell_ahead((5, 5), (3.0, 0.2)) == (6, 5)
+    assert cell_ahead((5, 5), (2.0, 2.1)) == (6, 6)
+    assert cell_ahead((5, 5), (-0.1, -4.0)) == (5, 4)
+
+
+def test_an_obstacle_beacon_turns_the_heading_away_from_it() -> None:
+    memory = _memory_hearing((1.0, (5, 0)))
+    memory.place_obstacle_beacon((1, 1), 0, 1.0)
+
+    heading = HopField(BeaconConfig(obstacle_repulsion=1.0)).guidance_for(memory, (0, 0), 0)
+
+    assert heading is not None
+    assert heading.offset[0] > 0
+    assert heading.offset[1] < 0
+
+
+def test_a_heading_into_a_wall_leaves_an_obstacle_beacon_on_it() -> None:
+    config = BeaconConfig(obstacle_repulsion=1.0)
+    memory = AgentMemory(1, _FIELD)
+    wall = TerrainObservation(
+        cell=(1, 0), confidence=1.0, observed_at=0, source=1, terrain=Terrain.OBSTACLE
+    )
+    memory.merge([wall])
+    fields = FieldProvider(memory, flies=False, fields=[HopField(config)])
+    killer = ComposedAgent(
+        robot_id=1,
+        behaviors=[TreatByBeacon(config)],
+        memory=memory,
+        fields=fields,
+        navigator=Navigator(fields.quadtree),
+        arbiter=UtilityArbiter(),
+        sharing=KnowledgeSharing.NOTHING,
+        beacons=config,
+    )
+    beacon = Message(
+        sender=2,
+        sent_at=0,
+        kind=MessageKind.BEACON,
+        payload=(Beacon(BeaconKind.TREAT, 0.0, (5, 0)),),
+    )
+
+    killer.decide(Perception(time=0, self_state=_self_state((0, 0)), sensed=[], inbox=[beacon]))
+
+    placed = [heard.beacon.cell for heard in memory.beacons(BeaconKind.OBSTACLE)]
+    assert placed == [(1, 0)]

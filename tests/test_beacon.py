@@ -1,8 +1,8 @@
 """Tests for hop beacons: sources, relaying and freshness."""
 
 from swarm_field.contracts import (
-    AgentObjective,
     Beacon,
+    BeaconKind,
     BodyType,
     CellId,
     FieldGeometry,
@@ -79,7 +79,7 @@ def test_relays_count_the_hops_from_the_source() -> None:
         sender=-1,
         sent_at=0,
         kind=MessageKind.BEACON,
-        payload=(Beacon(AgentObjective.TREAT, 0.0, (9, 9)),),
+        payload=(Beacon(BeaconKind.TREAT, 0.0, (9, 9)),),
     )
 
     received = [source]
@@ -91,9 +91,9 @@ def test_relays_count_the_hops_from_the_source() -> None:
         beacons.extend(message.payload)
 
     assert beacons == [
-        Beacon(AgentObjective.TREAT, 1.0, (8, 8)),
-        Beacon(AgentObjective.TREAT, 2.0, (6, 6)),
-        Beacon(AgentObjective.TREAT, 3.0, (4, 4)),
+        Beacon(BeaconKind.TREAT, 1.0, (8, 8)),
+        Beacon(BeaconKind.TREAT, 2.0, (6, 6)),
+        Beacon(BeaconKind.TREAT, 3.0, (4, 4)),
     ]
 
 
@@ -103,7 +103,7 @@ def test_a_stale_beacon_is_not_relayed() -> None:
         sender=-1,
         sent_at=0,
         kind=MessageKind.BEACON,
-        payload=(Beacon(AgentObjective.TREAT, 0.0, (9, 9)),),
+        payload=(Beacon(BeaconKind.TREAT, 0.0, (9, 9)),),
     )
     assert _beacon_messages(relay, _perception(1, (8, 8), 0, [source])) != []
 
@@ -118,4 +118,4 @@ def test_a_robot_that_sees_a_pest_is_its_source() -> None:
 
     (message,) = _beacon_messages(_relay(1), _perception(1, (3, 3), sensed=[pest]))
 
-    assert message.payload == (Beacon(AgentObjective.TREAT, 0.0, (3, 3)),)
+    assert message.payload == (Beacon(BeaconKind.TREAT, 0.0, (3, 3)),)

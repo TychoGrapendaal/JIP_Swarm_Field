@@ -4,16 +4,19 @@ The robot's own value is the lowest fresh beacon it heard plus the hop to it (``
 fresh beacon below that value attracts the robot towards its cell, with its
 ``beacon_strength``. The sum of those attractions is the robot's ``Heading``. The field reads
 only beacons, never a pest's cell. With ``killer_repulsion``, a killer's beacon pushes
-instead.
+instead, and with ``obstacle_repulsion`` the obstacle beacons the robot placed push it too.
 """
 
 from dataclasses import dataclass
-from math import hypot
+from math import copysign, exp, hypot, radians, sin
 
-from swarm_field.contracts import BodyType, CellId, RobotId, Time, Vector2
+from swarm_field.contracts import BeaconKind, BodyType, CellId, RobotId, Time, Vector2
 from swarm_field.swarm.beacon import BeaconConfig, beacon_strength, downhill_beacons
 from swarm_field.swarm.guidance import Heading
 from swarm_field.swarm.memory import HeardBeacon, MemoryView
+
+_SIN_22_5 = sin(radians(22.5))
+"""Half the angle between two of the eight directions, as the sine that separates them."""
 
 
 class HopField:
@@ -62,8 +65,8 @@ def hop_pull(memory: MemoryView, robot: CellId, now: Time, config: BeaconConfig)
     """The pull of the ``downhill_beacons``, or ``None`` if no beacon attracts the robot.
 
     A killer's beacon pushes with ``killer_repulsion`` times its strength instead, so that a
-    killer closer to the pest counters the pull towards it. Pulls that cancel out exactly
-    count as no pull.
+    killer closer to the pest counters the pull towards it, and the ``obstacle_push`` is added.
+    Pulls that cancel out exactly count as no pull.
     """
     killers: set[RobotId] = set()
     if config.killer_repulsion > 0:
@@ -84,9 +87,54 @@ def hop_pull(memory: MemoryView, robot: CellId, now: Time, config: BeaconConfig)
         if strength > strongest_strength:
             strongest = heard
             strongest_strength = strength
-    if strongest is None or hypot(pull_x, pull_y) == 0:
+    if strongest is None:
+        return None
+    push_x, push_y = obstacle_push(memory, robot, now, config)
+    pull_x += push_x
+    pull_y += push_y
+    if hypot(pull_x, pull_y) == 0:
         return None
     return HopPull(vector=(pull_x, pull_y), strongest=strongest, strength=strongest_strength)
+
+
+def obstacle_push(memory: MemoryView, robot: CellId, now: Time, config: BeaconConfig) -> Vector2:
+    """The summed push of the obstacle beacons within ``obstacle_range_cells`` of the robot.
+
+    Each pushes away from its cell with its value as strength, falling linearly to nothing at
+    the range and decaying with age. An obstacle beacon on the robot's own cell pushes in no
+    direction.
+    """
+    push_x = 0.0
+    push_y = 0.0
+    for heard in memory.beacons(BeaconKind.OBSTACLE):
+        dx = heard.beacon.cell[0] - robot[0]
+        dy = heard.beacon.cell[1] - robot[1]
+        distance = hypot(dx, dy)
+        if distance == 0 or distance >= config.obstacle_range_cells:
+            continue
+        falloff = 1 - distance / config.obstacle_range_cells
+        age = now - heard.sent_at
+        push = heard.beacon.value * exp(-age / config.obstacle_decay) * falloff
+        push_x -= push * dx / distance
+        push_y -= push * dy / distance
+    return (push_x, push_y)
+
+
+def cell_ahead(robot: CellId, offset: Vector2) -> CellId:
+    """The neighbouring cell the robot would step into along ``offset``, of the eight around it.
+
+    A component counts as a step when it is more than ``sin(22.5°)`` of the offset's length,
+    so the eight directions each cover an equal angle.
+    """
+    length = hypot(offset[0], offset[1])
+    step_x = 0
+    step_y = 0
+    if length > 0:
+        if abs(offset[0]) / length > _SIN_22_5:
+            step_x = int(copysign(1, offset[0]))
+        if abs(offset[1]) / length > _SIN_22_5:
+            step_y = int(copysign(1, offset[1]))
+    return (robot[0] + step_x, robot[1] + step_y)
 
 
 def _killers(memory: MemoryView) -> set[RobotId]:

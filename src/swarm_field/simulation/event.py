@@ -13,8 +13,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
 from swarm_field.contracts import (
-    AgentObjective,
     Beacon,
+    BeaconKind,
     CellId,
     FailureMode,
     FailureSpec,
@@ -253,7 +253,7 @@ class PestSourceBroadcast:
             Message(sender=source, sent_at=self.time, kind=MessageKind.KNOWLEDGE, payload=(fact,))
         ]
         if severity > 0.0:
-            beacon = Beacon(AgentObjective.TREAT, 0.0, cell)
+            beacon = Beacon(BeaconKind.TREAT, 0.0, cell)
             messages.append(
                 Message(
                     sender=source, sent_at=self.time, kind=MessageKind.BEACON, payload=(beacon,)

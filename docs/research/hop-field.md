@@ -61,6 +61,13 @@ $$\text{Push}(\text{obstacle}) = \text{ObstacleRepulsion} \cdot e^{-\text{Age}(\
 
 The pushes are added to $\text{Pull}(\text{robot})$, each along $\text{UnitVector}(\text{obstacle} \to \text{robot})$, before the direction is taken.
 
+### Escaping and walkable links (optional)
+
+Two more local rules help a killer past obstacles; both are off by default.
+
+- **Escape** (`BeaconConfig.escape`). A killer whose own hop number has not come down by `progress_hops` within `stuck_window` places an obstacle beacon on its own cell. Each further time it is stuck before making progress, the next one pushes `escape_boost` times harder.
+- **Walkable links** (`walkable_links`). A robot ignores a beacon whose straight line from its own cell crosses a known obstacle, so hop numbers spread only along ground a killer can walk. Without it, radio crosses a river and the hop numbers on the near bank point straight across the water.
+
 ### Names in the formulas and in the code
 
 | Name in the formulas | `BeaconConfig` field | Value in `hop repel` |

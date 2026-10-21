@@ -41,6 +41,9 @@ from swarm_field.swarm.behavior import (
     FollowField,
     Intent,
 )
+from swarm_field.swarm.escape import StuckEscape
+from swarm_field.swarm.guidance import Heading
+from swarm_field.swarm.hop_field import cell_ahead
 from swarm_field.swarm.memory import AgentMemory
 from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.provider import FieldProvider
@@ -98,6 +101,9 @@ class ComposedAgent:
         self.arbiter: Arbiter = arbiter
         self.sharing: KnowledgeSharing = sharing
         self.beacons: BeaconConfig | None = beacons
+        self._escape: StuckEscape | None = None
+        if beacons is not None and beacons.escape is not None:
+            self._escape = StuckEscape(beacons.escape)
         self._current_goal: str | None = None
         self._current_target: CellId | None = None
         self._current_objective: AgentObjective | None = None
@@ -156,7 +162,8 @@ class ComposedAgent:
         """The action that carries out the winning candidate's intent, and the field's target.
 
         For a ``FollowField`` this builds the seeder's field and the navigator steps along it;
-        the target is the one the field leads to, or ``None`` for any other intent.
+        the target is the one the field leads to, or ``None`` for any other intent. A heading
+        may leave obstacle beacons behind (``_place_obstacle_beacons``).
         """
         if not isinstance(intent, FollowField):
             return intent, None
@@ -164,7 +171,29 @@ class ComposedAgent:
         if field is None:
             logger.warning("Field %s has nothing to guide the robot to; idling", intent.seeder)
             return Idle(), None
+        if isinstance(field, Heading):
+            self._place_obstacle_beacons(field, robot, now)
         return self.navigator.step_towards(field, robot)
+
+    def _place_obstacle_beacons(self, heading: Heading, robot: CellId, now: Time) -> None:
+        """Mark the wall the heading runs into, and escape when the robot is stuck.
+
+        The wall gets a beacon with ``BeaconConfig.obstacle_repulsion``; a stuck robot gets an
+        escape beacon from its ``StuckEscape``.
+        """
+        if self.beacons is None:
+            return
+        ahead = cell_ahead(robot, heading.offset)
+        blocked: CellId | None = None
+        if not self.fields.quadtree.is_traversable(ahead):
+            blocked = ahead
+        if blocked is not None and self.beacons.obstacle_repulsion > 0:
+            self.memory.place_obstacle_beacon(blocked, now, self.beacons.obstacle_repulsion)
+        own = treat_beacon(self.memory, self.robot_id, robot, now, self.beacons)
+        if self._escape is not None and own is not None:
+            escape = self._escape.check(robot, own.value, now, blocked)
+            if escape is not None:
+                self.memory.place_obstacle_beacon(escape.cell, now, escape.strength)
 
     def _facts_received(self, inbox: list[Message]) -> list[Observation]:
         """The facts carried by the received messages: memory snapshots and status reports."""

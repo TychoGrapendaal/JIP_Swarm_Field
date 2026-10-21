@@ -29,6 +29,7 @@ from swarm_field.swarm.behavior import (
     TreatInfestation,
 )
 from swarm_field.swarm.brain import ComposedAgent, KnowledgeSharing
+from swarm_field.swarm.escape import EscapeConfig
 from swarm_field.swarm.explore import ExploreConfig, ExploreSeeder
 from swarm_field.swarm.guidance import Guidance, Heading, ObjectiveField
 from swarm_field.swarm.hop_field import HopField
@@ -59,6 +60,7 @@ __all__ = [
     "ComposedAgent",
     "DecayConfig",
     "DecisionContext",
+    "EscapeConfig",
     "ExploreBehaviour",
     "ExploreConfig",
     "ExploreSeeder",

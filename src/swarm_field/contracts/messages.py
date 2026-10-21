@@ -7,7 +7,7 @@ The simulation's channel reads only the header (sender, time) to decide delivery
 from dataclasses import dataclass
 from enum import Enum, auto
 
-from swarm_field.contracts.ids import AgentObjective, CellId, RobotId, Time
+from swarm_field.contracts.ids import CellId, RobotId, Time
 
 
 class MessageKind(Enum):
@@ -21,7 +21,7 @@ class MessageKind(Enum):
         KNOWLEDGE: A robot's current memory snapshot, as a tuple of facts.
         STATUS: A robot's report of itself: a ``PeerObservation`` of its own cell and the
             target it is heading for.
-        BEACON: A robot's hop values, as a tuple of ``Beacon``s, one per objective.
+        BEACON: A robot's hop values, as a tuple of ``Beacon``s, one per kind.
     """
 
     HELLO = auto()
@@ -30,18 +30,29 @@ class MessageKind(Enum):
     BEACON = auto()
 
 
-@dataclass(frozen=True)
-class Beacon:
-    """A hop value for one objective, which robots relay to guide each other towards it.
+class BeaconKind(Enum):
+    """What a beacon marks.
 
-    Attributes:
-        objective: The objective the value guides to.
-        value: How far the objective is, in hops: whole hops, or distances in radio ranges
-            with metric hops. 0 is the objective itself.
-        cell: Where the value holds: the sender's cell, or the objective's cell for a source.
+    ``TREAT`` beacons guide killers to a pest, and robots relay them. ``OBSTACLE`` beacons mark
+    a cell a robot ran into; they push instead of pull and stay with the robot that placed them.
     """
 
-    objective: AgentObjective
+    TREAT = auto()
+    OBSTACLE = auto()
+
+
+@dataclass(frozen=True)
+class Beacon:
+    """A hop value of one kind, which robots relay to guide each other.
+
+    Attributes:
+        kind: What the beacon marks.
+        value: How far the marked place is, in hops: whole hops, or distances in radio ranges
+            with metric hops. 0 is the place itself.
+        cell: Where the value holds: the sender's cell, or the marked cell for a source.
+    """
+
+    kind: BeaconKind
     value: float
     cell: CellId
 

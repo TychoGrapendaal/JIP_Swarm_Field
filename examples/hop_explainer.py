@@ -8,9 +8,13 @@ hears plus the hop to it. The single killer knows of a pest only through these b
 Red cells are the pests in ground truth. The big red dot is the killer, the small grey dots are
 the relays. Dots labelled with a hop value are the beacons the killer hears, orange where they
 pull it. Orange arrows are the pull of each of those, the thick red arrow is their sum, the
-direction the killer walks. With ``--show-broadcasts``, blue arrows show a
-hop value being passed on: from the beacon a robot took its value from, to the robot, at the
-moment its value changes.
+direction the killer walks. With ``--obstacle-repulsion``, a killer that runs into a wall places
+an obstacle beacon on it (purple dots), and the purple arrow is their summed push. With
+``--escape``, a killer whose hop number did not come down for five minutes places an ever
+stronger one on its own cell. With ``--walkable-links``, robots ignore beacons across obstacles.
+With
+``--show-broadcasts``, blue arrows show a hop value being passed on: from the beacon a robot took
+its value from, to the robot, at the moment its value changes.
 
 Run from the repository root with:
     uv run python examples/hop_explainer.py
@@ -28,7 +32,7 @@ from math import hypot
 from pathlib import Path
 
 from swarm_field.contracts import (
-    AgentObjective,
+    BeaconKind,
     BodyType,
     CellId,
     RobotId,
@@ -37,11 +41,19 @@ from swarm_field.contracts import (
     WorldSnapshot,
 )
 from swarm_field.experiments import LiveRun, PestScenario
-from swarm_field.swarm import BeaconConfig, KnowledgeSharing, MemoryView, treat_beacon
+from swarm_field.swarm import (
+    BeaconConfig,
+    EscapeConfig,
+    KnowledgeSharing,
+    MemoryView,
+    treat_beacon,
+)
 from swarm_field.swarm.beacon import beacon_strength, downhill_beacons, fresh_beacons, own_value
-from swarm_field.swarm.hop_field import hop_pull
+from swarm_field.swarm.hop_field import hop_pull, obstacle_push
 from swarm_field.visualization import Arrow, Marker, RobotStyle, SimulationViewer
 
+OBSTACLE_SHOWN_DECAYS = 3.0
+"""Obstacle beacons older than this many decay times push next to nothing and are not drawn."""
 PULL_ARROW_CELLS = 4.0
 """How long the arrow of the killer's summed pull is drawn, in cells."""
 BROADCAST_FRAMES = 3
@@ -57,6 +69,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--radio", type=float, default=100.0, help="radio range in metres")
     parser.add_argument("--pests-per-hour", type=float, default=6.0)
     parser.add_argument("--cap", type=float, default=8.0, help="the highest hop value relayed")
+    parser.add_argument(
+        "--obstacle-repulsion",
+        type=float,
+        default=0.0,
+        help="push of the obstacle beacons a killer places at walls; 0 for none",
+    )
+    parser.add_argument("--escape", action="store_true", help="a stuck killer pushes itself off")
+    parser.add_argument("--escape-at-wall", action="store_true", help="escape beacons at the wall")
+    parser.add_argument(
+        "--walkable-links", action="store_true", help="ignore beacons across obstacles"
+    )
     parser.add_argument("--show-broadcasts", action="store_true", help="draw passed-on values")
     parser.add_argument("--video-seconds", type=float, default=45.0)
     parser.add_argument("--fps", type=int, default=20)
@@ -109,13 +132,21 @@ class HopExplainer:
             pulling: set[CellId] = set()
             for heard in downhill_beacons(memory, robot.position, now, self._config):
                 pulling.add(heard.beacon.cell)
-            for heard in fresh_beacons(memory, AgentObjective.TREAT, now, self._config):
+            for heard in fresh_beacons(memory, BeaconKind.TREAT, now, self._config):
                 cell = heard.beacon.cell
                 color = "khaki"
                 if cell in pulling:
                     color = "darkorange"
                 position = (cell[0] + 0.5, cell[1] + 0.5)
                 found.append(Marker(position, color, size=45.0, label=f"{heard.beacon.value:.1f}"))
+            for heard in memory.beacons(BeaconKind.OBSTACLE):
+                cell = heard.beacon.cell
+                age = (now - heard.sent_at) / self._config.obstacle_decay
+                if age > OBSTACLE_SHOWN_DECAYS:
+                    continue
+                position = (cell[0] + 0.5, cell[1] + 0.5)
+                label = f"{heard.beacon.value:g}"
+                found.append(Marker(position, "mediumorchid", size=35.0, label=label))
         return found
 
     def panel(self, snapshot: WorldSnapshot) -> list[str]:
@@ -132,7 +163,7 @@ class HopExplainer:
                 continue
             agent = agents[robot.robot_id]
             now = snapshot.time
-            heard = fresh_beacons(agent.memory, AgentObjective.TREAT, now, self._config)
+            heard = fresh_beacons(agent.memory, BeaconKind.TREAT, now, self._config)
             value = "-"
             if heard:
                 value = f"{own_value(heard, robot.position, self._config):.2f}"
@@ -156,6 +187,8 @@ class HopExplainer:
                 "red cells       pests",
                 "orange arrows   pull of each beacon",
                 "red arrow       summed pull",
+                "purple dots     obstacle beacons, with push",
+                "purple arrow    their push",
             ]
         )
         if self.show_broadcasts:
@@ -184,6 +217,15 @@ class HopExplainer:
             start[1] + pull.vector[1] / length * PULL_ARROW_CELLS,
         )
         arrows = [Arrow(start, end, "red", width=3.0)]
+        push = obstacle_push(memory, position, now, self._config)
+        push_length = hypot(push[0], push[1])
+        if push_length > 0:
+            scale = PULL_ARROW_CELLS * push_length / pull.strength
+            tip = (
+                start[0] + push[0] / push_length * scale,
+                start[1] + push[1] / push_length * scale,
+            )
+            arrows.append(Arrow(start, tip, "mediumorchid", width=2.0))
         for heard in downhill_beacons(memory, position, now, self._config):
             cell = heard.beacon.cell
             dx = cell[0] - position[0]
@@ -232,7 +274,7 @@ def _value_origin(
     """The cell of the beacon a robot's own value comes from: the lowest value plus hop."""
     origin: CellId | None = None
     lowest = 0.0
-    for heard in fresh_beacons(memory, AgentObjective.TREAT, now, config):
+    for heard in fresh_beacons(memory, BeaconKind.TREAT, now, config):
         value = own_value([heard], position, config)
         if origin is None or value < lowest:
             origin = heard.beacon.cell
@@ -257,7 +299,16 @@ def frame_times(args: argparse.Namespace) -> Sequence[Time]:
 
 def main() -> None:
     args = parse_args()
-    config = BeaconConfig(hop_cells=args.radio / PestScenario().cell_size, max_value=args.cap)
+    escape: EscapeConfig | None = None
+    if args.escape:
+        escape = EscapeConfig(escape_at_wall=args.escape_at_wall)
+    config = BeaconConfig(
+        hop_cells=args.radio / PestScenario().cell_size,
+        max_value=args.cap,
+        obstacle_repulsion=args.obstacle_repulsion,
+        escape=escape,
+        walkable_links=args.walkable_links,
+    )
     scenario = PestScenario(
         scouts=args.relays,
         killers=1,

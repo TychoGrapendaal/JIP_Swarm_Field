@@ -7,9 +7,10 @@ hop gradient that falls towards the pest.
 """
 
 from dataclasses import dataclass
-from math import exp, hypot
+from math import ceil, exp, floor, hypot
 
-from swarm_field.contracts import AgentObjective, Beacon, CellId, RobotId, Time, TimeUnit
+from swarm_field.contracts import Beacon, BeaconKind, CellId, RobotId, Terrain, Time, TimeUnit
+from swarm_field.swarm.escape import EscapeConfig
 from swarm_field.swarm.memory import HeardBeacon, MemoryView
 
 
@@ -32,6 +33,15 @@ class BeaconConfig:
             for no limit.
         killer_repulsion: How hard a killer's downhill beacon pushes, relative to how hard
             another robot's beacon of the same value pulls; 0 for no repulsion.
+        obstacle_repulsion: How hard an obstacle beacon pushes at its own cell; 0 for no
+            obstacle beacons at all.
+        obstacle_range_cells: How far an obstacle beacon pushes; its push falls linearly to
+            nothing at this distance.
+        obstacle_decay: The decay time of an obstacle beacon's push with its age.
+        escape: When a robot counts as stuck and how it escapes, or ``None`` for no escape.
+        walkable_links: Whether a robot ignores a TREAT beacon whose straight line from its
+            own cell crosses a known obstacle, so that hop numbers spread only along ground a
+            killer can walk.
     """
 
     fresh_for: Time = TimeUnit.MINUTE
@@ -42,20 +52,58 @@ class BeaconConfig:
     min_hop_cells: float = 1.0
     max_value: float | None = None
     killer_repulsion: float = 0.0
+    obstacle_repulsion: float = 0.0
+    obstacle_range_cells: float = 3.0
+    obstacle_decay: Time = 10 * TimeUnit.MINUTE
+    escape: EscapeConfig | None = None
+    walkable_links: bool = False
 
 
 def fresh_beacons(
-    memory: MemoryView, objective: AgentObjective, now: Time, config: BeaconConfig
+    memory: MemoryView, kind: BeaconKind, now: Time, config: BeaconConfig
 ) -> list[HeardBeacon]:
-    """The beacons for ``objective`` heard within ``fresh_for``, up to ``max_value``."""
+    """The beacons of ``kind`` heard within ``fresh_for``, up to ``max_value``."""
     fresh: list[HeardBeacon] = []
-    for heard in memory.beacons(objective):
+    for heard in memory.beacons(kind):
         if now - heard.sent_at > config.fresh_for:
             continue
         if config.max_value is not None and heard.beacon.value > config.max_value:
             continue
         fresh.append(heard)
     return fresh
+
+
+def usable_beacons(
+    memory: MemoryView, position: CellId, now: Time, config: BeaconConfig
+) -> list[HeardBeacon]:
+    """The fresh TREAT beacons the robot at ``position`` counts.
+
+    With ``walkable_links``, a beacon whose straight line from ``position`` crosses a known
+    obstacle is left out.
+    """
+    fresh = fresh_beacons(memory, BeaconKind.TREAT, now, config)
+    if not config.walkable_links:
+        return fresh
+    usable: list[HeardBeacon] = []
+    for heard in fresh:
+        if _walkable_line(memory, position, heard.beacon.cell):
+            usable.append(heard)
+    return usable
+
+
+def _walkable_line(memory: MemoryView, start: CellId, end: CellId) -> bool:
+    """Whether the straight line between two cells crosses no known obstacle.
+
+    The line is sampled every half cell; a cell of unknown terrain counts as walkable.
+    """
+    steps = max(1, ceil(2 * hypot(end[0] - start[0], end[1] - start[1])))
+    for step in range(1, steps):
+        x = start[0] + 0.5 + (end[0] - start[0]) * step / steps
+        y = start[1] + 0.5 + (end[1] - start[1]) * step / steps
+        terrain = memory.terrain_at((floor(x), floor(y)))
+        if terrain is Terrain.OBSTACLE or terrain is Terrain.OUTSIDE:
+            return False
+    return True
 
 
 def beacon_strength(heard: HeardBeacon, now: Time, config: BeaconConfig) -> float:
@@ -86,7 +134,7 @@ def downhill_beacons(
 
     A beacon on the robot's own cell pulls in no direction, so it is left out.
     """
-    fresh = fresh_beacons(memory, AgentObjective.TREAT, now, config)
+    fresh = usable_beacons(memory, position, now, config)
     if not fresh:
         return []
     here = own_value(fresh, position, config)
@@ -112,12 +160,12 @@ def treat_beacon(
             sighting_cell = pest.cell
             sighting_time = pest.observed_at
     if sighting_cell is not None:
-        return Beacon(AgentObjective.TREAT, 0.0, sighting_cell)
+        return Beacon(BeaconKind.TREAT, 0.0, sighting_cell)
 
-    fresh = fresh_beacons(memory, AgentObjective.TREAT, now, config)
+    fresh = usable_beacons(memory, position, now, config)
     if not fresh:
         return None
     value = own_value(fresh, position, config)
     if config.max_value is not None and value > config.max_value:
         return None
-    return Beacon(AgentObjective.TREAT, value, position)
+    return Beacon(BeaconKind.TREAT, value, position)

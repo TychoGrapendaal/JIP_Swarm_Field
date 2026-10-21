@@ -10,8 +10,8 @@ import pytest
 from swarm_field.contracts import (
     Action,
     AgentInspection,
-    AgentObjective,
     Beacon,
+    BeaconKind,
     BodyType,
     CellId,
     Decision,
@@ -437,7 +437,7 @@ def test_a_pest_source_reaches_only_the_robots_in_range() -> None:
     inbox = ctx.channel.take_inbox(1)
     assert _broadcast_severities(inbox) == [0.5]
     beacons = [message.payload for message in inbox if message.kind is MessageKind.BEACON]
-    assert beacons == [(Beacon(AgentObjective.TREAT, 0.0, (2, 1)),)]
+    assert beacons == [(Beacon(BeaconKind.TREAT, 0.0, (2, 1)),)]
     assert ctx.channel.take_inbox(2) == []
     assert ctx.channel.sent == 0
 
