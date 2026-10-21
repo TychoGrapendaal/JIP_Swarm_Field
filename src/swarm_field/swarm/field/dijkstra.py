@@ -4,6 +4,7 @@ import heapq
 from collections.abc import Callable, Hashable, Iterable, Mapping
 from dataclasses import dataclass
 from itertools import count
+from math import inf
 
 from swarm_field.contracts import CellId
 
@@ -33,24 +34,26 @@ def multi_source_dijkstra[N: Hashable](
     the neighbours that can hop *into* ``node`` together with the cost of that hop, which must
     be non-negative. Nodes that no wave reaches are absent from the result.
     """
+    # The frontier holds plain tuples (value, order, node, origin, parent) and a SettledNode is
+    # made only once a node settles: most pushes are superseded, and this loop is the hot path.
     order = count()
     best: dict[N, float] = {}
-    frontier: list[tuple[float, int, N, SettledNode[N]]] = []
+    frontier: list[tuple[float, int, N, CellId, N | None]] = []
     for node, seed in seeds.items():
         best[node] = seed.value
-        heapq.heappush(frontier, (seed.value, next(order), node, seed))
+        heapq.heappush(frontier, (seed.value, next(order), node, seed.origin, seed.parent))
 
     settled: dict[N, SettledNode[N]] = {}
     while frontier:
-        value, _, node, result = heapq.heappop(frontier)
+        value, _, node, origin, parent = heapq.heappop(frontier)
         if node in settled:
             continue
-        settled[node] = result
+        settled[node] = SettledNode(value=value, origin=origin, parent=parent)
         for neighbour, cost in incoming_hops(node):
             candidate = value + cost
-            if neighbour in settled or candidate >= best.get(neighbour, float("inf")):
+            # A settled neighbour is never improved: its best is at most ``value``.
+            if candidate >= best.get(neighbour, inf):
                 continue
             best[neighbour] = candidate
-            reached = SettledNode(value=candidate, origin=result.origin, parent=node)
-            heapq.heappush(frontier, (candidate, next(order), neighbour, reached))
+            heapq.heappush(frontier, (candidate, next(order), neighbour, origin, node))
     return settled

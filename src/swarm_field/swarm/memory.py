@@ -104,32 +104,43 @@ class AgentMemory:
     def height(self) -> int:
         return self._field.height
 
-    def ingest(self, perception: Perception) -> None:
-        """Merge the robot's own observations from one decision point."""
-        self.merge(perception.sensed)
+    def ingest(self, perception: Perception) -> list[Observation]:
+        """Merge the robot's own observations from one decision point; see ``merge``."""
+        return self.merge(perception.sensed)
 
-    def merge(self, facts: Iterable[Observation]) -> None:
+    def merge(self, facts: Iterable[Observation]) -> list[Observation]:
         """Merge facts, keeping per identity the one with the newest ``observed_at``.
 
         A fact replaces the stored one only if it is strictly newer, so on a tie the robot
-        keeps what it already knows.
+        keeps what it already knows. Terrain is static, so a newer terrain fact that repeats
+        the stored terrain is not stored either.
+
+        Returns:
+            The facts that were stored, in order: what the robot newly learned.
         """
+        stored: list[Observation] = []
         for fact in facts:
             match fact:
                 case TerrainObservation():
-                    _keep_newest(self._terrain, fact.cell, fact)
-                    if self._is_inside(fact.cell):
-                        newest = self._terrain[fact.cell]
-                        self._monitorable[fact.cell] = newest.terrain is Terrain.FREE
+                    known = self._terrain.get(fact.cell)
+                    if known is not None and known.terrain is fact.terrain:
+                        continue
+                    if _keep_newest(self._terrain, fact.cell, fact):
+                        stored.append(fact)
+                        if self._is_inside(fact.cell):
+                            self._monitorable[fact.cell] = fact.terrain is Terrain.FREE
                 case InfestationObservation():
-                    _keep_newest(self._infestation, fact.cell, fact)
+                    if _keep_newest(self._infestation, fact.cell, fact):
+                        stored.append(fact)
                     if self._is_inside(fact.cell):
                         seen = max(self._last_seen[fact.cell], fact.observed_at)
                         self._last_seen[fact.cell] = seen
                 case PeerObservation(peer=int() as peer) if peer != self._robot_id:
-                    _keep_newest(self._peers, peer, fact)
+                    if _keep_newest(self._peers, peer, fact):
+                        stored.append(fact)
                 case _:
                     pass
+        return stored
 
     def records(self) -> Iterator[Observation]:
         """Every stored fact, e.g. to share with a peer."""
@@ -195,8 +206,10 @@ def _read_only[T: np.generic](array: NDArray[T]) -> NDArray[T]:
     return view
 
 
-def _keep_newest[K, F: ObservationBase](store: dict[K, F], key: K, fact: F) -> None:
-    """Store ``fact`` under ``key`` unless the stored fact is at least as new."""
+def _keep_newest[K, F: ObservationBase](store: dict[K, F], key: K, fact: F) -> bool:
+    """Store ``fact`` under ``key`` unless the stored fact is at least as new; say if it was."""
     stored = store.get(key)
     if stored is None or fact.observed_at > stored.observed_at:
         store[key] = fact
+        return True
+    return False

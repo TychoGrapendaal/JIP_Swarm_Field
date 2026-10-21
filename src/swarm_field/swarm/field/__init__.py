@@ -6,6 +6,7 @@ from swarm_field.swarm.field.builder import (
     MixedGraph,
     Seed,
     build_grid_potential_field,
+    solve_grid_potential_field,
 )
 from swarm_field.swarm.field.quadtree import Leaf, Quadtree, TerrainView, traversable_cells
 
@@ -18,5 +19,6 @@ __all__ = [
     "Seed",
     "TerrainView",
     "build_grid_potential_field",
+    "solve_grid_potential_field",
     "traversable_cells",
 ]

@@ -22,6 +22,8 @@ All costs are in cells: 1 for a straight hop between cells, 1.4 for a diagonal o
 octile distance between centres wherever a leaf is involved.
 """
 
+from __future__ import annotations
+
 from collections.abc import Iterator
 from dataclasses import dataclass
 from math import inf
@@ -102,14 +104,38 @@ class MixedGraph:
 
     Nodes of the two kinds meet at the window's border, where an edge cell is linked to every
     leaf just outside it that it can hop into.
+
+    A graph describes the quadtree as it was at ``version``, and remembers each node's hops
+    once asked for, so a robot that stays in its window can reuse the graph for every field it
+    builds there until its terrain changes; ``is_current_for`` says whether it still can.
+
+    Attributes:
+        quadtree: The terrain the graph was built from.
+        window: The cells searched one by one.
+        version: The quadtree's version when the graph was built.
     """
 
     def __init__(self, quadtree: Quadtree, window: BoundingBox) -> None:
         self.quadtree: Quadtree = quadtree
         self.window: BoundingBox = window
+        self.version: int = quadtree.version
         self._crossings: dict[CellId, dict[Leaf, _Crossing]] = {}
         self._cells_bordering: dict[Leaf, list[tuple[CellId, float]]] = {}
+        self._hops: dict[Node, list[tuple[Node, float]]] = {}
         self._link_border()
+
+    @classmethod
+    def around(cls, quadtree: Quadtree, robot: CellId, window_blocks: int) -> MixedGraph:
+        """The graph with a window of the robot's block and the blocks within ``window_blocks``."""
+        return cls(quadtree, _window_around(robot, quadtree, window_blocks))
+
+    def is_current_for(self, quadtree: Quadtree, robot: CellId, window_blocks: int) -> bool:
+        """Whether ``around(quadtree, robot, window_blocks)`` would build this same graph."""
+        return (
+            self.quadtree is quadtree
+            and self.version == quadtree.version
+            and self.window == _window_around(robot, quadtree, window_blocks)
+        )
 
     def node_at(self, cell: CellId) -> Node | None:
         """The node containing ``cell``, or ``None`` if a robot can't be there."""
@@ -119,8 +145,15 @@ class MixedGraph:
             return cell
         return self.quadtree.leaf_at(cell)
 
-    def neighbours(self, node: Node) -> Iterator[tuple[Node, float]]:
+    def neighbours(self, node: Node) -> list[tuple[Node, float]]:
         """The nodes a robot may hop to from ``node``, with the cost of each hop."""
+        hops = self._hops.get(node)
+        if hops is None:
+            hops = list(self._find_hops(node))
+            self._hops[node] = hops
+        return hops
+
+    def _find_hops(self, node: Node) -> Iterator[tuple[Node, float]]:
         if isinstance(node, Leaf):
             for leaf in self.quadtree.leaf_neighbours(node):
                 # The window is made of whole blocks, so a leaf is inside it iff its corner is.
@@ -221,7 +254,11 @@ def build_grid_potential_field(
     The window of single cells covers the robot's block of ``quadtree.max_leaf_side`` cells
     and the blocks within ``window_blocks`` of it in each direction.
     """
-    graph = MixedGraph(quadtree, _window_around(robot, quadtree, window_blocks))
+    return solve_grid_potential_field(seeds, MixedGraph.around(quadtree, robot, window_blocks))
+
+
+def solve_grid_potential_field(seeds: tuple[Seed, ...], graph: MixedGraph) -> GridPotentialField:
+    """Solve the field on an existing graph, e.g. one kept from an earlier build."""
     node_seeds: dict[Node, SettledNode[Node]] = {}
     for seed in seeds:
         node = graph.node_at(seed.cell)

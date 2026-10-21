@@ -57,6 +57,7 @@ from swarm_field.simulation import (
     write_metrics_json,
 )
 from swarm_field.swarm import (
+    FULL_SHARE_EVERY,
     AgentMemory,
     ArbiterConfig,
     Behavior,
@@ -160,6 +161,8 @@ class BrainSpec:
         params: Per-part parameters, passed through to the named factory, e.g. an
             ``ExploreConfig`` under ``"explore"`` for the EXPLORE seeder.
         arbiter: The overrides and hysteresis of the robot's ``UtilityArbiter``.
+        full_share_every: Every how many decisions the robot broadcasts its whole memory
+            rather than only what it newly learned (``ComposedAgent.full_share_every``).
     """
 
     behaviors: tuple[str, ...] = ("treat-infestation",)
@@ -167,6 +170,7 @@ class BrainSpec:
     navigator: str = "potential-field"
     params: dict[str, Any] = field(default_factory=dict)
     arbiter: ArbiterConfig = field(default_factory=ArbiterConfig)
+    full_share_every: int = FULL_SHARE_EVERY
 
     def describe(self) -> str:
         """The parts of this brain by name, e.g. ``behaviors=explore seeders=explore``.
@@ -652,6 +656,7 @@ def build_agent(
         fields=fields,
         navigator=Navigator(fields.quadtree),
         arbiter=UtilityArbiter(spec.arbiter),
+        full_share_every=spec.full_share_every,
     )
 
 

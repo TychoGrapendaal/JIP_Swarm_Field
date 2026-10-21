@@ -26,7 +26,7 @@ from swarm_field.swarm.behavior import (
     Intent,
     TreatInfestation,
 )
-from swarm_field.swarm.brain import ComposedAgent
+from swarm_field.swarm.brain import FULL_SHARE_EVERY, ComposedAgent
 from swarm_field.swarm.explore import ExploreConfig, ExploreSeeder
 from swarm_field.swarm.memory import AgentMemory, DecayConfig, MemoryView
 from swarm_field.swarm.navigator import Navigator
@@ -44,6 +44,7 @@ from swarm_field.swarm.steering import (
 )
 
 __all__ = [
+    "FULL_SHARE_EVERY",
     "ActionCandidate",
     "AgentMemory",
     "Arbiter",
