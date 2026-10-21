@@ -22,8 +22,8 @@ class MetricsSample:
         time: The simulation time this sample was taken at.
         targets_remaining: Crop cells whose infestation is still above the target threshold.
         detection_latency_ms: Mean time, over the cells detected so far, between a cell
-            becoming infested and a robot first sensing it. ``None`` while nothing has been
-            detected, and quantised to the sample period.
+            becoming infested and a robot first sensing it infested. ``None`` while nothing has
+            been detected. A pest is dated when it appears, not at the next sample.
         energy_per_area: Battery fraction the swarm has spent per square metre of field.
         messages_sent: Messages handed to the channel since the run began.
         messages_received: Times a message reached a robot in range since the run began.

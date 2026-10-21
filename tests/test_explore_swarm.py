@@ -1,6 +1,10 @@
 """Scenario tests: three robots exploring with the EXPLORE seeder and memory-scored behavior.
 Runs are measured from ground truth; ``tests/benchmark_explore.py`` compares
 more variants on larger fields.
+"""Scenario tests: three robots exploring a small field with the EXPLORE seeder.
+
+Each run is a ``swarm_field.experiments`` exploration run by ``swarm_field.runner``, measured
+from ground truth. ``studies/explore_variants.py`` compares many more variants on larger fields.
 """
 
 from dataclasses import replace
