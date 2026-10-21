@@ -39,9 +39,10 @@ class Navigator:
     def step_towards(self, guidance: Guidance, robot: CellId) -> tuple[Move | Idle, CellId | None]:
         """The one movement action of this decision point, on the way towards a field's targets.
 
-        A ``Heading`` is handed to the steerer as it is. A heading towards a new target resets the
-        steerer, so a stall on the way to the old target does not hold the robot for good. The
-        rest of this describes a ``SeededField``.
+        A ``Heading`` is handed to the steerer as it is. A heading towards a new target, or one
+        that finds the steerer stalled, resets the steerer: a heading changes as the robot's
+        beacons change, so a stall does not hold the robot for good. The rest of this describes
+        a ``SeededField``.
 
         A field guides the robot while it can: the robot steps into the neighbouring cell the
         field points at, which is one step of a route that is near-optimal around the obstacles
@@ -59,7 +60,7 @@ class Navigator:
         if isinstance(guidance, Heading):
             self._followed = None
             self._forget_plan()
-            if guidance.target != self._heading_target:
+            if guidance.target != self._heading_target or self._steerer.is_stalled:
                 self._heading_target = guidance.target
                 self._steerer.reset()
             return self._steerer.steer(guidance.offset, robot), guidance.target
