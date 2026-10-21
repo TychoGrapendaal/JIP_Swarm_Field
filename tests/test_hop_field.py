@@ -189,3 +189,15 @@ def test_without_repulsion_a_killers_beacon_pulls_like_any_other() -> None:
 
     assert heading is not None
     assert heading.offset[0] == heading.offset[1]
+
+
+def test_a_robot_does_not_bid_when_only_a_killer_is_downhill() -> None:
+    memory = _memory_hearing((1.0, (4, 0)))
+    killer = PeerObservation(
+        cell=(4, 0), confidence=1.0, observed_at=0, source=2, peer=2, body=BodyType.KILLER
+    )
+    memory.merge([killer])
+    ctx = DecisionContext(time=0, self_state=_self_state((0, 0)), sensed=[], memory=memory)
+
+    assert TreatByBeacon(BeaconConfig(killer_repulsion=1.0)).propose(ctx) == ()
+    assert TreatByBeacon(_CONFIG).propose(ctx) != ()

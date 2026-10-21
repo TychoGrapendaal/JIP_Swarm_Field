@@ -19,9 +19,9 @@ from swarm_field.contracts import (
     Time,
     Treat,
 )
-from swarm_field.swarm.beacon import BeaconConfig, beacon_strength, downhill_beacons
+from swarm_field.swarm.beacon import BeaconConfig
 from swarm_field.swarm.explore import ExploreConfig, ExploreSeeder, revisit_worths
-from swarm_field.swarm.hop_field import HopField
+from swarm_field.swarm.hop_field import HopField, hop_pull
 from swarm_field.swarm.memory import MemoryView
 from swarm_field.swarm.seeder import TreatSeeder
 
@@ -154,9 +154,9 @@ class TreatByBeacon:
     """The pest-response behaviour on hop beacons: follow the hop field and treat on arrival.
 
     It knows of a pest only through the beacons the robot heard and its own sensing, never
-    through remembered pest cells. Its bid is the strength of the strongest of the
-    ``downhill_beacons`` the hop field follows, so it never commits to a field with nothing
-    to guide to.
+    through remembered pest cells. Its bid is the strength of the strongest attracting beacon
+    of the ``hop_pull`` the hop field follows, so it never commits to a field with nothing to
+    guide to, also when killers' beacons push.
     """
 
     name: str = "treat-hop"
@@ -174,12 +174,10 @@ class TreatByBeacon:
                 treat = Treat(position)
                 return (ActionCandidate(treat, _TREAT_SCORE, self.name, position, _TREAT),)
 
-        strongest = 0.0
-        for heard in downhill_beacons(ctx.memory, position, ctx.time, self._config):
-            strongest = max(strongest, beacon_strength(heard, ctx.time, self._config))
-        if strongest == 0.0:
+        pull = hop_pull(ctx.memory, position, ctx.time, self._config)
+        if pull is None:
             return ()
-        return (ActionCandidate(FollowField(self._field), strongest, self.name, None, _TREAT),)
+        return (ActionCandidate(FollowField(self._field), pull.strength, self.name, None, _TREAT),)
 
 
 class ExploreBehaviour:
