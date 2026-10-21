@@ -11,6 +11,7 @@ from swarm_field.contracts import (
     MessageKind,
     Move,
     Observation,
+    PeerObservation,
     Perception,
     RobotSelfState,
     Treat,
@@ -162,3 +163,29 @@ def test_beacons_above_the_cap_are_ignored_and_not_relayed() -> None:
     assert treat_beacon(_memory_hearing((3.0, (1, 0))), 1, (0, 0), 0, capped) == Beacon(
         AgentObjective.TREAT, 4.0, (0, 0)
     )
+
+
+def _memory_with_a_killer_east() -> AgentMemory:
+    memory = _memory_hearing((1.0, (0, 4)), (1.0, (4, 0)))
+    killer = PeerObservation(
+        cell=(4, 0), confidence=1.0, observed_at=0, source=3, peer=3, body=BodyType.KILLER
+    )
+    memory.merge([killer])
+    return memory
+
+
+def test_a_killer_ahead_counters_the_pull_of_its_level() -> None:
+    config = BeaconConfig(killer_repulsion=1.0)
+
+    heading = HopField(config).guidance_for(_memory_with_a_killer_east(), (0, 0), 0)
+
+    assert heading is not None
+    assert heading.target == (0, 4)
+    assert heading.offset[0] < 0
+
+
+def test_without_repulsion_a_killers_beacon_pulls_like_any_other() -> None:
+    heading = HopField(_CONFIG).guidance_for(_memory_with_a_killer_east(), (0, 0), 0)
+
+    assert heading is not None
+    assert heading.offset[0] == heading.offset[1]

@@ -30,6 +30,8 @@ class BeaconConfig:
         max_value: Beacons above this value are ignored, and a robot above it beacons nothing,
             so that values left behind by a cleared pest rise past it and vanish; ``None``
             for no limit.
+        killer_repulsion: How hard a killer's downhill beacon pushes, relative to how hard
+            another robot's beacon of the same value pulls; 0 for no repulsion.
     """
 
     fresh_for: Time = TimeUnit.MINUTE
@@ -39,6 +41,7 @@ class BeaconConfig:
     hop_cells: float | None = None
     min_hop_cells: float = 1.0
     max_value: float | None = None
+    killer_repulsion: float = 0.0
 
 
 def fresh_beacons(
