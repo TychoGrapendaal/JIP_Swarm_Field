@@ -12,7 +12,14 @@ from swarm_field.contracts import (
     TerrainObservation,
     Time,
 )
-from swarm_field.swarm import AgentMemory, FieldProvider, MemoryView, Navigator, QuadtreeSensing
+from swarm_field.swarm import (
+    AgentMemory,
+    FieldProvider,
+    Heading,
+    MemoryView,
+    Navigator,
+    QuadtreeSensing,
+)
 from swarm_field.swarm.field import Seed
 
 _FIELD = FieldGeometry(
@@ -100,3 +107,23 @@ def test_the_map_backed_sensing_never_cuts_a_blocked_corner() -> None:
 
     both_corners_free = QuadtreeSensing(_fields({(12, 0)}).quadtree)
     assert both_corners_free.clear((10, 0), Direction.NE)
+
+
+def test_a_heading_to_a_new_target_frees_a_stalled_robot() -> None:
+    trap = {(x, 23) for x in range(16, 21)} | {(x, 19) for x in range(16, 21)}
+    trap |= {(16, y) for y in range(19, 24)}
+    navigator = Navigator(_fields(trap).quadtree)
+    position = (24, 21)
+    action: Move | Idle = Idle()
+    for _ in range(300):
+        heading = Heading(offset=(5.0 - position[0], 21.0 - position[1]), target=(5, 21))
+        action, _ = navigator.step_towards(heading, position)
+        if isinstance(action, Idle):
+            break
+        position = action.to
+    assert isinstance(action, Idle)
+
+    heading = Heading(offset=(35.0 - position[0], 21.0 - position[1]), target=(35, 21))
+    action, _ = navigator.step_towards(heading, position)
+
+    assert isinstance(action, Move)

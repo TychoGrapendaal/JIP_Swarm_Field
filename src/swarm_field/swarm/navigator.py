@@ -32,14 +32,16 @@ class Navigator:
         self._config: SteeringConfig = steering if steering is not None else SteeringConfig()
         self._steerer: Steerer = Steerer(QuadtreeSensing(quadtree), self._config)
         self._followed: SeededField | None = None
+        self._heading_target: CellId | None = None
         self._best_value: float | None = None
         self._no_progress_ticks: int = 0
 
     def step_towards(self, guidance: Guidance, robot: CellId) -> tuple[Move | Idle, CellId | None]:
         """The one movement action of this decision point, on the way towards a field's targets.
 
-        A ``Heading`` is handed to the steerer as it is. The rest of this describes a
-        ``SeededField``.
+        A ``Heading`` is handed to the steerer as it is. A heading towards a new target resets the
+        steerer, so a stall on the way to the old target does not hold the robot for good. The
+        rest of this describes a ``SeededField``.
 
         A field guides the robot while it can: the robot steps into the neighbouring cell the
         field points at, which is one step of a route that is near-optimal around the obstacles
@@ -57,7 +59,11 @@ class Navigator:
         if isinstance(guidance, Heading):
             self._followed = None
             self._forget_plan()
+            if guidance.target != self._heading_target:
+                self._heading_target = guidance.target
+                self._steerer.reset()
             return self._steerer.steer(guidance.offset, robot), guidance.target
+        self._heading_target = None
         seeded = guidance
         if seeded is not self._followed:
             self._followed = seeded
