@@ -101,3 +101,14 @@ def test_save_frames_draws_every_frame_into_a_video_or_png_directory(
         assert len(list((tmp_path / name).glob("*.png"))) == 3
     else:
         assert (tmp_path / name).stat().st_size > 0
+
+
+def test_render_draws_a_line_on_every_cell_border() -> None:
+    field = _field(width=3, height=2)
+    renderer = MatplotlibRenderer()
+
+    renderer.render(WorldState(field).snapshot(time=0))
+
+    assert list(renderer.axes.xaxis.get_minorticklocs()) == [0, 1, 2, 3]
+    assert list(renderer.axes.yaxis.get_minorticklocs()) == [0, 1, 2]
+    assert all(tick.gridline.get_visible() for tick in renderer.axes.xaxis.get_minor_ticks())
