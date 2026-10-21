@@ -1,8 +1,9 @@
 """Field seeders: which cells a grid potential field draws a robot to, and how much.
 
-A ``FieldSeeder`` reads the robot's memory and turns it into ``Seed`` objects. Seeders are
-registered by name when a robot's ``FieldProvider`` is assembled. The provider caches each
-seeder's field and rebuilds it when the key, terrain, or robot's search window changes.
+A ``FieldSeeder`` reads the robot's memory and turns it into the ``Seed``s of one grid potential
+field (TREAT, EXPLORE, ...). Seeders are registered by name in the robot's ``FieldProvider``
+when the brain is assembled. The brain asks the provider for the winning seeder's field by that
+name, and only the provider calls the seeder, whenever its cached field no longer answers.
 """
 
 from collections.abc import Hashable
@@ -19,34 +20,68 @@ from swarm_field.swarm.memory import MemoryView
 
 
 class FieldSeeder(Protocol):
-    """Contract for producing a potential field from a robot's local memory."""
+    """Specifies one grid potential field: its targets, read from memory, and when they change.
+
+    Attributes:
+        name: Identifies the seeder in the field provider, and so the field's cache slot.
+        window_blocks: How many blocks of ``Quadtree.max_leaf_side`` cells around the robot's
+            block the field is searched cell by cell; beyond them, leaf by leaf. A smaller
+            window builds faster but measures far routes less exactly.
+    """
 
     name: str
     window_blocks: int
 
     def field_key(self, memory: MemoryView, robot: CellId, now: Time) -> Hashable:
-        """Return a hashable key changed whenever the seeder's targets or values change."""
+        """A value that changes whenever the seeds would change.
+
+        The field is rebuilt only when this key, the terrain or the robot's block changes, so
+        the key covers what the seeds depend on and nothing else; terrain is accounted for by
+        the field provider. Seeds that drift continuously, such as values weighted by a decaying
+        confidence, need a coarse key, e.g. a memory version plus a time bucket. Like the seeds,
+        the key may depend on the robot's position only through its block.
+        """
         ...
 
     def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
-        """Return target cells and their initial potential values (lower is more attractive)."""
+        """The field's targets, each with its start value ``-beta * value`` (lower attracts more).
+
+        The seeds may depend on the robot's position only through its block of
+        ``Quadtree.max_leaf_side`` cells, since a field is reused for as long as the robot
+        stays in that block.
+        """
         ...
 
 
 @dataclass(frozen=True)
 class SeededField:
-    """A built potential field and the non-empty set of seeds that produced it."""
+    """A seeder's grid potential field, with the seeds it was built from.
+
+    Attributes:
+        seeds: The targets the field was built from, never empty.
+        field: The field itself.
+    """
 
     seeds: tuple[Seed, ...]
     field: GridPotentialField
 
 
 class TreatSeeder:
-    """Attract killers to remembered infestations while reducing duplicate assignments.
+    """Seeds the TREAT field: draws the robot to remembered infestations.
 
-    Nearby infestation seeds reinforce one another; cells a peer is already heading to for
-    treatment have less attraction. The field key is refreshed at least once per simulated
-    minute because observation confidence decays over time.
+    Each infested cell attracts by its severity times the memory's confidence in it, and
+    clustered infestations attract more than isolated ones. A cell that a peer is already
+    heading to, to treat it, attracts less. Rebuilt once a minute, and whenever the infested
+    cells or the peers' targets change.
+
+    Attributes:
+        reduction_rate: What is left of a cell's attraction when a peer is heading for it, 0..1.
+        value_amplifier: The attraction of a cell of severity 1 at full confidence, in cells.
+        sigma: The width, in cells, of the Gaussian by which nearby infestations reinforce
+            each other.
+        cutoff_sigmas: Infestations further apart than this many widths do not reinforce each
+            other. At the default of three the weight is ``exp(-9)``, about 0.0001, so what is
+            left out is negligible.
     """
 
     name: str = "treat"
@@ -97,7 +132,13 @@ class TreatSeeder:
         return tuple(self.reinforce_clustered_seeds(seeds))
 
     def reinforce_clustered_seeds(self, seeds: list[Seed]) -> list[Seed]:
-        """Increase the attraction of clustered seeds using a sparse Gaussian weighting."""
+        """Update each value by the values of its neighbours, so clusters attract more.
+
+        Every seed gains the values of the other seeds within ``cutoff_sigmas`` widths of it,
+        weighted by a Gaussian of their Euclidean distance in cells. Only those nearby pairs are
+        stored in a sparse matrix, so the cost grows with the number of neighbours rather than
+        with the number of seeds squared.
+        """
         if len(seeds) < 2:
             return list(seeds)
         coords = np.asarray([seed.cell for seed in seeds], dtype=float)
@@ -114,7 +155,11 @@ class TreatSeeder:
 
 
 class BatteryRequestSeeder:
-    """Attract battery-support robots to recent low-battery peer sightings."""
+    """Seeds a field toward fresh reports of peers that need battery support.
+
+    Only named SCOUT and KILLER peers whose reported battery is at or below the threshold are
+    eligible. The reports expire after ``observation_ttl`` and need sufficient memory confidence.
+    """
 
     name: str = "battery-support"
     window_blocks: int = 2
@@ -155,7 +200,11 @@ class BatteryRequestSeeder:
 
 
 class DockSeeder:
-    """Seed fixed charging docks so robots can return when their energy is low."""
+    """Seed fixed charging docks so robots can return when their energy is low.
+
+    Dock locations are scenario configuration rather than learned facts, so the field key is the
+    tuple of configured dock cells and the seeds remain fixed throughout a run.
+    """
 
     name: str = "dock"
     window_blocks: int = 2

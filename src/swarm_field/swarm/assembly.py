@@ -27,32 +27,36 @@ def build_agent(
     field: FieldGeometry,
     *,
     docks: tuple[CellId, ...] = (),
+    behaviors: list[Behavior] | None = None,
 ) -> ComposedAgent:
     """Build a brain whose navigation and behaviours match ``body``.
 
     SCOUTs explore unknown cells and fly over ground obstacles. KILLERs follow shared infestation
     knowledge and treat a cell once they reach it. BATTERY robots seek recent low-battery peer
-    sightings and replace a battery when they share the peer's cell.
+    sightings and replace a battery when they share the peer's cell. All four seeders are registered
+    for every body; the winning behaviour's seeder is only evaluated after arbitration. If
+    ``behaviors`` is provided, it replaces the default body-specific behaviour list.
     """
     capabilities: CapabilitySet = capabilities_for(body)
     memory = AgentMemory(robot_id, field)
 
     dock_seeder = DockSeeder(docks)
-    behaviors: list[Behavior]
-    if body is BodyType.SCOUT:
-        seeders = [ExploreSeeder(), dock_seeder]
-        behaviors = [ExploreField(), ReturnToDock()]
-    elif body is BodyType.KILLER:
-        seeders = [TreatSeeder(), dock_seeder]
-        behaviors = [TreatInfestation(), ReturnToDock()]
+    seeders = [ExploreSeeder(), TreatSeeder(), BatteryRequestSeeder(), dock_seeder]
+
+    if behaviors is None:
+        if body is BodyType.SCOUT:
+            agent_behaviors: list[Behavior] = [ExploreField(), ReturnToDock(docks=docks)]
+        elif body is BodyType.KILLER:
+            agent_behaviors = [TreatInfestation(), ReturnToDock(docks=docks)]
+        else:
+            agent_behaviors = [SupplyBattery(), ReturnToDock(docks=docks)]
     else:
-        seeders = [BatteryRequestSeeder(), dock_seeder]
-        behaviors = [SupplyBattery(), ReturnToDock()]
+        agent_behaviors = behaviors
 
     fields = FieldProvider(memory, flies=capabilities.can_fly, seeders=seeders)
     return ComposedAgent(
         robot_id=robot_id,
-        behaviors=behaviors,
+        behaviors=agent_behaviors,
         memory=memory,
         fields=fields,
         navigator=Navigator(fields.quadtree),

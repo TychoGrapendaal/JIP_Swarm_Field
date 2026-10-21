@@ -130,7 +130,7 @@ def _build_treat_seeder(params: dict[str, Any], rng: Random) -> TreatSeeder:
 
 @BEHAVIORS.register("explore")
 def _build_explore(params: dict[str, Any], rng: Random) -> ExploreField:
-    """Build the field-aware exploration behaviour for the EXPLORE seeder."""
+    """Build the memory-scored exploration behaviour for the EXPLORE seeder."""
     return ExploreField(ExploreSeeder.name)
 
 

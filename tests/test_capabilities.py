@@ -2,8 +2,10 @@
 
 from swarm_field.contracts import (
     BodyType,
+    Charge,
     FieldGeometry,
     Idle,
+    Move,
     PeerObservation,
     Perception,
     ReplaceBattery,
@@ -184,6 +186,42 @@ def test_body_mismatch_cannot_expand_capabilities() -> None:
     assert agent.decide(_perception(BodyType.SCOUT)).action == Idle()
 
 
+def test_every_body_registers_all_seeders() -> None:
+    expected_seeders = {"explore", "treat", "battery-support", "dock"}
+
+    for body in BodyType:
+        agent = build_agent(1, body, FIELD, docks=((1, 1),))
+
+        assert set(agent.fields._seeders) == expected_seeders
+
+
+def test_build_agent_uses_a_supplied_behavior_list() -> None:
+    custom_behavior = _CandidateBehavior((Idle(), 0.4))
+
+    agent = build_agent(1, BodyType.SCOUT, FIELD, behaviors=[custom_behavior])
+    no_behavior_agent = build_agent(2, BodyType.SCOUT, FIELD, behaviors=[])
+
+    assert agent.behaviors == [custom_behavior]
+    assert no_behavior_agent.behaviors == []
+
+
+def test_return_to_dock_charges_when_at_a_configured_dock() -> None:
+    agent = build_agent(1, BodyType.SCOUT, FIELD, docks=((2, 2),))
+    state = RobotSelfState(
+        robot_id=1,
+        position=(2, 2),
+        battery=0.8,
+        body=BodyType.SCOUT,
+        speed_mps=8.0,
+        consumable=1.0,
+        health=1.0,
+    )
+
+    decision = agent.decide(Perception(0, state, [], []))
+
+    assert decision.action == Charge()
+
+
 def test_body_assembly_configures_flying_traversability_and_roles() -> None:
     scout = build_agent(1, BodyType.SCOUT, FIELD)
     killer = build_agent(2, BodyType.KILLER, FIELD)
@@ -248,6 +286,33 @@ def test_battery_assembly_replaces_a_low_battery_peer_in_same_cell() -> None:
     decision = battery_agent.decide(Perception(0, state, [peer], []))
 
     assert decision.action == ReplaceBattery(robot_id=2)
+
+
+def test_battery_assembly_follows_field_to_a_remote_low_battery_peer() -> None:
+    battery_agent = build_agent(1, BodyType.BATTERY, FIELD)
+    peer = PeerObservation(
+        cell=(5, 2),
+        confidence=1.0,
+        observed_at=0,
+        source=2,
+        peer=2,
+        body=BodyType.SCOUT,
+        battery=0.1,
+    )
+    state = RobotSelfState(
+        robot_id=1,
+        position=(2, 2),
+        battery=1.0,
+        body=BodyType.BATTERY,
+        speed_mps=1.0,
+        consumable=1.0,
+        health=1.0,
+        spare_batteries=3,
+    )
+
+    decision = battery_agent.decide(Perception(0, state, [peer], []))
+
+    assert isinstance(decision.action, Move)
 
 
 def test_sensing_footprints_are_body_specific() -> None:

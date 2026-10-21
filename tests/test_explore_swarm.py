@@ -1,5 +1,5 @@
-"""Scenario tests: three robots exploring a small field with the EXPLORE seeder and field-aware
-exploration behavior. Runs are measured from ground truth; ``tests/benchmark_explore.py`` compares
+"""Scenario tests: three robots exploring with the EXPLORE seeder and memory-scored behavior.
+Runs are measured from ground truth; ``tests/benchmark_explore.py`` compares
 more variants on larger fields.
 """
 

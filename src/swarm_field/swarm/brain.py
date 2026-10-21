@@ -112,7 +112,6 @@ class ComposedAgent:
             memory=self.memory,
             inbox=perception.inbox,
             capabilities=capabilities,
-            fields=self.fields,
         )
         candidates: list[ActionCandidate] = []
         for behavior in self.behaviors:

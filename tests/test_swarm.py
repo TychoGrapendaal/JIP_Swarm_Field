@@ -200,6 +200,10 @@ def test_agent_picks_highest_scoring_candidate() -> None:
     assert agent.inspect().current_goal == "multi"
 
 
+def test_decision_context_does_not_expose_field_provider() -> None:
+    assert "fields" not in DecisionContext.__dataclass_fields__
+
+
 def test_agent_idles_without_candidates() -> None:
     agent = _agent([])
 
