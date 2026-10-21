@@ -248,7 +248,9 @@ def test_a_summary_row_records_how_the_run_was_set_up() -> None:
     assert row["horizon_ms"] == 30_000
     assert row["metrics_period_ms"] == 30_000
     assert row["robots"] == len(config.scenario.robots)
-    assert row["brain"] == "behaviors=treat-infestation seeders=treat navigator=potential-field"
+    assert row["brain"] == (
+        "behaviors=treat-infestation seeders=treat navigator=potential-field sharing=full"
+    )
     assert row["brains_by_body"] == ""
     assert row["failure_probability"] == 0.0
 

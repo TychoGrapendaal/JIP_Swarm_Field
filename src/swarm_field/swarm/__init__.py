@@ -26,9 +26,9 @@ from swarm_field.swarm.behavior import (
     Intent,
     TreatInfestation,
 )
-from swarm_field.swarm.brain import FULL_SHARE_EVERY, ComposedAgent
+from swarm_field.swarm.brain import ComposedAgent
 from swarm_field.swarm.explore import ExploreConfig, ExploreSeeder
-from swarm_field.swarm.memory import AgentMemory, DecayConfig, MemoryView
+from swarm_field.swarm.memory import AgentMemory, DecayConfig, KnowledgeSnapshot, MemoryView
 from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.provider import FieldProvider
 from swarm_field.swarm.seeder import (
@@ -36,6 +36,7 @@ from swarm_field.swarm.seeder import (
     SeededField,
     TreatSeeder,
 )
+from swarm_field.swarm.sharing import KnowledgeExchange, SharingConfig, SharingStrategy
 from swarm_field.swarm.steering import (
     QuadtreeSensing,
     Sensing,
@@ -44,7 +45,6 @@ from swarm_field.swarm.steering import (
 )
 
 __all__ = [
-    "FULL_SHARE_EVERY",
     "ActionCandidate",
     "AgentMemory",
     "Arbiter",
@@ -63,11 +63,15 @@ __all__ = [
     "FollowField",
     "FollowSeederField",
     "Intent",
+    "KnowledgeExchange",
+    "KnowledgeSnapshot",
     "MemoryView",
     "Navigator",
     "QuadtreeSensing",
     "SeededField",
     "Sensing",
+    "SharingConfig",
+    "SharingStrategy",
     "Steerer",
     "SteeringConfig",
     "TreatInfestation",

@@ -50,6 +50,12 @@ Time the quadtree potential field against a plain Dijkstra over every cell, and 
 uv run python -m tests.benchmark_field --sizes 100 250 500
 ```
 
+Time how much of a pest run goes to knowledge sharing, at 10, 20 and 40 robots (not part of `pytest`):
+
+```bash
+uv run python -m tests.benchmark_sharing --cases 10x32 20x32 40x64
+```
+
 Compare variants and parameters of the EXPLORE seeder: five robots exploring a 32 × 32 field for three simulated hours, four seeds per variant, spread over processes (takes about ten minutes on 20 cores; not part of `pytest`). The results are in [`docs/explore.md`](docs/explore.md):
 
 ```bash

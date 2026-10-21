@@ -5,13 +5,12 @@ decision point it merges what the robot sensed and received into its memory, kee
 provider's quadtree in sync with new terrain facts, gathers the scored candidates of its
 behaviors, lets its arbiter pick one and turns its intent into one action: the navigator steps
 along the field a ``FollowField`` names, and any other intent passes through. It broadcasts its
-status (its cell, and the winner's target and objective) and what it newly learned, now and then
-its whole memory, and merges what its peers broadcast. Capability gating is added once it is built.
+status (its cell, and the winner's target and objective) and what its ``KnowledgeExchange``
+shares of its memory, and merges what its peers broadcast. Capability gating is added once it is
+built.
 """
 
 import logging
-from collections.abc import Sequence
-from typing import cast
 
 from swarm_field.contracts import (
     Action,
@@ -22,11 +21,9 @@ from swarm_field.contracts import (
     Idle,
     Message,
     MessageKind,
-    Observation,
     PeerObservation,
     Perception,
     RobotId,
-    TerrainObservation,
     Time,
 )
 from swarm_field.swarm.arbiter import Arbiter
@@ -40,11 +37,9 @@ from swarm_field.swarm.behavior import (
 from swarm_field.swarm.memory import AgentMemory
 from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.provider import FieldProvider
+from swarm_field.swarm.sharing import KnowledgeExchange, SharingConfig
 
 logger = logging.getLogger(__name__)
-
-FULL_SHARE_EVERY: int = 20
-"""Default of ``ComposedAgent.full_share_every``: a whole-memory broadcast every 20 decisions."""
 
 
 class ComposedAgent:
@@ -59,8 +54,7 @@ class ComposedAgent:
         navigator: Moves the robot along the winning candidate's field.
         arbiter: Picks the candidate the robot acts on and holds the robot to its choice. Every
             robot needs its own, since an arbiter remembers its robot's commitment.
-        full_share_every: Every how many decisions the robot broadcasts its whole memory
-            rather than only what it learned at that decision point.
+        exchange: Merges what the robot hears into its memory, and picks what it shares.
     """
 
     def __init__(
@@ -71,7 +65,7 @@ class ComposedAgent:
         fields: FieldProvider,
         navigator: Navigator,
         arbiter: Arbiter,
-        full_share_every: int = FULL_SHARE_EVERY,
+        sharing: SharingConfig | None = None,
     ) -> None:
         self.robot_id: RobotId = robot_id
         self.behaviors: list[Behavior] = behaviors
@@ -79,21 +73,16 @@ class ComposedAgent:
         self.fields: FieldProvider = fields
         self.navigator: Navigator = navigator
         self.arbiter: Arbiter = arbiter
-        self.full_share_every: int = full_share_every
+        self.exchange: KnowledgeExchange = KnowledgeExchange(memory, sharing)
         self._current_goal: str | None = None
         self._current_target: CellId | None = None
         self._current_objective: AgentObjective | None = None
-        self._decisions: int = 0
-        self._learned: list[Observation] = []
 
     def decide(self, perception: Perception) -> Decision:
-        self._learned = self.memory.ingest(perception)
-        for facts in self._facts_received(perception.inbox):
-            self._learned.extend(self.memory.merge(facts))
-        terrain_cells = [
-            fact.cell for fact in self._learned if isinstance(fact, TerrainObservation)
-        ]
-        self.fields.update_terrain(terrain_cells)
+        version = self.memory.version
+        self.memory.ingest(perception)
+        self.exchange.receive(perception.inbox)
+        self.fields.update_terrain(self.memory.terrain_stored_after(version))
 
         ctx = DecisionContext(
             time=perception.time,
@@ -146,47 +135,14 @@ class ComposedAgent:
             return Idle(), None
         return self.navigator.step_towards(field, robot)
 
-    def _facts_received(self, inbox: list[Message]) -> list[Sequence[Observation]]:
-        """The facts carried by each received message: memory snapshots and status reports.
-
-        A knowledge payload is passed on whole rather than checked fact by fact: it can hold
-        thousands of facts, and ``AgentMemory.merge`` already ignores whatever is not a fact it
-        stores.
-        """
-        facts: list[Sequence[Observation]] = []
-        for message in inbox:
-            if message.kind is MessageKind.KNOWLEDGE:
-                if not isinstance(message.payload, (tuple, list)):
-                    continue
-                facts.append(cast(Sequence[Observation], message.payload))
-            elif message.kind is MessageKind.STATUS:
-                if not isinstance(message.payload, PeerObservation):
-                    logger.warning(
-                        "Skipping a status message from %s with payload %r",
-                        message.sender,
-                        message.payload,
-                    )
-                    continue
-                facts.append((message.payload,))
-        return facts
-
     def _messages_to_send(self, perception: Perception) -> list[Message]:
         """The messages to broadcast at this decision point: the robot's status and knowledge.
 
         The status tells peers where the robot is, which target it is heading for (the target
         of the winner's field, or else the winning candidate's ``target``) and for which
-        objective, so that they can avoid the same region.
-
-        The knowledge is what the robot learned at this decision point, sensed or received, so
-        news travels on through the swarm hop by hop without every robot resending everything
-        it knows. Every ``full_share_every``-th decision it is the whole memory instead, so that
-        a peer that just came into range catches up. The first is not one: at the start a robot
-        knows only what it sensed, and the terrain map every robot may start with.
+        objective, so that they can avoid the same region. The knowledge is what the exchange
+        shares of the robot's memory, if anything.
         """
-        self._decisions += 1
-        knowledge: tuple[Observation, ...] = tuple(self._learned)
-        if self._decisions % self.full_share_every == 0:
-            knowledge = tuple(self.memory.records())
         status = PeerObservation(
             cell=perception.self_state.position,
             confidence=1.0,
@@ -203,10 +159,15 @@ class ComposedAgent:
             kind=MessageKind.STATUS,
             payload=status,
         )
-        memory_message = Message(
-            sender=self.robot_id,
-            sent_at=perception.time,
-            kind=MessageKind.KNOWLEDGE,
-            payload=knowledge,
-        )
-        return [status_message, memory_message]
+        messages = [status_message]
+        knowledge = self.exchange.knowledge_to_send()
+        if knowledge is not None:
+            messages.append(
+                Message(
+                    sender=self.robot_id,
+                    sent_at=perception.time,
+                    kind=MessageKind.KNOWLEDGE,
+                    payload=knowledge,
+                )
+            )
+        return messages

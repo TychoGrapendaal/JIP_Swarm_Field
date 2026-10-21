@@ -16,7 +16,7 @@ from __future__ import annotations
 import csv
 import json
 from collections import Counter
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from random import Random
@@ -57,7 +57,6 @@ from swarm_field.simulation import (
     write_metrics_json,
 )
 from swarm_field.swarm import (
-    FULL_SHARE_EVERY,
     AgentMemory,
     ArbiterConfig,
     Behavior,
@@ -67,7 +66,9 @@ from swarm_field.swarm import (
     FieldProvider,
     FieldSeeder,
     FollowSeederField,
+    KnowledgeSnapshot,
     Navigator,
+    SharingConfig,
     TreatInfestation,
     TreatSeeder,
     UtilityArbiter,
@@ -148,8 +149,8 @@ class BrainSpec:
     """How to assemble one robot's brain, by name.
 
     This is the data-driven assembly of architecture §A.4. Every brain gets a
-    ``UtilityArbiter`` with ``arbiter``; the communication strategy is fixed in
-    ``ComposedAgent``, so it has no registry entry.
+    ``UtilityArbiter`` with ``arbiter``, and shares its memory as ``sharing`` says; neither
+    has a registry entry.
 
     Attributes:
         behaviors: Registry names of the behaviors, combined at every decision point. Order
@@ -161,8 +162,7 @@ class BrainSpec:
         params: Per-part parameters, passed through to the named factory, e.g. an
             ``ExploreConfig`` under ``"explore"`` for the EXPLORE seeder.
         arbiter: The overrides and hysteresis of the robot's ``UtilityArbiter``.
-        full_share_every: Every how many decisions the robot broadcasts its whole memory
-            rather than only what it newly learned (``ComposedAgent.full_share_every``).
+        sharing: What the robot broadcasts of its memory, and how often.
     """
 
     behaviors: tuple[str, ...] = ("treat-infestation",)
@@ -170,7 +170,7 @@ class BrainSpec:
     navigator: str = "potential-field"
     params: dict[str, Any] = field(default_factory=dict)
     arbiter: ArbiterConfig = field(default_factory=ArbiterConfig)
-    full_share_every: int = FULL_SHARE_EVERY
+    sharing: SharingConfig = field(default_factory=SharingConfig)
 
     def describe(self) -> str:
         """The parts of this brain by name, e.g. ``behaviors=explore seeders=explore``.
@@ -181,6 +181,7 @@ class BrainSpec:
             "behaviors=" + "+".join(self.behaviors),
             "seeders=" + "+".join(self.seeders),
             "navigator=" + self.navigator,
+            "sharing=" + self.sharing.describe(),
         ]
         if self.params:
             parts.append("params=" + "+".join(sorted(self.params)))
@@ -220,6 +221,13 @@ class ExperimentConfig:
     until: Time = TimeUnit.HOUR
     metrics: MetricsConfig = field(default_factory=MetricsConfig)
     decision_interval: Time = 5_000
+
+    def with_sharing(self, sharing: SharingConfig) -> ExperimentConfig:
+        """This experiment with every robot, whatever its body, sharing as ``sharing`` says."""
+        by_body: dict[BodyType, BrainSpec] = {}
+        for body, brain in self.brains_by_body.items():
+            by_body[body] = replace(brain, sharing=sharing)
+        return replace(self, brain=replace(self.brain, sharing=sharing), brains_by_body=by_body)
 
 
 @dataclass(frozen=True)
@@ -574,13 +582,13 @@ def build_run(
     scenario = config.scenario
     rng = Random(scenario.seed)
     world = build_world(scenario)
-    terrain: list[TerrainObservation] = []
+    known: KnowledgeSnapshot | None = None
     if config.robots_know_terrain:
-        terrain = terrain_map(world)
+        known = terrain_knowledge(world)
     agents: dict[RobotId, SwarmAgent] = {}
     for spec in scenario.robots:
         brain = config.brains_by_body.get(spec.body, config.brain)
-        agents[spec.robot_id] = build_agent(brain, spec.robot_id, scenario.field, rng, terrain)
+        agents[spec.robot_id] = build_agent(brain, spec.robot_id, scenario.field, rng, known)
 
     collector = MetricsCollector(config=config.metrics)
     collector.bind(world)
@@ -635,16 +643,17 @@ def build_agent(
     robot_id: RobotId,
     field: FieldGeometry,
     rng: Random,
-    terrain: Sequence[TerrainObservation] = (),
+    known: KnowledgeSnapshot | None = None,
 ) -> ComposedAgent:
     """Resolve a ``BrainSpec`` into one assembled brain for one robot.
 
     The robot's ``BodyType`` is not a parameter: ``ComposedAgent`` has no capability gate to
     apply it in, so a body gets its own brain through ``ExperimentConfig.brains_by_body``
-    instead (architecture §A.3). The robot's memory starts with ``terrain``.
+    instead (architecture §A.3). The robot's memory starts with what ``known`` holds.
     """
     memory = AgentMemory(robot_id, field)
-    memory.merge(terrain)
+    if known is not None:
+        memory.merge_snapshot(known)
     behaviors: list[Behavior] = [
         BEHAVIORS.build(name, _params_for(spec), rng) for name in spec.behaviors
     ]
@@ -656,8 +665,19 @@ def build_agent(
         fields=fields,
         navigator=Navigator(fields.quadtree),
         arbiter=UtilityArbiter(spec.arbiter),
-        full_share_every=spec.full_share_every,
+        sharing=spec.sharing,
     )
+
+
+def terrain_knowledge(world: WorldState) -> KnowledgeSnapshot:
+    """The terrain of every cell as a snapshot to start each robot's memory with.
+
+    It is merged once here, and every robot merges the snapshot, rather than each robot merging
+    the terrain fact by fact.
+    """
+    memory = AgentMemory(0, world.field)
+    memory.merge(terrain_map(world))
+    return memory.knowledge()
 
 
 def terrain_map(world: WorldState) -> list[TerrainObservation]:

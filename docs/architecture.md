@@ -369,7 +369,7 @@ flowchart LR
 |---|---|---|
 | Add a robot action | a `contracts` action + a `Capability` + a `Behavior` | orchestrator, arbiter, loop, simulation |
 | Try a new decision algorithm | `Behavior` / `Arbiter` implementations + a `BrainSpec` | ports, contracts, simulation |
-| Change how robots share knowledge | a `CommsStrategy` (payload stays opaque) | simulation, other agents |
+| Change how robots share knowledge | a `SharingStrategy` in `BrainSpec.sharing` (payload stays opaque) | simulation, other agents |
 | Add a simulation dynamic (e.g. pest model) | a new `Event` type + handler | brains, contracts, other events |
 | Add a robot/body class | a `CapabilitySet` + per‑robot `BrainSpec` | orchestrator, simulation |
 | Swap the renderer | the C adapter | A, B, contracts |
