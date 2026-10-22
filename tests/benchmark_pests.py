@@ -38,7 +38,7 @@ from statistics import mean, median, quantiles, stdev
 from swarm_field.contracts import BodyType, CellId, Idle, RobotId, Time, TimeUnit
 from swarm_field.experiments import RELAYED_KILLERS, PestScenario
 from swarm_field.experiments.run import LiveRun
-from swarm_field.swarm import BeaconConfig, KnowledgeSharing, treat_beacon
+from swarm_field.swarm import BeaconConfig, EscapeConfig, KnowledgeSharing, treat_beacon
 
 METRIC_BEACONS = BeaconConfig(
     hop_cells=RELAYED_KILLERS.radio_range_m / RELAYED_KILLERS.cell_size,
@@ -58,8 +58,9 @@ class Arm:
 def arms() -> Iterator[Arm]:
     """The seeded arm, the oracle, which hears every pest at once, and the hop arms.
 
-    ``hop repel`` is the best hop configuration so far: metric hops, the cap, and killers
-    repelling each other.
+    ``hop repel`` has metric hops, the cap, and killers repelling each other. ``hop tuned`` is
+    the best hop configuration so far: ``hop repel`` with pulls weighted by the square root of
+    the distance, and the escape.
     """
     yield Arm("seeded", RELAYED_KILLERS)
     oracle = replace(
@@ -76,6 +77,8 @@ def arms() -> Iterator[Arm]:
     yield Arm("hop metric", replace(hop, beacons=METRIC_BEACONS))
     repel = replace(METRIC_BEACONS, killer_repulsion=2.0)
     yield Arm("hop repel", replace(hop, beacons=repel))
+    tuned = replace(repel, distance_power=0.5, escape=EscapeConfig())
+    yield Arm("hop tuned", replace(hop, beacons=tuned))
 
 
 @dataclass(frozen=True)

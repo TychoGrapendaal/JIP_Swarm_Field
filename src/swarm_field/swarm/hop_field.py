@@ -66,7 +66,8 @@ def hop_pull(memory: MemoryView, robot: CellId, now: Time, config: BeaconConfig)
 
     A killer's beacon pushes with ``killer_repulsion`` times its strength instead, so that a
     killer closer to the pest counters the pull towards it, and the ``obstacle_push`` is added.
-    Pulls that cancel out exactly count as no pull.
+    With ``distance_power``, every strength is divided by the beacon's distance to that power,
+    also when picking the strongest beacon. Pulls that cancel out exactly count as no pull.
     """
     killers: set[RobotId] = set()
     if config.killer_repulsion > 0:
@@ -79,7 +80,7 @@ def hop_pull(memory: MemoryView, robot: CellId, now: Time, config: BeaconConfig)
         dx = heard.beacon.cell[0] - robot[0]
         dy = heard.beacon.cell[1] - robot[1]
         distance = hypot(dx, dy)
-        strength = beacon_strength(heard, now, config)
+        strength = beacon_strength(heard, now, config) / max(distance, 1.0) ** config.distance_power
         if heard.sender in killers:
             strength *= -config.killer_repulsion
         pull_x += strength * dx / distance
@@ -120,8 +121,14 @@ def obstacle_push(memory: MemoryView, robot: CellId, now: Time, config: BeaconCo
 
 
 def obstacle_strength(heard: HeardBeacon, now: Time, config: BeaconConfig) -> float:
-    """How hard an obstacle beacon pushes at its own cell: its value, decaying with its age."""
-    return heard.beacon.value * exp(-(now - heard.sent_at) / config.obstacle_decay)
+    """How hard an obstacle beacon pushes at its own cell: its value, decaying with its age.
+
+    It decays with its own decay time, or with ``obstacle_decay`` without one.
+    """
+    decay = config.obstacle_decay
+    if heard.decay is not None:
+        decay = heard.decay
+    return heard.beacon.value * exp(-(now - heard.sent_at) / decay)
 
 
 def cell_ahead(robot: CellId, offset: Vector2) -> CellId:

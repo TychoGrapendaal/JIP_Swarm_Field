@@ -202,31 +202,23 @@ class ComposedAgent:
         config = self.beacons
         ahead = cell_ahead(robot, self._heading.offset)
         if config.obstacle_repulsion > 0 and self.surroundings.blocks(ahead):
-            self._place_stronger_beacon(ahead, now, config.obstacle_repulsion, config)
+            self._place_stronger_beacon(ahead, now, config.obstacle_repulsion, None, config)
         if self._escape is not None:
-            escape = self._escape.check(
-                robot, ahead, lambda cell: self._recent_obstacle_beacon_on(cell, now, config)
-            )
+            escape = self._escape.check(robot, ahead, now)
             if escape is not None:
-                self._place_stronger_beacon(escape.cell, now, escape.strength, config)
+                self._place_stronger_beacon(escape.cell, now, escape.strength, escape.decay, config)
 
     def _place_stronger_beacon(
-        self, cell: CellId, now: Time, strength: float, config: BeaconConfig
+        self,
+        cell: CellId,
+        now: Time,
+        strength: float,
+        decay: Time | None,
+        config: BeaconConfig,
     ) -> None:
         """Place an obstacle beacon on ``cell``, unless the push already there is as strong."""
         if strength > self._obstacle_push_on(cell, now, config):
-            self.memory.place_obstacle_beacon(cell, now, strength)
-
-    def _recent_obstacle_beacon_on(self, cell: CellId, now: Time, config: BeaconConfig) -> float:
-        """The strength of the obstacle beacon placed on ``cell`` within ``obstacle_decay``, or 0.
-
-        An escape boosts from it: the escape window is about as long as the decay, so boosting
-        from the decayed push would never grow.
-        """
-        heard = self.memory.obstacle_beacon_at(cell)
-        if heard is None or now - heard.sent_at > config.obstacle_decay:
-            return 0.0
-        return heard.beacon.value
+            self.memory.place_obstacle_beacon(cell, now, strength, decay)
 
     def _obstacle_push_on(self, cell: CellId, now: Time, config: BeaconConfig) -> float:
         """The push of the obstacle beacon on ``cell`` at ``now``, or 0 without one."""

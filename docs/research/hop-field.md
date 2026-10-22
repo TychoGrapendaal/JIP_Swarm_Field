@@ -43,9 +43,11 @@ A beacon at hop 0 pulls with strength 1, a beacon at hop 1 with 0.5, at hop 2 wi
 
 The direction is the strength-weighted average of the directions to the downhill beacons:
 
-$$\text{Pull}(\text{robot}) = \sum_{\text{beacon} \,\in\, \text{Downhill}} \text{Sign}(\text{beacon}) \cdot \text{Strength}(\text{beacon}) \cdot \text{UnitVector}(\text{robot} \to \text{beacon})$$
+$$\text{Pull}(\text{robot}) = \sum_{\text{beacon} \,\in\, \text{Downhill}} \text{Sign}(\text{beacon}) \cdot \frac{\text{Strength}(\text{beacon})}{\max\big(\text{Distance}(\text{robot}, \text{beacon}),\ 1\big)^{\text{DistancePower}}} \cdot \text{UnitVector}(\text{robot} \to \text{beacon})$$
 
 $$\text{Direction}(\text{robot}) = \frac{\text{Pull}(\text{robot})}{\lVert \text{Pull}(\text{robot}) \rVert}$$
+
+With `DistancePower` = 0 every beacon pulls equally hard from any distance. A robot between several pests is then held where the unit pulls cancel, their geometric median: the pulls are the gradient of $\sum s_j \lVert x - p_j \rVert$, which is convex, so that point is a stable minimum, and a push only moves the robot off it for a while. With any power above 0 the point between two pests becomes unstable along the line joining them. At power 1 the pulls are the gradient of $\sum s_j \ln \lVert x - p_j \rVert$, which is harmonic in the plane, so there is no minimum anywhere away from the beacons. The distance is at least one cell, so a beacon next to the robot does not dominate without bound. The weighted strength also picks the strongest beacon.
 
 $\text{Sign}$ is $+1$ for a beacon sent by a relay or a source. For a beacon sent by another killer it is $-\text{KillerRepulsion}$: a killer closer to the pest pushes instead of pulls, so two killers do not walk to the same pest. Dividing by the length keeps only the direction, which is why a sum and an average point the same way.
 
@@ -69,13 +71,13 @@ $$\text{Progress} = \frac{\lVert c_{\text{last}} - c_{\text{first}} \rVert}{\sum
 
 Here $c_k$ is the killer's cell at the $k$-th of those decisions. Progress is 1 for a straight walk, near 0 for a shuttle, and 0 for standing still. A decision that follows no heading, such as a treatment, starts the window over. The window is 40 decisions (10 min) by default, because a move is under way for several decisions, and a ground killer's diagonal move alone takes 10.
 
-When Progress is below `min_progress` (0.3), the killer places an obstacle beacon on the centre of the cells it was in, the place it circles around. Its push points from that centre to the killer, so it always says "leave this place". If the centre is the killer's own cell, as for a standstill, the beacon goes on the cell ahead along the heading instead, which is the wall when there is one. The beacon pushes
+When Progress is below `min_progress` (0.3), the killer places an obstacle beacon on the centre of the cells it was in, the place it circles around. Its push points from that centre to the killer, so it always says "leave this place". If the centre is the killer's own cell, as for a standstill, the beacon goes on the cell ahead along the heading instead, which is the wall when there is one. The beacon pushes `escape_strength` and fades with `escape_decay`. If the killer is stuck again within one cell of its last escape beacon while that beacon is younger than its decay time, the beacon is placed again on its own cell, with `escape_boost` times its strength and `escape_boost` times its decay time:
 
-$$\text{EscapePush}(\text{cell}) = \max\big(\text{EscapeStrength},\ \text{EscapeBoost} \cdot \text{Placed}(\text{cell})\big)$$
+$$\text{EscapePush}_{k+1} = \text{EscapeBoost} \cdot \text{EscapePush}_k, \qquad \text{EscapeDecayTime}_{k+1} = \text{EscapeBoost} \cdot \text{EscapeDecayTime}_k$$
 
-$\text{Placed}(\text{cell})$ is the strength the killer placed on that cell less than `obstacle_decay` ago, or 0. So escapes from the same place grow while they keep failing, and start over once the old one is forgotten. A beacon never replaces a stronger push on its cell, so a plain obstacle beacon does not undo an escape. Whether the cell ahead is a wall comes only from what the robot senses around itself at that decision.
+So while the killer keeps circling in the same area, the beacon grows and does not fade. Elsewhere, or once the last one is older than its decay time, the escape starts over. A beacon never replaces a stronger push on its cell, so a plain obstacle beacon does not undo an escape. Whether the cell ahead is a wall comes only from what the robot senses around itself at that decision.
 
-On `RELAYED_KILLERS` with `hop repel`, the escape cuts the infested cells from 8.04 ± 0.53 to 7.09 ± 0.54 (paired −0.95 ± 0.39, 12 seeds, 3 h, 15 pests/h). It does not free a killer standing between several pests. There the unit pulls sum to zero at a single point between the pests, their geometric median, and that point pulls the killer back after every push.
+The escape cannot free a killer held at the geometric median of several pests by unit pulls: every push only moves it off a stable point for a while. A `DistancePower` above 0 removes that trap.
 
 ### Names in the formulas and in the code
 
@@ -89,12 +91,14 @@ On `RELAYED_KILLERS` with `hop repel`, the escape cuts the infested cells from 8
 | PullPerHop | `gamma` | 0.5 |
 | DecayTime | `decay` | 1 min |
 | KillerRepulsion | `killer_repulsion` | 2 |
+| DistancePower | `distance_power` | 0 (0.5 in `hop tuned`) |
 | ObstacleRepulsion | `obstacle_repulsion` | 0 (off) |
 | ObstacleRange | `obstacle_range_cells` | 3 cells |
 | ObstacleDecayTime | `obstacle_decay` | 10 min |
 | `stuck_decisions` | `escape.stuck_decisions` | 40 (escape off in `hop repel`) |
 | `min_progress` | `escape.min_progress` | 0.3 (escape off in `hop repel`) |
 | EscapeStrength | `escape.escape_strength` | 1 (escape off in `hop repel`) |
+| EscapeDecayTime | `escape.escape_decay` | 10 min (escape off in `hop repel`) |
 | EscapeBoost | `escape.escape_boost` | 2 (escape off in `hop repel`) |
 
 The supervisor's literal rule, "go to the robot with the next lower hop number", is the case of integer hops and no killer repulsion: only beacons at the lowest hop number are downhill, and they pull equally apart from their age.
@@ -124,6 +128,23 @@ The 15/h runs last 3 hours. The 30/h runs last 2 hours, so that no killer runs o
 
 The table above predates the fix for the relay shuttle (below), which changes every hop arm.
 
+### Shuttles, the distance weight and the escape
+
+12 seeds per arm, 3 h at 15 pests/h, all with the relay-shuttle fix. "Paired" is the difference to `hop repel` on the same seeds. "River" is the explainer's scenario instead: one killer, 100 relays, a 50 m radio, the river and the rocks, 12 seeds of 2 h at 6 pests/h, and its outcome is the pests treated by the killer in total.
+
+| Arm | Infested | Paired | Cells moved per treatment | River, treated |
+| --- | --- | --- | --- | --- |
+| `hop repel` | 7.18 ± 0.55 | 0 | 9.7 | 35 |
+| + escape | 7.36 ± 0.57 | +0.19 ± 0.22 | 9.9 | 34 |
+| DistancePower 1 | 7.72 ± 0.79 | +0.54 ± 0.49 | 9.8 | 40 |
+| DistancePower 1 + escape | 7.68 ± 0.84 | +0.50 ± 0.50 | 9.9 | 45 |
+| DistancePower 0.5 | 6.63 ± 0.65 | −0.55 ± 0.42 | 9.4 | 42 |
+| **`hop tuned`** (DistancePower 0.5 + escape) | **6.17 ± 0.53** | **−1.01 ± 0.50** | **9.2** | **42** |
+
+- **The relay-shuttle fix matters most.** Before it, killers on a heading made less than 0.3 progress in 39 % of their ten-minute windows, nearly all of them two-cell shuttles. After it, 6 %. `hop repel` went from 8.04 to 7.18 infested cells on the same seeds, and its killers move 15 % less per treatment.
+- **A distance weight frees killers between pests.** On the river, power 1 lifts the treated pests from 35 to 40, and to 45 with the escape. The two runs where the killer was held between pests went from 1 and 0 treated to 4 and 6. In the open field, power 1 is slightly worse; power 0.5 is better in both.
+- **The escape adds little once the shuttles are gone.** It helps together with a distance weight, where a push can tip the killer off an unstable point.
+
 ## What went wrong on the way
 
 **Integer hops jitter.** With integer hops a robot's own value is one more than the lowest it hears, so only beacons at that one value pull, and that set changes with every cell moved. Killers reversed 10 % of their moves against 2.5 % in the seeded arm.
@@ -132,12 +153,14 @@ The table above predates the fix for the relay shuttle (below), which changes ev
 
 **A killer on a relay shuttled back to a higher neighbour.** A killer standing on a relay's cell has its own hop number one minimum hop above that relay. A neighbouring relay just above the relay, but below the killer's own number, was therefore downhill and pulled the killer back, and from there the relay was downhill again. This happened wherever the next link of the chain was at the edge of the radio range, so that a killer passing the relay did not hear it. Killers shuttled in 39 % of their ten-minute windows on a heading. A robot on a beacon's cell now compares with that beacon's value.
 
+**Unit pulls hold a killer between pests.** With pulls of equal size from any distance, a killer surrounded by several pests of about the same strength settles at their geometric median, a stable point, and shuttles there. On the river this kept a killer from treating anything for 40 minutes. A distance weight makes that point unstable.
+
 **Cleared pests leave ghosts.** When a pest is cleared its source falls silent, but relays keep feeding each other values that rise one hop per round and never vanish (count-to-infinity). The cap removes them once they rise past it. While other pests exist, their live gradients win the minimum, so ghosts cost about two cells of travel per treatment.
 
 ## What these results do and do not show
 
 - Relays stand still. With moving explorers as relays, chains break and re-form, and stale beacons matter more.
-- The field has no obstacles. The steerer walks the heading around obstacles, but how often a direction into a wall strands a killer is not measured.
+- The benchmark field has no obstacles. The river scenario has one killer and few seeds, so it shows the direction of an effect, not its size.
 - Every robot knows its own absolute cell, and beacons carry absolute cells. The hop approach needs only relative positions within radio range, so it may be more robust to position error than a shared cell, but that is not tested.
 - Exploration still gossips per-cell facts in the seeded arm. A full comparison needs exploration with coarse sharing (#71).
 

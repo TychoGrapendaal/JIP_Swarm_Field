@@ -69,11 +69,14 @@ class HeardBeacon:
         sender: Who sent it: a robot, or a mock pest source.
         sent_at: When it was sent.
         beacon: The hop value and where it holds.
+        decay: For an obstacle beacon the robot placed, the decay time of its push, or ``None``
+            for ``BeaconConfig.obstacle_decay``.
     """
 
     sender: RobotId
     sent_at: Time
     beacon: Beacon
+    decay: Time | None = None
 
 
 class MemoryView(Protocol):
@@ -165,14 +168,17 @@ class AgentMemory:
             if stored is None or sent_at > stored.sent_at:
                 self._beacons[key] = HeardBeacon(sender, sent_at, beacon)
 
-    def place_obstacle_beacon(self, cell: CellId, now: Time, strength: float) -> None:
+    def place_obstacle_beacon(
+        self, cell: CellId, now: Time, strength: float, decay: Time | None = None
+    ) -> None:
         """Place an obstacle beacon on ``cell`` at ``now``, pushing with ``strength``.
 
         Obstacle beacons are the robot's own: one per cell, the newest kept, never shared. The
-        beacon's value is its push strength.
+        beacon's value is its push strength, which fades with ``decay``, or with
+        ``BeaconConfig.obstacle_decay`` without one.
         """
         beacon = Beacon(BeaconKind.OBSTACLE, strength, cell)
-        self._obstacle_beacons[cell] = HeardBeacon(self._robot_id, now, beacon)
+        self._obstacle_beacons[cell] = HeardBeacon(self._robot_id, now, beacon, decay)
 
     def obstacle_beacon_at(self, cell: CellId) -> HeardBeacon | None:
         """The obstacle beacon the robot placed on ``cell``, if any."""

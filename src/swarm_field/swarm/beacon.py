@@ -33,6 +33,10 @@ class BeaconConfig:
             for no limit.
         killer_repulsion: How hard a killer's downhill beacon pushes, relative to how hard
             another robot's beacon of the same value pulls; 0 for no repulsion.
+        distance_power: How a beacon's pull falls with its distance: it is divided by the
+            distance in cells, at least one, to this power. 0 pulls equally from any distance,
+            which holds a robot between several beacons at their geometric median; 1 makes such
+            a point unstable, so the robot falls towards one of them.
         obstacle_repulsion: How hard an obstacle beacon pushes at its own cell; 0 for no
             obstacle beacons at all.
         obstacle_range_cells: How far an obstacle beacon pushes; its push falls linearly to
@@ -49,6 +53,7 @@ class BeaconConfig:
     min_hop_cells: float = 1.0
     max_value: float | None = None
     killer_repulsion: float = 0.0
+    distance_power: float = 0.0
     obstacle_repulsion: float = 0.0
     obstacle_range_cells: float = 3.0
     obstacle_decay: Time = 10 * TimeUnit.MINUTE

@@ -83,6 +83,17 @@ def test_a_robot_on_a_relay_is_not_pulled_back_to_a_higher_neighbour() -> None:
     assert HopField(BeaconConfig(hop_cells=2.0)).guidance_for(memory, (3, 1), 0) is None
 
 
+def test_between_two_equal_beacons_a_distance_weighted_pull_leads_to_the_nearer_one() -> None:
+    memory = _memory_hearing((0.0, (0, 0)), (0.0, (10, 0)))
+
+    unit = HopField(_CONFIG).guidance_for(memory, (4, 0), 0)
+    weighted = HopField(BeaconConfig(distance_power=1.0)).guidance_for(memory, (4, 0), 0)
+
+    assert unit is None
+    assert weighted is not None
+    assert weighted.offset[0] < 0
+
+
 def _bids(memory: AgentMemory, position: CellId, sensed: list[Observation]) -> list[object]:
     ctx = DecisionContext(time=0, self_state=_self_state(position), sensed=sensed, memory=memory)
     return [candidate.action for candidate in TreatByBeacon(_CONFIG).propose(ctx)]
