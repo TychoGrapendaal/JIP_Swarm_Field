@@ -49,24 +49,21 @@ $$\text{Direction}(\text{robot}) = \frac{\text{Pull}(\text{robot})}{\lVert \text
 
 $\text{Sign}$ is $+1$ for a beacon sent by a relay or a source. For a beacon sent by another killer it is $-\text{KillerRepulsion}$: a killer closer to the pest pushes instead of pulls, so two killers do not walk to the same pest. Dividing by the length keeps only the direction, which is why a sum and an average point the same way.
 
-`HopField` hands the direction to the `Steerer` as a `Heading` towards the strongest attracting beacon's cell, and the steerer walks around obstacles on the way. `TreatByBeacon` bids to treat with the strength of that same strongest beacon, so a killer commits only when something pulls it.
+`HopField` hands the direction to the `Steerer` as a `Heading` towards the strongest attracting beacon's cell, and the steerer walks around obstacles on the way. A hop killer keeps no map: the steerer and the wall checks below use only the terrain the robot senses around itself at the current decision (`SensedSurroundings`). `TreatByBeacon` bids to treat with the strength of that same strongest beacon, so a killer commits only when something pulls it.
 
 **Worked example.** A killer with own hop number 2.0 hears three beacons: a relay at hop 1.2 to the east, a relay at hop 1.5 to the north, and a relay at hop 2.4 to the west. The west one is not downhill. The east one pulls with $0.5^{1.2} = 0.44$, the north one with $0.5^{1.5} = 0.35$. The killer walks north-east, a little more towards the east than the north.
 
 ### Obstacle beacons (optional)
 
-With `obstacle_repulsion` above 0, a robot whose direction runs it into a cell it cannot enter places an **obstacle beacon** on that cell. Obstacle beacons stay with the robot that placed them; they are never broadcast. Each pushes the robot away from its cell, within `obstacle_range_cells`:
+With `obstacle_repulsion` above 0, a robot whose direction runs it into a cell it senses it cannot enter places an **obstacle beacon** on that cell. Obstacle beacons stay with the robot that placed them; they are never broadcast. Each pushes the robot away from its cell, within `obstacle_range_cells`:
 
 $$\text{Push}(\text{obstacle}) = \text{ObstacleRepulsion} \cdot e^{-\text{Age}(\text{obstacle}) / \text{ObstacleDecayTime}} \cdot \Big(1 - \frac{\text{Distance}(\text{robot}, \text{obstacle})}{\text{ObstacleRange}}\Big)$$
 
 The pushes are added to $\text{Pull}(\text{robot})$, each along $\text{UnitVector}(\text{obstacle} \to \text{robot})$, before the direction is taken.
 
-### Escaping and walkable links (optional)
+### Escaping a wall (optional)
 
-Two more local rules help a killer past obstacles; both are off by default.
-
-- **Escape** (`BeaconConfig.escape`). A killer whose own hop number has not come down by `progress_hops` within `stuck_window` places an obstacle beacon on its own cell. Each further time it is stuck before making progress, the next one pushes `escape_boost` times harder.
-- **Walkable links** (`walkable_links`). A robot ignores a beacon whose straight line from its own cell crosses a known obstacle, so hop numbers spread only along ground a killer can walk. Without it, radio crosses a river and the hop numbers on the near bank point straight across the water.
+With `BeaconConfig.escape`, a killer that has stayed in the same cell for `stuck_decisions` decisions while its direction points into a wall places an obstacle beacon on that wall cell. Each further time it is stuck in that cell, the next beacon pushes `escape_boost` times harder, so the push eventually breaks the equilibrium between the pull and the wall. Leaving the cell starts the count over. Whether the cell ahead is a wall comes only from what the robot senses around itself at that decision.
 
 ### Names in the formulas and in the code
 

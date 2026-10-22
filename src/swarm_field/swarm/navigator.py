@@ -11,7 +11,7 @@ from swarm_field.contracts import CellId, Idle, Move
 from swarm_field.swarm.field import Quadtree, Seed
 from swarm_field.swarm.guidance import Guidance, Heading
 from swarm_field.swarm.seeder import SeededField
-from swarm_field.swarm.steering import QuadtreeSensing, Steerer, SteeringConfig
+from swarm_field.swarm.steering import QuadtreeSensing, Sensing, Steerer, SteeringConfig
 
 _PLAN_PATIENCE_TICKS = 3
 """Field-following ticks without the potential beating its minimum before the steerer takes over.
@@ -28,9 +28,17 @@ class Navigator:
     robot, so it can tell when the field stopped guiding.
     """
 
-    def __init__(self, quadtree: Quadtree, steering: SteeringConfig | None = None) -> None:
+    def __init__(
+        self,
+        quadtree: Quadtree,
+        steering: SteeringConfig | None = None,
+        sensing: Sensing | None = None,
+    ) -> None:
         self._config: SteeringConfig = steering if steering is not None else SteeringConfig()
-        self._steerer: Steerer = Steerer(QuadtreeSensing(quadtree), self._config)
+        steerer_sensing: Sensing = QuadtreeSensing(quadtree)
+        if sensing is not None:
+            steerer_sensing = sensing
+        self._steerer: Steerer = Steerer(steerer_sensing, self._config)
         self._followed: SeededField | None = None
         self._heading_target: CellId | None = None
         self._best_value: float | None = None

@@ -10,9 +10,8 @@ the relays. Dots labelled with a hop value are the beacons the killer hears, ora
 pull it. Orange arrows are the pull of each of those, the thick red arrow is their sum, the
 direction the killer walks. With ``--obstacle-repulsion``, a killer that runs into a wall places
 an obstacle beacon on it (purple dots), and the purple arrow is their summed push. With
-``--escape``, a killer whose hop number did not come down for five minutes places an ever
-stronger one on its own cell. With ``--walkable-links``, robots ignore beacons across obstacles.
-With
+``--escape``, a killer that stays in one cell against a wall for ten decisions places an ever
+stronger one on that wall. With
 ``--show-broadcasts``, blue arrows show a hop value being passed on: from the beacon a robot took
 its value from, to the robot, at the moment its value changes.
 
@@ -75,15 +74,16 @@ def parse_args() -> argparse.Namespace:
         default=0.0,
         help="push of the obstacle beacons a killer places at walls; 0 for none",
     )
-    parser.add_argument("--escape", action="store_true", help="a stuck killer pushes itself off")
-    parser.add_argument("--escape-at-wall", action="store_true", help="escape beacons at the wall")
     parser.add_argument(
-        "--walkable-links", action="store_true", help="ignore beacons across obstacles"
+        "--escape", action="store_true", help="a killer stuck against a wall pushes itself off"
     )
     parser.add_argument("--show-broadcasts", action="store_true", help="draw passed-on values")
     parser.add_argument("--video-seconds", type=float, default=45.0)
     parser.add_argument("--fps", type=int, default=20)
     parser.add_argument("--frame-seconds", type=float, default=5.0, help="simulated per frame")
+    parser.add_argument(
+        "--start-minute", type=float, default=0.0, help="simulated minute of the first frame"
+    )
     parser.add_argument(
         "--frames-at", type=float, nargs="+", help="draw only these minutes, e.g. a smoke test"
     )
@@ -289,25 +289,26 @@ def _clock(time: float) -> str:
 
 
 def frame_times(args: argparse.Namespace) -> Sequence[Time]:
-    """The simulated time of every frame: the minutes asked for, or a video's worth."""
+    """The simulated time of every frame: the minutes asked for, or a video's worth from the start
+    minute on."""
     if args.frames_at:
         return [int(minute * TimeUnit.MINUTE) for minute in args.frames_at]
+    start = int(args.start_minute * TimeUnit.MINUTE)
     step = int(args.frame_seconds * TimeUnit.SECOND)
     frames = int(args.video_seconds * args.fps)
-    return [index * step for index in range(frames)]
+    return [start + index * step for index in range(frames)]
 
 
 def main() -> None:
     args = parse_args()
     escape: EscapeConfig | None = None
     if args.escape:
-        escape = EscapeConfig(escape_at_wall=args.escape_at_wall)
+        escape = EscapeConfig()
     config = BeaconConfig(
         hop_cells=args.radio / PestScenario().cell_size,
         max_value=args.cap,
         obstacle_repulsion=args.obstacle_repulsion,
         escape=escape,
-        walkable_links=args.walkable_links,
     )
     scenario = PestScenario(
         scouts=args.relays,
@@ -320,6 +321,7 @@ def main() -> None:
         pest_source_range_m=args.radio,
         sharing=KnowledgeSharing.NOTHING,
         beacons=config,
+        robots_know_terrain=False,
         pests_per_hour=args.pests_per_hour,
         seed=args.seed,
     )

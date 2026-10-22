@@ -71,6 +71,7 @@ from swarm_field.swarm import (
     KnowledgeSharing,
     Navigator,
     ObjectiveField,
+    SensedSurroundings,
     TreatByBeacon,
     TreatInfestation,
     TreatSeeder,
@@ -603,7 +604,8 @@ def build_agent(
 
     The robot's ``BodyType`` is not a parameter: ``ComposedAgent`` has no capability gate to
     apply it in, so a body gets its own brain through ``ExperimentConfig.brains_by_body``
-    instead (architecture §A.3). The robot's memory starts with ``terrain``.
+    instead (architecture §A.3). The robot's memory starts with ``terrain``. A brain with
+    beacons steers from what it senses around itself at each decision only, not from a map.
     """
     memory = AgentMemory(robot_id, field)
     memory.merge(terrain)
@@ -611,15 +613,20 @@ def build_agent(
         BEHAVIORS.build(name, _params_for(spec), rng) for name in spec.behaviors
     ]
     fields = build_field_provider(spec, memory, rng)
+    surroundings = SensedSurroundings(field.width, field.height)
+    navigator = Navigator(fields.quadtree)
+    if spec.beacons is not None:
+        navigator = Navigator(fields.quadtree, sensing=surroundings)
     return ComposedAgent(
         robot_id=robot_id,
         behaviors=behaviors,
         memory=memory,
         fields=fields,
-        navigator=Navigator(fields.quadtree),
+        navigator=navigator,
         arbiter=UtilityArbiter(spec.arbiter),
         sharing=spec.sharing,
         beacons=spec.beacons,
+        surroundings=surroundings,
     )
 
 

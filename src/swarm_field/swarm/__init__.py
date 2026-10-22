@@ -43,6 +43,7 @@ from swarm_field.swarm.seeder import (
 )
 from swarm_field.swarm.steering import (
     QuadtreeSensing,
+    SensedSurroundings,
     Sensing,
     Steerer,
     SteeringConfig,
@@ -79,6 +80,7 @@ __all__ = [
     "ObjectiveField",
     "QuadtreeSensing",
     "SeededField",
+    "SensedSurroundings",
     "Sensing",
     "Steerer",
     "SteeringConfig",

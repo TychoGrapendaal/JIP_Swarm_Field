@@ -7,9 +7,9 @@ hop gradient that falls towards the pest.
 """
 
 from dataclasses import dataclass
-from math import ceil, exp, floor, hypot
+from math import exp, hypot
 
-from swarm_field.contracts import Beacon, BeaconKind, CellId, RobotId, Terrain, Time, TimeUnit
+from swarm_field.contracts import Beacon, BeaconKind, CellId, RobotId, Time, TimeUnit
 from swarm_field.swarm.escape import EscapeConfig
 from swarm_field.swarm.memory import HeardBeacon, MemoryView
 
@@ -39,9 +39,6 @@ class BeaconConfig:
             nothing at this distance.
         obstacle_decay: The decay time of an obstacle beacon's push with its age.
         escape: When a robot counts as stuck and how it escapes, or ``None`` for no escape.
-        walkable_links: Whether a robot ignores a TREAT beacon whose straight line from its
-            own cell crosses a known obstacle, so that hop numbers spread only along ground a
-            killer can walk.
     """
 
     fresh_for: Time = TimeUnit.MINUTE
@@ -56,7 +53,6 @@ class BeaconConfig:
     obstacle_range_cells: float = 3.0
     obstacle_decay: Time = 10 * TimeUnit.MINUTE
     escape: EscapeConfig | None = None
-    walkable_links: bool = False
 
 
 def fresh_beacons(
@@ -71,39 +67,6 @@ def fresh_beacons(
             continue
         fresh.append(heard)
     return fresh
-
-
-def usable_beacons(
-    memory: MemoryView, position: CellId, now: Time, config: BeaconConfig
-) -> list[HeardBeacon]:
-    """The fresh TREAT beacons the robot at ``position`` counts.
-
-    With ``walkable_links``, a beacon whose straight line from ``position`` crosses a known
-    obstacle is left out.
-    """
-    fresh = fresh_beacons(memory, BeaconKind.TREAT, now, config)
-    if not config.walkable_links:
-        return fresh
-    usable: list[HeardBeacon] = []
-    for heard in fresh:
-        if _walkable_line(memory, position, heard.beacon.cell):
-            usable.append(heard)
-    return usable
-
-
-def _walkable_line(memory: MemoryView, start: CellId, end: CellId) -> bool:
-    """Whether the straight line between two cells crosses no known obstacle.
-
-    The line is sampled every half cell; a cell of unknown terrain counts as walkable.
-    """
-    steps = max(1, ceil(2 * hypot(end[0] - start[0], end[1] - start[1])))
-    for step in range(1, steps):
-        x = start[0] + 0.5 + (end[0] - start[0]) * step / steps
-        y = start[1] + 0.5 + (end[1] - start[1]) * step / steps
-        terrain = memory.terrain_at((floor(x), floor(y)))
-        if terrain is Terrain.OBSTACLE or terrain is Terrain.OUTSIDE:
-            return False
-    return True
 
 
 def beacon_strength(heard: HeardBeacon, now: Time, config: BeaconConfig) -> float:
@@ -134,7 +97,7 @@ def downhill_beacons(
 
     A beacon on the robot's own cell pulls in no direction, so it is left out.
     """
-    fresh = usable_beacons(memory, position, now, config)
+    fresh = fresh_beacons(memory, BeaconKind.TREAT, now, config)
     if not fresh:
         return []
     here = own_value(fresh, position, config)
@@ -162,7 +125,7 @@ def treat_beacon(
     if sighting_cell is not None:
         return Beacon(BeaconKind.TREAT, 0.0, sighting_cell)
 
-    fresh = usable_beacons(memory, position, now, config)
+    fresh = fresh_beacons(memory, BeaconKind.TREAT, now, config)
     if not fresh:
         return None
     value = own_value(fresh, position, config)

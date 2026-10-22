@@ -14,6 +14,7 @@ from swarm_field.contracts import BeaconKind, BodyType, CellId, RobotId, Time, V
 from swarm_field.swarm.beacon import BeaconConfig, beacon_strength, downhill_beacons
 from swarm_field.swarm.guidance import Heading
 from swarm_field.swarm.memory import HeardBeacon, MemoryView
+from swarm_field.swarm.steering import SensedSurroundings
 
 _SIN_22_5 = sin(radians(22.5))
 """Half the angle between two of the eight directions, as the sine that separates them."""
@@ -118,6 +119,16 @@ def obstacle_push(memory: MemoryView, robot: CellId, now: Time, config: BeaconCo
         push_x -= push * dx / distance
         push_y -= push * dy / distance
     return (push_x, push_y)
+
+
+def sensed_wall_ahead(
+    robot: CellId, offset: Vector2, surroundings: SensedSurroundings
+) -> CellId | None:
+    """The cell ahead along ``offset`` if the robot just sensed that it cannot enter it."""
+    ahead = cell_ahead(robot, offset)
+    if surroundings.blocks(ahead):
+        return ahead
+    return None
 
 
 def cell_ahead(robot: CellId, offset: Vector2) -> CellId:

@@ -43,10 +43,11 @@ from swarm_field.swarm.behavior import (
 )
 from swarm_field.swarm.escape import StuckEscape
 from swarm_field.swarm.guidance import Heading
-from swarm_field.swarm.hop_field import cell_ahead
+from swarm_field.swarm.hop_field import sensed_wall_ahead
 from swarm_field.swarm.memory import AgentMemory
 from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.provider import FieldProvider
+from swarm_field.swarm.steering import SensedSurroundings
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +79,8 @@ class ComposedAgent:
         arbiter: Picks the candidate the robot acts on and holds the robot to its choice. Every
             robot needs its own, since an arbiter remembers its robot's commitment.
         sharing: Which memory facts the robot broadcasts to its peers.
+        surroundings: What the robot sensed around itself at its last decision, and nothing
+            older; a navigator built on the same object steers without a map.
         beacons: How beacons are kept, relayed and weighed, or ``None`` for a robot
             that neither keeps nor broadcasts beacons.
     """
@@ -92,6 +95,7 @@ class ComposedAgent:
         arbiter: Arbiter,
         sharing: KnowledgeSharing = KnowledgeSharing.EVERYTHING,
         beacons: BeaconConfig | None = None,
+        surroundings: SensedSurroundings | None = None,
     ) -> None:
         self.robot_id: RobotId = robot_id
         self.behaviors: list[Behavior] = behaviors
@@ -101,6 +105,9 @@ class ComposedAgent:
         self.arbiter: Arbiter = arbiter
         self.sharing: KnowledgeSharing = sharing
         self.beacons: BeaconConfig | None = beacons
+        self.surroundings: SensedSurroundings = SensedSurroundings(memory.width, memory.height)
+        if surroundings is not None:
+            self.surroundings = surroundings
         self._escape: StuckEscape | None = None
         if beacons is not None and beacons.escape is not None:
             self._escape = StuckEscape(beacons.escape)
@@ -112,6 +119,7 @@ class ComposedAgent:
         received = self._facts_received(perception.inbox)
         self.memory.ingest(perception)
         self.memory.merge(received)
+        self.surroundings.sense(perception.sensed)
         if self.beacons is not None:
             self._hear_beacons(perception.inbox)
         terrain_cells = [
@@ -176,22 +184,19 @@ class ComposedAgent:
         return self.navigator.step_towards(field, robot)
 
     def _place_obstacle_beacons(self, heading: Heading, robot: CellId, now: Time) -> None:
-        """Mark the wall the heading runs into, and escape when the robot is stuck.
+        """Mark the wall the heading runs into, and escape when the robot is stuck against it.
 
-        The wall gets a beacon with ``BeaconConfig.obstacle_repulsion``; a stuck robot gets an
-        escape beacon from its ``StuckEscape``.
+        Whether there is a wall ahead comes from ``surroundings``, this decision's sensing. The wall
+        gets a beacon with ``BeaconConfig.obstacle_repulsion``; a robot stuck against it gets
+        an escape beacon from its ``StuckEscape``.
         """
         if self.beacons is None:
             return
-        ahead = cell_ahead(robot, heading.offset)
-        blocked: CellId | None = None
-        if not self.fields.quadtree.is_traversable(ahead):
-            blocked = ahead
-        if blocked is not None and self.beacons.obstacle_repulsion > 0:
-            self.memory.place_obstacle_beacon(blocked, now, self.beacons.obstacle_repulsion)
-        own = treat_beacon(self.memory, self.robot_id, robot, now, self.beacons)
-        if self._escape is not None and own is not None:
-            escape = self._escape.check(robot, own.value, now, blocked)
+        wall = sensed_wall_ahead(robot, heading.offset, self.surroundings)
+        if wall is not None and self.beacons.obstacle_repulsion > 0:
+            self.memory.place_obstacle_beacon(wall, now, self.beacons.obstacle_repulsion)
+        if self._escape is not None:
+            escape = self._escape.check(robot, wall)
             if escape is not None:
                 self.memory.place_obstacle_beacon(escape.cell, now, escape.strength)
 

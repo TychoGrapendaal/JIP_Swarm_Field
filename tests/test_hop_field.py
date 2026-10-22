@@ -229,7 +229,6 @@ def test_a_heading_into_a_wall_leaves_an_obstacle_beacon_on_it() -> None:
     wall = TerrainObservation(
         cell=(1, 0), confidence=1.0, observed_at=0, source=1, terrain=Terrain.OBSTACLE
     )
-    memory.merge([wall])
     fields = FieldProvider(memory, flies=False, fields=[HopField(config)])
     killer = ComposedAgent(
         robot_id=1,
@@ -248,7 +247,7 @@ def test_a_heading_into_a_wall_leaves_an_obstacle_beacon_on_it() -> None:
         payload=(Beacon(BeaconKind.TREAT, 0.0, (5, 0)),),
     )
 
-    killer.decide(Perception(time=0, self_state=_self_state((0, 0)), sensed=[], inbox=[beacon]))
+    killer.decide(Perception(time=0, self_state=_self_state((0, 0)), sensed=[wall], inbox=[beacon]))
 
     placed = [heard.beacon.cell for heard in memory.beacons(BeaconKind.OBSTACLE)]
     assert placed == [(1, 0)]

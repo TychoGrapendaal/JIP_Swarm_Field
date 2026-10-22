@@ -25,11 +25,21 @@ objective; this policy is what that plan falls back on.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from math import hypot
 from typing import Protocol
 
-from swarm_field.contracts import CellId, Direction, Idle, Move, Vector2
+from swarm_field.contracts import (
+    CellId,
+    Direction,
+    Idle,
+    Move,
+    Observation,
+    Terrain,
+    TerrainObservation,
+    Vector2,
+)
 from swarm_field.swarm.field import Quadtree
 
 
@@ -64,6 +74,44 @@ class QuadtreeSensing:
     def clear(self, origin: CellId, direction: Direction) -> bool:
         dx, dy = direction.offset
         return (origin[0] + dx, origin[1] + dy) in set(self.quadtree.cell_neighbours(origin))
+
+
+class SensedSurroundings:
+    """A ``Sensing`` that answers only from what the robot sensed around itself just now.
+
+    Nothing is remembered between decisions: every ``sense`` replaces what was known before,
+    so a robot steered by it uses no map. A cell beyond the field is never clear, and a
+    diagonal step needs both cells beside it clear too, as on the quadtree.
+    """
+
+    def __init__(self, width: int, height: int) -> None:
+        self._width: int = width
+        self._height: int = height
+        self._blocked: set[CellId] = set()
+
+    def sense(self, sensed: Iterable[Observation]) -> None:
+        """Replace the blocked cells with the obstacles among this decision's terrain facts."""
+        self._blocked = set()
+        for fact in sensed:
+            if not isinstance(fact, TerrainObservation):
+                continue
+            if fact.terrain is Terrain.OBSTACLE or fact.terrain is Terrain.OUTSIDE:
+                self._blocked.add(fact.cell)
+
+    def blocks(self, cell: CellId) -> bool:
+        """Whether the robot cannot enter ``cell``: beyond the field, or sensed as an obstacle."""
+        inside = 0 <= cell[0] < self._width and 0 <= cell[1] < self._height
+        return not inside or cell in self._blocked
+
+    def clear(self, origin: CellId, direction: Direction) -> bool:
+        dx, dy = direction.offset
+        if self.blocks((origin[0] + dx, origin[1] + dy)):
+            return False
+        if dx != 0 and dy != 0:
+            return not self.blocks((origin[0] + dx, origin[1])) and not self.blocks(
+                (origin[0], origin[1] + dy)
+            )
+        return True
 
 
 @dataclass(frozen=True)
