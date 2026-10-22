@@ -375,3 +375,14 @@ flowchart LR
 | Swap the renderer | the C adapter | A, B, contracts |
 
 The recurring shape is the same on both sides of the system: a dumb orchestrator (`ComposedAgent` / `SimulationLoop`) running assembled single‑purpose parts — behaviours for the brain, event handlers for the simulation. That symmetry is intentional — it is the same extensibility mechanism applied to the algorithm and to the environment.
+
+
+## Implemented body capability model
+
+The initial body-specific capability gate is implemented in `src/swarm_field/swarm/capabilities.py`,
+`src/swarm_field/swarm/brain.py`, and `src/swarm_field/swarm/assembly.py`. `ComposedAgent` filters
+candidates before score selection, maps `FollowField` to the `Move` capability, and validates the
+resolved concrete action before returning it. The factory `build_agent(robot_id, body, field,
+docks=...)` assembles the default behaviours and flying/ground field provider per body. The profile
+values, sensing rules, battery service semantics, and simplifications are documented in
+[`body-capabilities.md`](body-capabilities.md).

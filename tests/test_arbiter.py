@@ -107,6 +107,19 @@ def test_effort_grows_with_time_on_the_target_and_is_capped() -> None:
     assert commitment.effort(10 * _HORIZON, _HORIZON) == 1.0
 
 
+def test_a_commitment_without_a_target_builds_no_effort() -> None:
+    """Exploring for five minutes does not lock the robot in: a pest still pulls it away (#60)."""
+    arbiter = _arbiter()
+    explore = _bid("explore", 0.5, None)
+    arbiter.choose([explore], now=0)
+
+    # 0.15 better beats the 0.125 objective floor; with effort it would need 0.5 more.
+    choice = arbiter.choose([explore, _bid("treat", 0.65, None)], now=_HORIZON)
+
+    assert choice is not None
+    assert (choice.candidate.source, choice.switched) == ("treat", True)
+
+
 def test_a_finished_target_keeps_the_objective_and_restarts_its_effort() -> None:
     """An explorer moves on to the next cell without losing the objective's floor."""
     arbiter = _arbiter()

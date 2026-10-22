@@ -26,6 +26,7 @@ from numpy.typing import NDArray
 
 from swarm_field.contracts import (
     CellId,
+    CropObservation,
     FieldGeometry,
     InfestationObservation,
     Observation,
@@ -136,21 +137,23 @@ class KnowledgeSnapshot:
         terrain: The terrain facts.
         infestation: The infestation facts.
         peers: The peer facts.
+        crops: The crop facts.
     """
 
     terrain: TerrainColumns
     infestation: FactColumns
     peers: tuple[PeerObservation, ...]
+    crops: tuple[CropObservation, ...] = ()
 
     def __len__(self) -> int:
         """How many facts the snapshot carries."""
-        return len(self.terrain) + len(self.infestation) + len(self.peers)
+        return len(self.crops) + len(self.terrain) + len(self.infestation) + len(self.peers)
 
     def facts(self) -> Iterator[Observation]:
         """Every fact, in the order ``AgentMemory.merge_snapshot`` merges them."""
         terrain = cast(list[TerrainObservation], self.terrain.facts.tolist())
         infestation = cast(list[InfestationObservation], self.infestation.facts.tolist())
-        return chain(terrain, infestation, self.peers)
+        return chain(self.crops, terrain, infestation, self.peers)
 
 
 class CellFacts:
@@ -233,7 +236,7 @@ class _SharedSnapshot:
 class AgentMemory:
     """One robot's facts about the field and its peers, merged from its own sensing and peers.
 
-    Terrain, infestation and peer facts are stored; crop facts, anonymous peer sightings and
+    Crop, terrain, infestation and named peer facts are stored. Anonymous peer sightings and
     sightings of the robot itself are ignored.
 
     Attributes:
@@ -253,6 +256,8 @@ class AgentMemory:
         self._terrain: CellFacts = CellFacts(cells)
         self._terrain_codes: NDArray[np.int8] = np.full(cells, _UNKNOWN_TERRAIN, dtype=np.int8)
         self._infestation: CellFacts = CellFacts(cells)
+        self._crop: dict[CellId, CropObservation] = {}
+        self._crops_last_stored: int = -1
         self._peers: dict[RobotId, PeerObservation] = {}
         self._peers_last_stored: int = -1
         self._monitorable: NDArray[np.bool_] = np.ones(cells, dtype=np.bool_)
@@ -280,6 +285,8 @@ class AgentMemory:
         """
         for fact in facts:
             match fact:
+                case CropObservation():
+                    self._merge_crops((fact,))
                 case TerrainObservation():
                     self._merge_terrain(fact)
                 case InfestationObservation():
@@ -308,6 +315,8 @@ class AgentMemory:
             self._merge_infestation_columns(snapshot.infestation)
         if merged_before is None or snapshot.peers is not merged_before.peers:
             self._merge_peers(snapshot.peers)
+        if merged_before is None or snapshot.crops is not merged_before.crops:
+            self._merge_crops(snapshot.crops)
 
     def knowledge(self) -> KnowledgeSnapshot:
         """Every fact, to share, in the order memory learned them.
@@ -322,6 +331,7 @@ class AgentMemory:
         terrain: TerrainColumns
         infestation: FactColumns
         peers: tuple[PeerObservation, ...]
+        crops: tuple[CropObservation, ...]
         if previous is not None and self._terrain.last_stored <= previous_version:
             terrain = previous.snapshot.terrain
         else:
@@ -334,7 +344,13 @@ class AgentMemory:
             peers = previous.snapshot.peers
         else:
             peers = tuple(self._peers.values())
-        snapshot = KnowledgeSnapshot(terrain=terrain, infestation=infestation, peers=peers)
+        if previous is not None and self._crops_last_stored <= previous_version:
+            crops = previous.snapshot.crops
+        else:
+            crops = tuple(self._crop.values())
+        snapshot = KnowledgeSnapshot(
+            terrain=terrain, infestation=infestation, peers=peers, crops=crops
+        )
         self._shared = _SharedSnapshot(version=self.version, snapshot=snapshot)
         return snapshot
 
@@ -346,7 +362,7 @@ class AgentMemory:
         return changed
 
     def records(self) -> Iterator[Observation]:
-        """Every stored fact: terrain, infestation and peers, each in the order learned."""
+        """Every stored fact: crop, terrain, infestation and peers, each in the order learned."""
         return self.knowledge().facts()
 
     def snapshot(self) -> tuple[Observation, ...]:
@@ -456,6 +472,14 @@ class AgentMemory:
             if known is None or fact.observed_at > known.observed_at:
                 self._peers[peer] = fact
                 self._peers_last_stored = self._next_version()
+
+    def _merge_crops(self, facts: Iterable[CropObservation]) -> None:
+        """Merge crop facts, keeping per cell the one with the newest ``observed_at``."""
+        for fact in facts:
+            known = self._crop.get(fact.cell)
+            if known is None or fact.observed_at > known.observed_at:
+                self._crop[fact.cell] = fact
+                self._crops_last_stored = self._next_version()
 
     def _next_version(self) -> int:
         """Count one more stored fact, and return the version it was stored at."""

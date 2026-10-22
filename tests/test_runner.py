@@ -7,7 +7,7 @@ from random import Random
 
 import pytest
 
-from swarm_field.contracts import FailureMode, FailureSpec, ScenarioId, Time
+from swarm_field.contracts import FailureMode, FailureSpec, ScenarioId, Time, TimeUnit
 from swarm_field.experiments import build_named_experiment
 from swarm_field.runner import (
     BrainSpec,
@@ -25,7 +25,7 @@ from swarm_field.runner import (
     sweep,
 )
 from swarm_field.simulation import MetricsConfig, build_scenario
-from swarm_field.swarm import TreatInfestation, TreatSeeder
+from swarm_field.swarm import Regroup, RegroupSeeder, TreatInfestation, TreatSeeder
 
 
 def _config(
@@ -186,6 +186,20 @@ def test_the_named_seeder_reaches_the_behaviour_and_the_field_provider() -> None
     assert isinstance(behavior, TreatInfestation)
     # None rather than a KeyError: the TREAT seeder is registered but has no targets yet (#40).
     assert agent.fields.field_for(TreatSeeder.name, (0, 0), 0) is None
+
+
+def test_a_spec_with_regroup_assembles_the_behaviour_and_its_seeder() -> None:
+    spec = BrainSpec(
+        behaviors=("treat-infestation", "regroup"),
+        seeders=("treat", "regroup"),
+        params={"rally-point": (5, 5), "regroup-silence": TimeUnit.MINUTE},
+    )
+    agent = build_agent(spec, 1, build_scenario(ScenarioId.S1).field, Random(0))
+
+    assert isinstance(agent.behaviors[1], Regroup)
+    # The rally point reaches the seeder, so the REGROUP field leads there with no peer known.
+    field = agent.fields.field_for(RegroupSeeder.name, (0, 0), 0)
+    assert field is not None
 
 
 def test_build_run_leaves_the_pest_dynamics_the_run_random_source() -> None:

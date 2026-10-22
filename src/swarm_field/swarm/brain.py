@@ -1,16 +1,14 @@
-"""The composed robot brain (A).
+"""The composed robot brain.
 
-``ComposedAgent`` is the thin orchestrator that implements the ``SwarmAgent`` boundary. At each
-decision point it merges what the robot sensed and received into its memory, keeps the field
-provider's quadtree in sync with new terrain facts, gathers the scored candidates of its
-behaviors, lets its arbiter pick one and turns its intent into one action: the navigator steps
-along the field a ``FollowField`` names, and any other intent passes through. It broadcasts its
-status (its cell, and the winner's target and objective) and what its ``KnowledgeExchange``
-shares of its memory, and merges what its peers broadcast. Capability gating is added once it is
-built.
+``ComposedAgent`` implements the ``SwarmAgent`` boundary. At each decision point it merges local
+and received observations into memory, updates the field provider with new terrain facts, gathers
+behavior candidates, and lets its arbiter select one. The winning intent is resolved into a concrete
+action, then checked against the robot body's capabilities. The agent broadcasts its status and
+knowledge snapshot and merges the status and knowledge received from peers.
 """
 
 import logging
+from dataclasses import replace
 
 from swarm_field.contracts import (
     Action,
@@ -21,12 +19,13 @@ from swarm_field.contracts import (
     Idle,
     Message,
     MessageKind,
+    Move,
     PeerObservation,
     Perception,
     RobotId,
     Time,
 )
-from swarm_field.swarm.arbiter import Arbiter
+from swarm_field.swarm.arbiter import Arbiter, UtilityArbiter
 from swarm_field.swarm.behavior import (
     ActionCandidate,
     Behavior,
@@ -34,6 +33,7 @@ from swarm_field.swarm.behavior import (
     FollowField,
     Intent,
 )
+from swarm_field.swarm.capabilities import CapabilitySet, capabilities_for
 from swarm_field.swarm.memory import AgentMemory
 from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.provider import FieldProvider
@@ -64,7 +64,8 @@ class ComposedAgent:
         memory: AgentMemory,
         fields: FieldProvider,
         navigator: Navigator,
-        arbiter: Arbiter,
+        arbiter: Arbiter | None = None,
+        capabilities: CapabilitySet | None = None,
         sharing: SharingConfig | None = None,
     ) -> None:
         self.robot_id: RobotId = robot_id
@@ -72,7 +73,8 @@ class ComposedAgent:
         self.memory: AgentMemory = memory
         self.fields: FieldProvider = fields
         self.navigator: Navigator = navigator
-        self.arbiter: Arbiter = arbiter
+        self.capabilities: CapabilitySet | None = capabilities
+        self.arbiter: Arbiter = arbiter if arbiter is not None else UtilityArbiter()
         self.exchange: KnowledgeExchange = KnowledgeExchange(memory, sharing)
         self._current_goal: str | None = None
         self._current_target: CellId | None = None
@@ -84,16 +86,33 @@ class ComposedAgent:
         self.exchange.receive(perception.inbox)
         self.fields.update_terrain(self.memory.terrain_stored_after(version))
 
+        # Ground-truth body identity in the perception is authoritative. This also keeps
+        # manually assembled agents safe if they were passed the wrong capability profile.
+        canonical_capabilities = capabilities_for(perception.self_state.body)
+        if self.capabilities is None or self.capabilities.body is not perception.self_state.body:
+            capabilities = canonical_capabilities
+        else:
+            # Explicit profiles may make a canonical body stricter, never grant it extra
+            # actions or physical abilities that the body type does not possess.
+            capabilities = replace(
+                canonical_capabilities,
+                action_types=(canonical_capabilities.action_types & self.capabilities.action_types)
+                | {Idle},
+            )
+
         ctx = DecisionContext(
             time=perception.time,
             self_state=perception.self_state,
             sensed=perception.sensed,
             memory=self.memory,
             inbox=perception.inbox,
+            capabilities=capabilities,
         )
         candidates: list[ActionCandidate] = []
         for behavior in self.behaviors:
-            candidates.extend(behavior.propose(ctx))
+            for candidate in behavior.propose(ctx):
+                if self._candidate_is_allowed(candidate, capabilities):
+                    candidates.append(candidate)
 
         choice = self.arbiter.choose(candidates, perception.time)
         if choice is None:
@@ -105,13 +124,39 @@ class ComposedAgent:
         best = choice.candidate
         self._current_goal = best.source
         self._current_objective = best.objective
+        self._current_target = best.target
         action, field_target = self._action_for(
             best.action, perception.self_state.position, perception.time
         )
-        self._current_target = best.target
         if field_target is not None:
             self._current_target = field_target
+
+        # Validate the concrete action as well as the proposed intent: a FollowField intent
+        # becomes a Move (or Idle) only after the navigator has resolved it.
+        if not capabilities.can(type(action)):
+            logger.warning(
+                "Blocked disallowed action %s from robot %s (%s)",
+                type(action).__name__,
+                self.robot_id,
+                capabilities.body.name,
+            )
+            action = Idle()
+            self._current_goal = None
+            self._current_target = None
+            self._current_objective = None
+
         return Decision(action=action, outbox=self._messages_to_send(perception))
+
+    @staticmethod
+    def _candidate_is_allowed(candidate: ActionCandidate, capabilities: CapabilitySet) -> bool:
+        """Apply the capability gate before candidate scoring.
+
+        A ``FollowField`` is a movement intent, not an action crossing the simulation boundary,
+        so it is checked against the capability for ``Move``. Other intents map directly to
+        their action classes.
+        """
+        action_type = Move if isinstance(candidate.action, FollowField) else type(candidate.action)
+        return capabilities.can(action_type)
 
     def inspect(self) -> AgentInspection:
         return AgentInspection(
@@ -150,6 +195,7 @@ class ComposedAgent:
             source=self.robot_id,
             peer=self.robot_id,
             body=perception.self_state.body,
+            battery=perception.self_state.battery,
             target=self._current_target,
             objective=self._current_objective,
         )

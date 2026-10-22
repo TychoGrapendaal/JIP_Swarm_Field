@@ -19,8 +19,8 @@ class MessageKind(Enum):
     Attributes:
         HELLO: A placeholder, to test that messages are delivered.
         KNOWLEDGE: What a robot shares of its memory, in a shape the algorithm owns.
-        STATUS: A robot's report of itself: a ``PeerObservation`` of its own cell and the
-            target it is heading for.
+        STATUS: A robot's report of itself: a ``PeerObservation`` with its cell, body, remaining
+            battery fraction, and optional target/objective.
     """
 
     HELLO = auto()
