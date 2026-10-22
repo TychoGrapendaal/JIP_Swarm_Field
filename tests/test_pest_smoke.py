@@ -41,16 +41,18 @@ def test_a_grid_sweep_robot_clears_a_pest_on_its_strip() -> None:
         speed_mps_ground=0.5,
         radio_range_m=0.0,
         pests_per_hour=0.0,
+        growth_rate=0.0,
         sample_period=TimeUnit.MINUTE,
-        until=10 * TimeUnit.MINUTE,
+        until=15 * TimeUnit.MINUTE,
     )
     config = replace(
         scenario.into_experiment("grid-sweep-test"),
         brains_by_body={BodyType.KILLER: grid_sweep_brain(10)},
     )
     run = LiveRun.from_config(config)
-    # The first robot sweeps the leftmost strip, up column 0 first.
-    run.apply_command(InjectInfestation(cell=(0, 5), severity=0.5))
+    # The first robot sweeps the leftmost strip, up column 0 first. As above, treating takes an
+    # hour per unit of severity, so the pest does not grow and starts small.
+    run.apply_command(InjectInfestation(cell=(0, 5), severity=0.1))
 
     run.advance_to(run.horizon)
 
