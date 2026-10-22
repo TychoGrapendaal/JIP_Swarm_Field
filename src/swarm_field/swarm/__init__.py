@@ -16,22 +16,30 @@ from swarm_field.swarm.arbiter import (
     Commitment,
     UtilityArbiter,
 )
+from swarm_field.swarm.assembly import build_agent
 from swarm_field.swarm.behavior import (
     ActionCandidate,
     Behavior,
     DecisionContext,
     ExploreBehaviour,
+    ExploreField,
     FollowField,
     FollowSeederField,
     Intent,
+    ReturnToDock,
+    SupplyBattery,
     TreatInfestation,
 )
 from swarm_field.swarm.brain import ComposedAgent
+from swarm_field.swarm.capabilities import BODY_CAPABILITIES, CapabilitySet, capabilities_for
 from swarm_field.swarm.explore import ExploreConfig, ExploreSeeder
 from swarm_field.swarm.memory import AgentMemory, DecayConfig, MemoryView
 from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.provider import FieldProvider
+from swarm_field.swarm.recharge import RechargeConfig
 from swarm_field.swarm.seeder import (
+    BatteryRequestSeeder,
+    DockSeeder,
     FieldSeeder,
     SeededField,
     TreatSeeder,
@@ -44,18 +52,23 @@ from swarm_field.swarm.steering import (
 )
 
 __all__ = [
+    "BODY_CAPABILITIES",
     "ActionCandidate",
     "AgentMemory",
     "Arbiter",
     "ArbiterChoice",
     "ArbiterConfig",
+    "BatteryRequestSeeder",
     "Behavior",
+    "CapabilitySet",
     "Commitment",
     "ComposedAgent",
     "DecayConfig",
     "DecisionContext",
+    "DockSeeder",
     "ExploreBehaviour",
     "ExploreConfig",
+    "ExploreField",
     "ExploreSeeder",
     "FieldProvider",
     "FieldSeeder",
@@ -65,12 +78,17 @@ __all__ = [
     "MemoryView",
     "Navigator",
     "QuadtreeSensing",
+    "RechargeConfig",
+    "ReturnToDock",
     "SeededField",
     "Sensing",
     "Steerer",
     "SteeringConfig",
+    "SupplyBattery",
     "TreatInfestation",
     "TreatSeeder",
     "UtilityArbiter",
     "Vector2",
+    "build_agent",
+    "capabilities_for",
 ]

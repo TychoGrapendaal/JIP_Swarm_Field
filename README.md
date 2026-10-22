@@ -13,10 +13,11 @@ See [`docs/high-level-world-model.md`](docs/high-level-world-model.md) for the c
 - Each robot has its own movement speed in metres per second.
 - Movement time is calculated from the distance between cells, cell size, and robot speed.
 - Infestation is represented as a per-cell severity value, providing a coarse-grained basis for later dynamic pest-spread models.
-- A robot senses the crop, the infestation and the peers of the cell it stands on, and the terrain of that cell and its neighbours. A cell is a patch of field (about 10 × 10 m) that the robot monitors as a whole, while obstacles such as a river are large enough to see from the next cell.
-- A robot does not know about obstacles or infestations elsewhere unless it starts with a map or learns them from peers.
+- Robots receive local terrain, infestation, crop, and peer observations according to their body-specific sensing profiles. The sensing footprints differ by body type.
+- A robot does not have the complete world state; facts outside its local observation range are unknown unless they are learned through messages or provided by the initial configuration.
 - Runs are reproducible: one seeded random source drives the world, a second drives fault injection, and `runner.py` builds every run from a `BrainSpec` so algorithms can be compared as configuration.
 - The B.3 range-based communication channel is implemented; higher-level belief sharing is still the algorithm’s responsibility, so distant infestation information only propagates when agents choose to send messages.
+- The body capability model defines the permitted actions and simulation assumptions for SCOUT, KILLER, and BATTERY robots. See [`docs/body-capabilities.md`](docs/body-capabilities.md) for the profiles, default behaviour assembly, and current limitations.
 
 ## Requirements
 
@@ -159,6 +160,53 @@ uv run python examples/treat_infestation_demo.py
 ```
 
 A killer robot that already knows of three pests follows the TREAT field around a wall to each of them, treats it once, and then idles.
+
+### Live heterogeneous swarm field simulation (current integrated architecture)
+
+```bash
+uv run --with matplotlib python examples/field_simulation_demo.py
+```
+
+A live, interactive field view styled after the field/potential-map reference: the main field is
+shaded by the **actual potential field** for the focused robot, with obstacles, infestations,
+robot trails, target markers, radio links, radio range, battery levels, and a telemetry/event panel.
+The run is composed through `LiveRun` and `runner` using the existing `ComposedAgent`,
+`UtilityArbiter`, registered behaviours and seeders, field provider, potential-field navigator,
+world model, discrete-event loop, metrics, and range-based peer messaging. The Matplotlib layer
+only observes the running simulation; it does not control robot movement. It includes SCOUT,
+KILLER, and BATTERY roles, dock charging, pest dynamics, and timed battery support.
+
+Controls: **space/p** pause or resume, **s** step one simulation event, **+/-** change speed,
+**0** return to 1x, **h** hide the information panel, click a robot to focus its actual field, or
+click a walkable cell to inject an infestation. It opens a live window and does not write a GIF.
+To create a single static preview instead, run:
+
+```bash
+uv run --with matplotlib python examples/field_simulation_demo.py --preview docs/media/field_simulation_demo_preview.png --preview-minutes 15
+```
+
+Preview of the current scenario at 15 simulated minutes:
+
+![Live field simulation preview](docs/media/field_simulation_demo_preview.png)
+
+More details are in [`docs/live-field-simulation-demo.md`](docs/live-field-simulation-demo.md).
+
+### Physical battery lifecycle (Issue #77)
+
+```bash
+uv run --with matplotlib python examples/battery_lifecycle_demo.py
+```
+
+An animated, deterministic simulation demo of progressive dock charging, one charging robot per
+dock, FIFO waiters, BATTERY spare-stock replenishment, and a robot entering `DEAD_BATTERY` away
+from a dock. It shows the BATTERY robot completing a timed exchange with a low-charge peer. It
+opens the animation in an interactive Matplotlib window; it does not save a GIF. The lifecycle
+rules, configuration, and focused acceptance tests are documented in
+[`docs/battery-lifecycle.md`](docs/battery-lifecycle.md).
+
+Preview:
+
+![Battery lifecycle demo preview](docs/media/battery_lifecycle_demo_preview.png)
 
 ### Renderer demonstration (C.1)
 
@@ -305,15 +353,16 @@ uv run python examples/robustness_demo.py --scenario pests --hours 1
 uv run python examples/robustness_demo.py --out runs/robustness
 ```
 
-**What this currently shows:** `active_robots` and `energy/m²` respond to the faults as intended, and the pest dynamics are provably unaffected. The outcome metrics (`coverage`, `targets_remaining`, `detection_latency`) are flat, because the default brain only treats: `TreatInfestation` bids only on pests the robot knows of, a robot senses only its own cell, and nothing explores, so robots that start away from a pest idle from the first decision. [`docs/research/robustness.md`](docs/research/robustness.md) explains what has to land before the sweep measures resilience rather than capacity.
+**Previously observed baseline:** `active_robots` and `energy/m²` responded to the injected faults while the pest dynamics remained unaffected. The reported outcome metrics (`coverage`, `targets_remaining`, `detection_latency`) were flat for the older treat-only setup, where robots did not actively explore. The body-specific behaviour assembly now changes that setup, so rerun the sweep before treating those outcome metrics as a result for the current development branch. [`docs/research/robustness.md`](docs/research/robustness.md) explains the original experiment and its limitations.
 
 ## Current demonstration limitations
 
-- Goal-directed navigation and exploration use potential fields over the robot's believed terrain, with a reactive wall-follow as their fallback. Exploration (`ExploreSeeder`, see [`docs/explore.md`](docs/explore.md)) has no behaviour of its own yet; the demo and the benchmark follow its field with a stand-in.
-- Navigation is planned over what the robot believes, so a wrong obstacle belief is followed exactly; there is no observation-based recovery from it yet.
+- The default body-specific assembly gives SCOUT robots the `ExploreField` behaviour, KILLER robots the `TreatInfestation` behaviour, and BATTERY robots the `SupplyBattery` behaviour. These are the current simulation behaviours, not a guarantee of optimal coverage or pest-control performance.
+- Goal-directed navigation uses potential fields over the robot's believed terrain, with a reactive wall-follow as its fallback. A wrong obstacle belief can therefore still lead to a wrong route; there is no general observation-based recovery from it yet.
 - Coarse-grained infestation dynamics are implemented as a scheduled `WorldTick`; the current model supports severity growth, neighbour spread, and stochastic spawning.
-- Sensing covers the robot's own cell, and the terrain of its neighbours; obstacles further away are unknown unless the robot starts with the terrain map, and infestations elsewhere unless peers share them.
-- Robot batteries are drained by a coarse cost model (per metre, per decision, per treat) and robot failure and position error can be injected for robustness runs, but there is no charging station, no consumable replenishment and no recovery from a failure.
+- Sensing is local and body-specific. Robots do not receive the complete world state; observations beyond their sensing footprints depend on information being shared through communication.
+- Battery usage, endurance, dock charging, treatment duration, and replacement-battery exchanges use coarse simulation assumptions. Idle and sensing energy costs are not yet modelled. Robot failure and position error can still be injected for robustness runs, and general recovery from a failure is not implemented.
+- The body-capability model does not yet include a dedicated battery-request protocol or exclusive service reservation. See [`docs/body-capabilities.md`](docs/body-capabilities.md) for the model's current limitations.
 - The visualization adapter renders read-only snapshots; interactive time control, infestation injection, robot inspection, and recording and replaying a run live in `swarm_field.console` and `experiments.LiveRun`, with `examples/scenario_viewer.py` as their command line (C.1).
 
 ## Project layout

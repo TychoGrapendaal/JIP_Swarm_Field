@@ -13,7 +13,8 @@ from typing import Protocol
 import numpy as np
 from scipy.spatial import KDTree
 
-from swarm_field.contracts import AgentObjective, CellId, Time, TimeUnit
+from swarm_field.contracts import AgentObjective, BodyType, CellId, Time, TimeUnit
+from swarm_field.swarm.explore import ExploreSeeder as ExploreSeeder
 from swarm_field.swarm.field import GridPotentialField, Seed
 from swarm_field.swarm.memory import MemoryView
 
@@ -93,28 +94,38 @@ class TreatSeeder:
         sigma: float = 1.0,
         cutoff_sigmas: float = 3.0,
     ) -> None:
+        if not 0.0 <= reduction_rate <= 1.0:
+            raise ValueError("reduction_rate must be between 0 and 1")
+        if value_amplifier < 0.0:
+            raise ValueError("value_amplifier must be non-negative")
+        if sigma <= 0.0:
+            raise ValueError("sigma must be positive")
+        if cutoff_sigmas <= 0.0:
+            raise ValueError("cutoff_sigmas must be positive")
         self._reduction_rate: float = reduction_rate
         self._value_amplifier: float = value_amplifier
         self._sigma: float = sigma
         self._cutoff_sigmas: float = cutoff_sigmas
 
     def field_key(self, memory: MemoryView, robot: CellId, now: Time) -> Hashable:
-        infested: set[CellId] = set()
-        for pest in memory.infestations():
-            if pest.severity > 0:
-                infested.add(pest.cell)
-        # If this is too expensive, we can remove one of the sets
-        return (now // TimeUnit.MINUTE, frozenset(infested), _cells_targeted_by_peers(memory))
+        facts = tuple(
+            (fact.cell, fact.observed_at, round(fact.severity, 3))
+            for fact in memory.infestations()
+            if fact.severity > 0.0
+        )
+        return now // TimeUnit.MINUTE, facts, _cells_targeted_by_peers(memory)
 
     def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
         seeds: list[Seed] = []
         targeted = _cells_targeted_by_peers(memory)
         for pest in memory.infestations():
-            if pest.severity > 0:
-                value = pest.severity * memory.confidence(pest, now)
-                if pest.cell in targeted:
-                    value *= self._reduction_rate
-                seeds.append(Seed(pest.cell, -self._value_amplifier * value))
+            if pest.severity <= 0.0:
+                continue
+            attractiveness = pest.severity * memory.confidence(pest, now)
+            if pest.cell in targeted:
+                attractiveness *= self._reduction_rate
+            if attractiveness > 0.0:
+                seeds.append(Seed(pest.cell, -self._value_amplifier * attractiveness))
 
         if len(seeds) == 0:
             return ()
@@ -131,7 +142,6 @@ class TreatSeeder:
         """
         coords = np.array([s.cell for s in seeds])
         values = np.array([s.value for s in seeds])
-
         tree = KDTree(coords)
         cutoff = self._cutoff_sigmas * self._sigma
         weights = tree.sparse_distance_matrix(tree, cutoff, output_type="coo_matrix").tocsr()
@@ -143,6 +153,69 @@ class TreatSeeder:
         for s, new_value in zip(seeds, new_values, strict=True):
             updated_seeds.append(Seed(s.cell, new_value))
         return updated_seeds
+
+
+class BatteryRequestSeeder:
+    """Seeds a field toward fresh reports of peers that need battery support.
+
+    Only named SCOUT and KILLER peers whose reported battery is at or below the threshold are
+    eligible. The reports expire after ``observation_ttl`` and need sufficient memory confidence.
+    """
+
+    name: str = "battery-support"
+    window_blocks: int = 2
+    low_battery_threshold: float = 0.25
+    observation_ttl: Time = 60 * TimeUnit.SECOND
+
+    def field_key(self, memory: MemoryView, robot: CellId, now: Time) -> Hashable:
+        eligible = tuple(
+            sorted(
+                (
+                    fact.peer,
+                    fact.cell,
+                    round(fact.battery, 2),
+                    fact.observed_at,
+                )
+                for fact in memory.peers()
+                if fact.peer is not None
+                and fact.body in (BodyType.SCOUT, BodyType.KILLER)
+                and fact.battery <= self.low_battery_threshold
+                and 0 <= now - fact.observed_at <= self.observation_ttl
+                and memory.confidence(fact, now) >= 0.5
+            )
+        )
+        return now // TimeUnit.MINUTE, eligible
+
+    def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
+        return tuple(
+            Seed(fact.cell, -1.0 + fact.battery)
+            for fact in memory.peers()
+            if fact.peer is not None
+            and fact.body in (BodyType.SCOUT, BodyType.KILLER)
+            and fact.battery <= self.low_battery_threshold
+            and 0 <= now - fact.observed_at <= self.observation_ttl
+            and memory.confidence(fact, now) >= 0.5
+        )
+
+
+class DockSeeder:
+    """Seed fixed charging docks so robots can return when their energy is low.
+
+    Dock locations are scenario configuration rather than learned facts, so the field key is the
+    tuple of configured dock cells and the seeds remain fixed throughout a run.
+    """
+
+    name: str = "dock"
+    window_blocks: int = 2
+
+    def __init__(self, docks: tuple[CellId, ...] = ()) -> None:
+        self._docks: tuple[CellId, ...] = tuple(docks)
+
+    def field_key(self, memory: MemoryView, robot: CellId, now: Time) -> Hashable:
+        return self._docks
+
+    def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
+        return tuple(Seed(dock, 0.0) for dock in self._docks)
 
 
 def _cells_targeted_by_peers(memory: MemoryView) -> frozenset[CellId]:

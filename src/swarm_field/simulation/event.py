@@ -105,6 +105,10 @@ class RobotDecision:
             return
 
         ctx.world.advance_to(self.time)
+        # Depletion may become terminal while advancing a committed move or another job. Do not
+        # let the just-failed robot make one more decision at this same timestamp.
+        if self._has_failed(ctx):
+            return
         perception = Perception(
             time=self.time,
             self_state=ctx.world.perceived_self(self.robot, self._believed_position(ctx)),
@@ -191,7 +195,7 @@ class FailureCheck:
         """Fail each live robot that draws a fault, then schedule the next check."""
         for robot_id in ctx.world.live_robots():
             if ctx.noise.random() < self.config.probability:
-                ctx.world.fail_robot(robot_id, self.config.mode)
+                ctx.world.fail_robot(robot_id, self.config.mode, time=self.time)
         ctx.schedule(FailureCheck(time=self.time + self.config.period, config=self.config))
 
 

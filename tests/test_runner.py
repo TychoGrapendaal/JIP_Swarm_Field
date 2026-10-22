@@ -2,12 +2,13 @@
 
 import csv
 import json
+from dataclasses import replace
 from pathlib import Path
 from random import Random
 
 import pytest
 
-from swarm_field.contracts import FailureMode, FailureSpec, ScenarioId, Time
+from swarm_field.contracts import BodyType, FailureMode, FailureSpec, ScenarioId, Time
 from swarm_field.experiments import build_named_experiment
 from swarm_field.runner import (
     BrainSpec,
@@ -25,7 +26,7 @@ from swarm_field.runner import (
     sweep,
 )
 from swarm_field.simulation import MetricsConfig, build_scenario
-from swarm_field.swarm import TreatInfestation, TreatSeeder
+from swarm_field.swarm import ComposedAgent, SupplyBattery, TreatInfestation, TreatSeeder
 
 
 def _config(
@@ -265,3 +266,21 @@ def test_the_metadata_names_a_robustness_condition_and_a_brain_per_body() -> Non
     assert pests.bodies == "KILLER=3 SCOUT=5"
     assert pests.brains_by_body.startswith("KILLER: behaviors=treat-infestation+explore")
     assert pests.robots_know_terrain
+
+
+def test_battery_support_behaviour_and_seeder_are_registered_in_runner() -> None:
+    config = _config(scenario=ScenarioId.S3, until=60_000)
+    battery_brain = BrainSpec(
+        behaviors=("supply-battery", "return-to-dock"),
+        seeders=("battery-support", "dock"),
+    )
+    config = replace(config, brains_by_body={BodyType.BATTERY: battery_brain})
+
+    context, _ = build_run(config)
+    battery_spec = next(spec for spec in config.scenario.robots if spec.body is BodyType.BATTERY)
+    agent = context.agents[battery_spec.robot_id]
+
+    assert isinstance(agent, ComposedAgent)
+    assert any(isinstance(behavior, SupplyBattery) for behavior in agent.behaviors)
+    # No peer report exists at assembly time, so the registered seeder correctly has no field yet.
+    assert agent.fields.field_for("battery-support", battery_spec.start, context.now) is None

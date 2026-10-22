@@ -51,6 +51,7 @@ class MetricsSample:
     mean_idleness_ms: float = 0.0
     worst_idleness_ms: float = 0.0
     redundancy: float = 0.0
+    battery_failures: int = 0
 
     def to_row(self) -> dict[str, Any]:
         """This sample as a flat ``dict`` of field name to value, for CSV and JSON export."""

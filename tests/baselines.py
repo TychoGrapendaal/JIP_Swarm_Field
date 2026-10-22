@@ -62,6 +62,8 @@ def _build_random_waypoint_seeder(params: dict[str, Any], rng: Random) -> Random
 
 
 RANDOM_WAYPOINT_BRAIN = BrainSpec(
-    behaviors=(RandomWaypointSeeder.name,), seeders=(RandomWaypointSeeder.name,), params={}
+    behaviors=(RandomWaypointSeeder.name, "return-to-dock"),
+    seeders=(RandomWaypointSeeder.name, "dock"),
+    params={},
 )
 """The brain of a random-waypoint robot, to put in an ``ExperimentConfig``."""

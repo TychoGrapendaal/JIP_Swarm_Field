@@ -147,6 +147,7 @@ class MetricsCollector:
             messages_received=messages_received,
             coverage=self._coverage(),
             active_robots=len(world.live_robots()),
+            battery_failures=world.battery_failure_count(),
             mean_idleness_ms=self._mean_idleness(),
             worst_idleness_ms=self._worst_idleness,
             redundancy=self._redundancy(),

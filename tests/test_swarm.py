@@ -9,6 +9,7 @@ from swarm_field.contracts import (
     AgentObjective,
     BodyType,
     CellId,
+    CropObservation,
     FieldGeometry,
     Idle,
     InfestationObservation,
@@ -45,7 +46,9 @@ from swarm_field.swarm.field import Seed
 _FIELD = FieldGeometry(width=10, height=10, cell_size=10.0, row_sp=0.0, in_row_sp=0.0, headland=0.0)
 
 
-def _perception(sensed: list[Observation] | None = None) -> Perception:
+def _perception(
+    sensed: list[Observation] | None = None, body: BodyType = BodyType.SCOUT
+) -> Perception:
     time = 0
     if sensed is None:
         sensed = _sensed(time)
@@ -55,7 +58,7 @@ def _perception(sensed: list[Observation] | None = None) -> Perception:
             robot_id=1,
             position=(0, 0),
             battery=1.0,
-            body=BodyType.SCOUT,
+            body=body,
             speed_mps=2.0,
             consumable=1.0,
             health=1.0,
@@ -191,10 +194,14 @@ def test_agent_picks_highest_scoring_candidate() -> None:
         ]
     )
 
-    decision = agent.decide(_perception())
+    decision = agent.decide(_perception(body=BodyType.KILLER))
 
     assert decision.action == Treat((1, 0))
     assert agent.inspect().current_goal == "multi"
+
+
+def test_decision_context_does_not_expose_field_provider() -> None:
+    assert "fields" not in DecisionContext.__dataclass_fields__
 
 
 def test_agent_idles_without_candidates() -> None:
@@ -261,6 +268,14 @@ def test_agent_broadcasts_its_memory_and_peer_learns_it() -> None:
         severity=0.8,
         pest=None,
     )
+    crop_fact = CropObservation(
+        cell=(7, 6),
+        confidence=0.9,
+        observed_at=0,
+        source=1,
+        crop=None,
+        growth_stage=0.65,
+    )
 
     first = sender.decide(
         Perception(
@@ -274,15 +289,18 @@ def test_agent_broadcasts_its_memory_and_peer_learns_it() -> None:
                 consumable=1.0,
                 health=1.0,
             ),
-            sensed=[fact],
+            sensed=[fact, crop_fact],
             inbox=[],
         )
     )
 
     status, knowledge = first.outbox
     assert status.kind is MessageKind.STATUS
+    assert isinstance(status.payload, PeerObservation)
+    assert status.payload.battery == 1.0
     assert knowledge.kind is MessageKind.KNOWLEDGE
-    assert knowledge.payload == (fact,)
+    assert isinstance(knowledge.payload, tuple)
+    assert set(knowledge.payload) == {fact, crop_fact}
 
     receiver.decide(
         Perception(
@@ -302,6 +320,7 @@ def test_agent_broadcasts_its_memory_and_peer_learns_it() -> None:
     )
 
     assert receiver_memory.infestation_at((6, 6)) == fact
+    assert crop_fact in set(receiver_memory.records())
 
 
 def test_only_the_winners_field_is_built_and_it_is_not_rebuilt() -> None:
@@ -332,7 +351,22 @@ def test_the_agent_broadcasts_its_cell_and_the_winners_target_and_objective() ->
     assert (message.payload.peer, message.payload.cell) == (1, (0, 0))
     assert message.payload.target == (5, 5)
     assert message.payload.objective is AgentObjective.EXPLORE
+    assert message.payload.battery == 1.0
     assert agent.inspect().current_target == (5, 5)
+
+
+def test_battery_body_status_broadcast_includes_its_current_battery_level() -> None:
+    agent = _agent([])
+    base_state = _perception(sensed=[]).self_state
+    battery_state = replace(base_state, body=BodyType.BATTERY, battery=0.17)
+
+    decision = agent.decide(replace(_perception(sensed=[]), self_state=battery_state))
+
+    status, _knowledge = decision.outbox
+    assert status.kind is MessageKind.STATUS
+    assert isinstance(status.payload, PeerObservation)
+    assert status.payload.body is BodyType.BATTERY
+    assert status.payload.battery == 0.17
 
 
 def test_a_peers_status_is_stored_as_a_peer_fact() -> None:

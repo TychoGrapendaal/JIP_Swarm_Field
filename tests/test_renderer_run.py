@@ -107,7 +107,11 @@ def test_a_snapshot_distinguishes_a_fault_condition_from_the_baseline() -> None:
         faulty,
     )
 
-    assert _failed_count(baseline.snapshots[-1]) == 0
+    # With physical depletion enabled, a no-dock baseline can naturally lose robots that spend
+    # their battery. The injected all-fail condition must still remove every robot, distinguishing
+    # the explicit fault condition from ordinary battery depletion.
+    baseline_failed = _failed_count(baseline.snapshots[-1])
+    assert 0 <= baseline_failed < 15
     assert _failed_count(faulty.snapshots[-1]) == 15
 
 
@@ -140,7 +144,8 @@ def test_a_robustness_sweep_passes_its_renderer_to_every_case() -> None:
     # Two cases, each rendering at time zero and one hour: the renderer is shared, so the frames
     # arrive as one stream rather than being attributable to a condition.
     assert len(renderer.snapshots) == 4
-    assert [run.active_robots for run in runs] == [15, 0]
+    assert 0 < runs[0].active_robots < 15
+    assert runs[1].active_robots == 0
 
 
 def test_a_case_configured_again_produces_the_same_run() -> None:
