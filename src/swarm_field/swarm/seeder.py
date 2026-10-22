@@ -13,7 +13,14 @@ from typing import Protocol
 import numpy as np
 from scipy.spatial import KDTree
 
-from swarm_field.contracts import AgentObjective, BodyType, CellId, Time, TimeUnit
+from swarm_field.contracts import (
+    AgentObjective,
+    BodyType,
+    CellId,
+    PeerObservation,
+    Time,
+    TimeUnit,
+)
 from swarm_field.swarm.explore import ExploreSeeder as ExploreSeeder
 from swarm_field.swarm.field import GridPotentialField, Seed
 from swarm_field.swarm.memory import MemoryView
@@ -158,12 +165,10 @@ class TreatSeeder:
 class RegroupSeeder:
     """Seeds the REGROUP field: draws the robot to where its peers were last known to be.
 
-    Each remembered peer attracts at its last known cell and at the cell it said it was heading
-    for, by the memory's confidence in that fact, so the most recent contact attracts most. A
-    cell the robot searched without hearing anyone no longer attracts. The rally point, if
-    any, attracts least and is never dropped, so it is where a robot ends up, and waits, once
-    every peer location turned out empty. Rebuilt once a minute, and whenever the peers' cells
-    or targets, or the searched cells, change.
+    Each location of ``unsearched_peer_locations`` attracts by the memory's confidence in the
+    peer fact behind it, so the most recent contact attracts most. The rally point, if any,
+    attracts least and is never dropped, so it is where a robot ends up, and waits, once every
+    peer location turned out empty. Rebuilt once a minute, and whenever those locations change.
 
     Attributes:
         value_amplifier: The attraction of a peer location at full confidence, in cells.
@@ -176,25 +181,21 @@ class RegroupSeeder:
     def __init__(self, value_amplifier: float = 10.0, rally_point: CellId | None = None) -> None:
         self._value_amplifier: float = value_amplifier
         self.rally_point: CellId | None = rally_point
-        self._searched: set[CellId] = set()
 
     def field_key(self, memory: MemoryView, robot: CellId, now: Time) -> Hashable:
-        locations: set[tuple[CellId, CellId | None]] = set()
-        for peer in memory.peers():
-            locations.add((peer.cell, peer.target))
-        return (now // TimeUnit.MINUTE, frozenset(locations), frozenset(self._searched))
+        cells: set[CellId] = set()
+        for cell, _peer in unsearched_peer_locations(memory):
+            cells.add(cell)
+        return (now // TimeUnit.MINUTE, frozenset(cells))
 
     def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
         # One seed per cell: the most attractive of the peers pointing at it.
         values: dict[CellId, float] = {}
-        for peer in memory.peers():
+        for cell, peer in unsearched_peer_locations(memory):
+            if cell == self.rally_point:
+                continue
             value = -self._value_amplifier * memory.confidence(peer, now)
-            cells = [peer.cell]
-            if peer.target is not None:
-                cells.append(peer.target)
-            for cell in cells:
-                if cell not in self._searched and cell != self.rally_point:
-                    values[cell] = min(value, values.get(cell, 0.0))
+            values[cell] = min(value, values.get(cell, 0.0))
 
         seeds: list[Seed] = []
         for cell, value in values.items():
@@ -203,17 +204,25 @@ class RegroupSeeder:
             seeds.append(Seed(self.rally_point, 0.0))
         return tuple(seeds)
 
-    def attracts_to(self, memory: MemoryView, cell: CellId) -> bool:
-        """Whether ``cell`` is a peer location the robot has not searched yet."""
-        return any(peer.cell == cell or peer.target == cell for peer in memory.peers())
 
-    def mark_searched(self, cell: CellId) -> None:
-        """Stop being drawn to ``cell``: the robot went there and heard no one."""
-        self._searched.add(cell)
+def unsearched_peer_locations(memory: MemoryView) -> list[tuple[CellId, PeerObservation]]:
+    """Every remembered peer's last known cell and announced target, unless searched since.
 
-    def forget_searched(self) -> None:
-        """Let every peer location attract again, once the robot is back in contact."""
-        self._searched.clear()
+    A location counts as searched once its cell was observed after the peer was reported there.
+    A peer still in that cell would have been sensed or heard at the same time, which refreshes
+    its fact, so a newer observation of the cell without a newer report means the peer has left.
+    """
+    last_seen = memory.last_observed_times()
+    locations: list[tuple[CellId, PeerObservation]] = []
+    for peer in memory.peers():
+        cells = [peer.cell]
+        if peer.target is not None:
+            cells.append(peer.target)
+        for cell in cells:
+            if last_seen[cell] > peer.observed_at:
+                continue
+            locations.append((cell, peer))
+    return locations
 
 
 class BatteryRequestSeeder:

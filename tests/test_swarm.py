@@ -354,7 +354,7 @@ def _peer_at(peer: int, cell: CellId) -> PeerObservation:
 def _regrouping_agent(peers: list[PeerObservation], rally_point: CellId | None) -> ComposedAgent:
     """An agent that knows of ``peers`` and was last in contact at time 0."""
     seeder = RegroupSeeder(rally_point=rally_point)
-    agent = _agent([Regroup(seeder, _SILENCE_TIMEOUT)], seeders=[seeder])
+    agent = _agent([Regroup(seeder.name, _SILENCE_TIMEOUT, rally_point)], seeders=[seeder])
     agent.decide(_perception_at(0, (0, 0), sensed=list(peers)))
     return agent
 
@@ -365,6 +365,10 @@ def _perception_at(
     sensed: list[Observation] | None = None,
     inbox: list[Message] | None = None,
 ) -> Perception:
+    """A killer at ``position`` that senses its own cell, as in the simulation, and ``sensed``."""
+    own_cell = InfestationObservation(
+        cell=position, confidence=1.0, observed_at=time, source=1, severity=0.0, pest=None
+    )
     return Perception(
         time=time,
         self_state=RobotSelfState(
@@ -376,7 +380,7 @@ def _perception_at(
             consumable=1.0,
             health=1.0,
         ),
-        sensed=sensed or [],
+        sensed=[own_cell, *(sensed or [])],
         inbox=inbox or [],
     )
 

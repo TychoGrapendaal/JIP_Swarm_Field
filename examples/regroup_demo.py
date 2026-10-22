@@ -54,6 +54,8 @@ KILLER_START = (5, 6)
 SCOUT_START = (3, 6)
 PEST = (26, 6)
 RALLY_POINT = (15, 6)
+PEST_SEVERITY = 0.01
+"""Treating takes an hour per unit of severity, so this pest is cleared in about 36 s."""
 
 RADIO_RANGE_M = 12.0  # 6 cells
 SILENCE_TIMEOUT = 30 * TimeUnit.SECOND
@@ -79,7 +81,7 @@ def make_world() -> WorldState:
             RobotState(SCOUT_ID, SCOUT_START, BodyType.SCOUT, 2.0, radio_range_m=RADIO_RANGE_M),
         ],
     )
-    world.cell(PEST).infestation = 1.0
+    world.cell(PEST).infestation = PEST_SEVERITY
     return world
 
 
@@ -88,9 +90,11 @@ def make_agent(robot_id: RobotId, body: BodyType, field: FieldGeometry) -> Compo
     memory = AgentMemory(robot_id, field)
     regroup_seeder = RegroupSeeder(rally_point=RALLY_POINT)
     seeders: list[FieldSeeder] = [regroup_seeder]
-    behaviors: list[Behavior] = [Regroup(regroup_seeder, SILENCE_TIMEOUT)]
+    behaviors: list[Behavior] = [Regroup(regroup_seeder.name, SILENCE_TIMEOUT, RALLY_POINT)]
     if body is BodyType.KILLER:
-        memory.merge([InfestationObservation(PEST, 1.0, 0, robot_id, severity=1.0, pest=None)])
+        memory.merge(
+            [InfestationObservation(PEST, 1.0, 0, robot_id, severity=PEST_SEVERITY, pest=None)]
+        )
         seeders.append(TreatSeeder())
         behaviors.append(TreatInfestation())
     fields = FieldProvider(memory, flies=body is BodyType.SCOUT, seeders=seeders)

@@ -179,14 +179,16 @@ decision = agent.decide(perception)
 
 ### Regroup
 
-The design assumes every robot can communicate with at least one other robot. `Regroup` enforces it after the fact: a robot that received no message for `silence_timeout` (2 minutes by default, 24 missed decision points) bids to follow the field of its `RegroupSeeder`. That field draws the robot to where its peers were last known to be, each peer's last cell and the target it announced, weighted by memory's confidence in the peer fact, so the most recent contact attracts most. Peers move, so the robot may arrive and still hear no one. The behaviour then tells the seeder the cell was searched (`mark_searched`), and the robot moves on to the next location. The seeder's optional `rally_point` attracts least and is never dropped: it is where a robot ends up and waits once every peer location turned out empty, and since all lost robots share it, it is the step that guarantees they meet. The first received message ends the search and makes every location attractive again. Only received messages count as contact; a peer sensed in a neighbouring cell does not.
+The design assumes every robot can communicate with at least one other robot. `Regroup` enforces it after the fact: a robot that received no message for `silence_timeout` (2 minutes by default, 24 missed decision points at the runner's default of 5 s) bids to follow the field of the `RegroupSeeder`. That field draws the robot to where its peers were last known to be, each peer's last cell and the target it announced, weighted by memory's confidence in the peer fact, so the most recent contact attracts most. Peers move, so the robot may arrive and still hear no one. A location counts as searched once memory holds an observation of its cell newer than the peer fact pointing there (`unsearched_peer_locations`): a peer still standing there would have been sensed or heard at that moment, which refreshes its fact. The seeder then drops the location and the robot moves on to the next. Searched locations are read from memory, so the behaviour and the seeder share no state and are registered in the runner like any other pair. The optional `rally_point` attracts least and is never dropped: it is where a robot ends up and waits once every peer location turned out empty, and since all lost robots share it, it is the step that guarantees they meet. The first received message ends the search. Only received messages count as contact; a peer sensed in a neighbouring cell does not.
 
-`Regroup` bids 0.98, just below treating on the spot, so a robot finishes the pest it stands on before it walks back. The behaviour and its seeder are one instance pair, since the behaviour reports searched cells to the seeder:
+`Regroup` bids 0.85, below the arbiter's override threshold of 0.9, so it goes through the ordinary arbitration and never outbids an override such as treating the pest the robot stands on (0.99) or `ReturnToDock` saving a robot whose battery runs out (0.95). With no location left and no rally point it does not bid. In a `BrainSpec` it is the behaviour and the seeder `regroup`, configured through the shared parameters:
 
 ```python
-regroup_seeder = RegroupSeeder(rally_point=(field.width // 2, field.height // 2))
-fields = FieldProvider(memory, flies=False, seeders=[TreatSeeder(), regroup_seeder])
-behaviors = [TreatInfestation(), Regroup(regroup_seeder)]
+BrainSpec(
+    behaviors=("treat-infestation", "regroup"),
+    seeders=("treat", "regroup"),
+    params={"rally-point": (16, 16), "regroup-silence": 2 * TimeUnit.MINUTE},
+)
 ```
 
 When a behaviour or seeder recovers from something that should not happen instead of raising, it logs a warning through its module's `logging.getLogger(__name__)` (see `AGENTS.md`).
@@ -197,7 +199,8 @@ When a behaviour or seeder recovers from something that should not happen instea
 - **Crop facts and docks.** Memory ignores `CropObservation`s. Dock positions are not stored; they will be given to whatever needs them.
 - **Forgetting.** Memory never deletes facts; it is bounded by the field size plus the number of robots.
 - **Sending only new facts.** Robots exchange all their facts at every meeting. Sending only what the other robot has not seen yet needs, per fact, the time this robot learned it (not when it was observed).
-- **Staying in range.** `Regroup` only reacts: a robot turns back after the silence timeout, and once it hears a peer it resumes its work and may walk out of range again. Nothing keeps robots in range in the first place. Until the arbiter exists, `TreatInfestation` also outbids `Regroup` when it knows of four or more pests than killers, since its score then passes 0.98.
+- **Staying in range.** `Regroup` only reacts: a robot turns back after the silence timeout, and once it hears a peer it resumes its work and may walk out of range again. Nothing keeps robots in range in the first place.
+- **Unreachable peer locations.** A scout flies over obstacles, so its last known cell can be one a ground robot cannot enter. The ground robot never observes that cell from inside it, so the location stays unsearched and keeps attracting it; a robot that senses its neighbouring cells, such as a scout, does see it.
 - **Committing to a target.** A `FollowField` bid carries no target, since only the winner's field picks one. The arbiter therefore commits the robot to the objective but not to the cell its field leads to, and the field may switch targets within an objective without paying the arbiter's target margin.
 - **Faster fields.** Each winning field costs one build per block the robot travels. Inside the quadtree, each leaf's neighbours are still found again for every field; caching them until an update touches them would make repeated fields about four to five times faster.
 - **The steerer's clearance ring.** `QuadtreeSensing` reads the quadtree, so the fallback steers over *believed* terrain; a real robot would probe one cell ahead and would rather slide along a wall than cut it. The fallback is also blind to crops: it only knows what the quadtree was told, and memory does not store crops yet.
