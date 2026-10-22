@@ -38,7 +38,7 @@ from swarm_field.swarm.hop import cell_ahead
 _FIELD = FieldGeometry(width=10, height=10, cell_size=10.0, row_sp=0.0, in_row_sp=0.0, headland=0.0)
 _CONFIG = BeaconConfig()
 _MAP = AgentMemory(1, _FIELD)
-"""The shared memory the hop field and the source rule are handed, empty: hop rules read beacons."""
+"""The shared memory the hop field and behaviour are handed, empty: hop rules read beacons."""
 
 
 def _memory_hearing(*beacons: tuple[float, CellId]) -> BeaconMemory:
@@ -175,7 +175,7 @@ def test_two_robots_on_one_cell_do_not_hold_each_others_value() -> None:
     memory = _memory_hearing((3.0, (0, 0)))
 
     heading = _heading(BeaconConfig(hop_cells=2.0), memory, (0, 0))
-    beacon = treat_beacon(memory, _MAP, 1, (0, 0), 0, BeaconConfig(hop_cells=2.0))
+    beacon = treat_beacon(memory, (0, 0), 0, BeaconConfig(hop_cells=2.0))
 
     assert heading is None
     assert beacon == Beacon(BeaconKind.TREAT, 3.5, (0, 0))
@@ -184,9 +184,9 @@ def test_two_robots_on_one_cell_do_not_hold_each_others_value() -> None:
 def test_beacons_above_the_cap_are_ignored_and_not_relayed() -> None:
     capped = BeaconConfig(max_value=4.0)
 
-    assert treat_beacon(_memory_hearing((4.5, (1, 0))), _MAP, 1, (0, 0), 0, capped) is None
-    assert treat_beacon(_memory_hearing((3.5, (1, 0))), _MAP, 1, (0, 0), 0, capped) is None
-    assert treat_beacon(_memory_hearing((3.0, (1, 0))), _MAP, 1, (0, 0), 0, capped) == Beacon(
+    assert treat_beacon(_memory_hearing((4.5, (1, 0))), (0, 0), 0, capped) is None
+    assert treat_beacon(_memory_hearing((3.5, (1, 0))), (0, 0), 0, capped) is None
+    assert treat_beacon(_memory_hearing((3.0, (1, 0))), (0, 0), 0, capped) == Beacon(
         BeaconKind.TREAT, 4.0, (0, 0)
     )
 
@@ -278,3 +278,18 @@ def test_a_heading_into_a_wall_leaves_an_obstacle_beacon_on_it() -> None:
 
     placed = [beacon.cell for beacon in _beacons_of(killer).placed_beacons()]
     assert placed == [(1, 0)]
+
+
+def test_beacon_memory_forgets_stale_beacons_old_sightings_and_faded_pushes() -> None:
+    memory = _memory_hearing((1.0, (5, 0)))
+    memory.hear(3, 60, [Beacon(BeaconKind.TREAT, 2.0, (0, 5))])
+    memory.see((2, 2), 0, infested=True)
+    memory.see((4, 4), 60, infested=True)
+    memory.place((1, 1), 0, 1.0, decay=10)
+    memory.place((2, 1), 0, 1.0, decay=1000)
+
+    memory.forget(heard_before=30, seen_before=30, now=100)
+
+    assert [heard.sender for heard in memory.beacons(BeaconKind.TREAT)] == [3]
+    assert memory.latest_sighting(since=0) == (4, 4)
+    assert [placed.cell for placed in memory.placed_beacons()] == [(2, 1)]

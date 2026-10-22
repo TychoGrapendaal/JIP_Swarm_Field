@@ -183,9 +183,7 @@ class PestTracker:
             link = agent.beacon_link
             if link is not None:
                 position = world.robots[robot_id].position
-                beacon = treat_beacon(
-                    link.memory, agent.memory, robot_id, position, now, link.config
-                )
+                beacon = treat_beacon(link.memory, position, now, link.config)
                 if beacon is not None:
                     self.commit_hops.append(beacon.value)
 

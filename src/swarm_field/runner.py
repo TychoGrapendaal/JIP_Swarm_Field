@@ -617,7 +617,7 @@ def build_agent(
     memory.merge(terrain)
     link: BeaconLink | None = None
     if spec.beacons is not None:
-        link = BeaconLink(robot_id, spec.beacons, field, memory)
+        link = BeaconLink(robot_id, spec.beacons, field)
     params = _params_for(spec, link)
     behaviors: list[Behavior] = [BEHAVIORS.build(name, params, rng) for name in spec.behaviors]
     fields = build_field_provider(spec, memory, rng, link)

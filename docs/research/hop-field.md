@@ -17,7 +17,7 @@ A **beacon** is a message with three things in it: a hop number, a cell, and the
 - A robot that saw a pest itself within `source_for` broadcasts hop number 0 on the pest's cell. It is the **source**.
 - Every other robot is a **relay**. It broadcasts its own hop number on its own cell.
 
-A robot remembers the newest beacon from each sender. A remembered beacon counts as long as it was sent within `fresh_for` and its hop number is at most `max_value`. These are the robot's **heard beacons**.
+A robot remembers the newest beacon from each sender. A remembered beacon counts as long as it was sent within `fresh_for` and its hop number is at most `max_value`. These are the robot's **heard beacons**. It keeps them in a `BeaconMemory` of its own, together with the pests it saw itself and the beacons it placed, and forgets each when it no longer counts: a heard beacon after `fresh_for`, a sighting after `source_for`, and a placed beacon once it has faded below 1 % of its push. A robot that sees the pest gone from a cell stops being its source at once. The robot's memory holds no map and no other robot's pest cells.
 
 ### A robot's own hop number
 
@@ -111,22 +111,20 @@ The main outcome is `infested`: the infested cells averaged over the run after a
 
 ## Results
 
-20 seeds per arm. "Paired" is the difference in infested cells to the capped hop arm on the same seeds, with its standard error.
+### Hop tuned against the shared cell
 
-| Arm | Infested, 15 pests/h | Paired | Infested, 30 pests/h | Paired | Cells moved per treatment, 15/h |
-| --- | --- | --- | --- | --- | --- |
-| seeded | 8.04 ± 0.67 | −1.07 ± 0.64 | 15.79 ± 1.09 | −1.64 ± 1.00 | 19.6 |
-| hop metric, cap | 9.12 ± 0.52 | 0 | 17.42 ± 0.82 | 0 | 12.1 |
-| **hop repel** (cap + repulsion 2) | **8.03 ± 0.52** | **−1.09 ± 0.29** | **16.21 ± 0.77** | **−1.21 ± 0.44** | **11.2** |
-| hop metric, no cap | 9.95 ± 0.87 | +0.83 ± 0.92 | 18.48 ± 0.84 | +1.05 ± 0.64 | 22.6 |
-| no cap + repulsion 1 | 8.09 ± 0.52 | −1.02 ± 0.60 | 17.01 ± 0.70 | −0.42 ± 0.72 | 19.4 |
+20 seeds per arm, on the same seeds. "Paired" is the difference in infested cells to the seeded arm, with its standard error. The 15/h runs last 3 hours, the 30/h runs 2 hours, so that no killer runs out of treatment consumable.
 
-The 15/h runs last 3 hours. The 30/h runs last 2 hours, so that no killer runs out of treatment consumable.
+| Arm | Infested, 15 pests/h | Paired | Infested, 30 pests/h | Paired | Cells moved per treatment, 15/h | Messages per robot and hour, 15/h |
+| --- | --- | --- | --- | --- | --- | --- |
+| seeded | 8.04 ± 0.67 | 0 | 15.79 ± 1.09 | 0 | 19.6 | 1923 |
+| `hop repel` | 7.08 ± 0.40 | −0.96 ± 0.60 | 15.24 ± 1.14 | −0.54 ± 1.12 | 9.6 | 1392 |
+| **`hop tuned`** | **6.60 ± 0.61** | **−1.44 ± 0.68** | **14.19 ± 0.90** | **−1.59 ± 1.01** | **9.2** | **1382** |
 
-- **The hop field matches the shared cell.** `hop repel` leaves as many infested cells as the seeded arm at both loads. It moves its killers 40 % less per treatment, its robots receive 25 % fewer messages, and a run simulates about eight times faster, because relays send one beacon instead of their memory.
-- **Limiting recruitment is what makes it good.** Without the cap and without repulsion, every killer that hears a pest walks towards it. The cap limits how far a pest recruits, and repulsion stops a killer from following one that is closer. Each cuts the infested cells by about a tenth, and they add up.
+- **The hop field beats the shared cell.** `hop tuned` leaves fewer infested cells than the seeded arm at both loads, about 2 standard errors at 15/h and 1.6 at 30/h. Its killers move half as far per treatment, its robots receive 28 % fewer messages, and a run simulates about six times faster, because relays send one beacon instead of their memory.
+- **The distance weight and the escape add to `hop repel`.** Paired against `hop repel`, `hop tuned` leaves 0.48 ± 0.46 fewer infested cells at 15/h and 1.05 ± 0.52 fewer at 30/h, where more pests stand close together.
 
-The table above predates the fix for the relay shuttle (below), which changes every hop arm.
+These runs predate the `BeaconMemory` that forgets stale beacons and keeps the robot's own sightings apart from its peers' reports. Rerun at 15/h, 78 of the 80 hop runs give identical results with it, and the other two differ by 0.02 infested cells.
 
 ### Shuttles, the distance weight and the escape
 
@@ -144,6 +142,21 @@ The table above predates the fix for the relay shuttle (below), which changes ev
 - **The relay-shuttle fix matters most.** Before it, killers on a heading made less than 0.3 progress in 39 % of their ten-minute windows, nearly all of them two-cell shuttles. After it, 6 %. `hop repel` went from 8.04 to 7.18 infested cells on the same seeds, and its killers move 15 % less per treatment.
 - **A distance weight frees killers between pests.** On the river, power 1 lifts the treated pests from 35 to 40, and to 45 with the escape. The two runs where the killer was held between pests went from 1 and 0 treated to 4 and 6. In the open field, power 1 is slightly worse; power 0.5 is better in both.
 - **The escape adds little once the shuttles are gone.** It helps together with a distance weight, where a push can tip the killer off an unstable point.
+
+### Earlier: limiting recruitment
+
+20 seeds per arm, run before the fix for the relay shuttle, which changes every hop arm. "Paired" is the difference in infested cells to the capped hop arm on the same seeds.
+
+| Arm | Infested, 15 pests/h | Paired | Infested, 30 pests/h | Paired | Cells moved per treatment, 15/h |
+| --- | --- | --- | --- | --- | --- |
+| seeded | 8.04 ± 0.67 | −1.07 ± 0.64 | 15.79 ± 1.09 | −1.64 ± 1.00 | 19.6 |
+| hop metric, cap | 9.12 ± 0.52 | 0 | 17.42 ± 0.82 | 0 | 12.1 |
+| **hop repel** (cap + repulsion 2) | **8.03 ± 0.52** | **−1.09 ± 0.29** | **16.21 ± 0.77** | **−1.21 ± 0.44** | **11.2** |
+| hop metric, no cap | 9.95 ± 0.87 | +0.83 ± 0.92 | 18.48 ± 0.84 | +1.05 ± 0.64 | 22.6 |
+| no cap + repulsion 1 | 8.09 ± 0.52 | −1.02 ± 0.60 | 17.01 ± 0.70 | −0.42 ± 0.72 | 19.4 |
+
+- **Then, the hop field matched the shared cell.** `hop repel` left as many infested cells as the seeded arm at both loads. It moved its killers 40 % less per treatment.
+- **Limiting recruitment is what makes it good.** Without the cap and without repulsion, every killer that hears a pest walks towards it. The cap limits how far a pest recruits, and repulsion stops a killer from following one that is closer. Each cuts the infested cells by about a tenth, and they add up.
 
 ## What went wrong on the way
 

@@ -251,9 +251,7 @@ class HopExplainer:
             agent = agents[robot.robot_id]
             memory = _beacons_of(agent)
             now = snapshot.time
-            beacon = treat_beacon(
-                memory, agent.memory, robot.robot_id, robot.position, now, self._config
-            )
+            beacon = treat_beacon(memory, robot.position, now, self._config)
             if beacon is None:
                 self._values.pop(robot.robot_id, None)
                 continue

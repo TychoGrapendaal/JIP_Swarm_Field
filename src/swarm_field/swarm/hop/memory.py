@@ -1,8 +1,9 @@
 """What a robot of the hop method remembers: beacons, and nothing about the map.
 
 ``BeaconMemory`` keeps the newest beacon heard from each sender per kind, the beacons the robot
-placed itself to push it away from a cell, and which senders are killers. Every hop rule reads
-it through ``BeaconView``, which offers no terrain, pest cells or quadtree, so a rule cannot
+placed itself to push it away from a cell, the pests the robot saw itself, and which senders are
+killers. It forgets what no longer counts, so it stays small. Every hop rule reads it through
+``BeaconView``, which offers no terrain, other robots' pest cells or quadtree, so a rule cannot
 come to depend on a shared map.
 """
 
@@ -11,6 +12,10 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from swarm_field.contracts import Beacon, BeaconKind, BodyType, CellId, RobotId, Time
+
+_FADED_DECAYS = 5.0
+"""After this many decay times a placed beacon pushes with under 1 % of its strength, and is
+forgotten."""
 
 
 @dataclass(frozen=True)
@@ -56,14 +61,17 @@ class BeaconView(Protocol):
 
     def killers(self) -> frozenset[RobotId]: ...
 
+    def latest_sighting(self, since: Time) -> CellId | None: ...
+
 
 class BeaconMemory:
-    """One robot's beacons: heard from its peers, and placed by itself."""
+    """One robot's beacons, heard from peers and placed by itself, and its own pest sightings."""
 
     def __init__(self) -> None:
         self._heard: dict[tuple[RobotId, BeaconKind], HeardBeacon] = {}
         self._placed: dict[CellId, PlacedBeacon] = {}
         self._killers: set[RobotId] = set()
+        self._sightings: dict[CellId, Time] = {}
 
     def hear(self, sender: RobotId, sent_at: Time, beacons: Iterable[Beacon]) -> None:
         """Keep the newest beacon per sender and kind."""
@@ -82,6 +90,31 @@ class BeaconMemory:
         if body is BodyType.KILLER:
             self._killers.add(peer)
 
+    def see(self, cell: CellId, at: Time, infested: bool) -> None:
+        """Note what the robot itself sensed on ``cell``: a pest, or that the pest there is gone."""
+        if infested:
+            self._sightings[cell] = at
+        else:
+            self._sightings.pop(cell, None)
+
+    def forget(self, heard_before: Time, seen_before: Time, now: Time) -> None:
+        """Drop what no longer counts at ``now``.
+
+        Args:
+            heard_before: Heard beacons sent before this are dropped.
+            seen_before: Pest sightings older than this are dropped.
+            now: Placed beacons that have faded by now are dropped.
+        """
+        self._heard = {
+            key: heard for key, heard in self._heard.items() if heard.sent_at >= heard_before
+        }
+        self._sightings = {cell: at for cell, at in self._sightings.items() if at >= seen_before}
+        self._placed = {
+            cell: placed
+            for cell, placed in self._placed.items()
+            if now - placed.placed_at < _FADED_DECAYS * placed.decay
+        }
+
     def beacons(self, kind: BeaconKind) -> Iterator[HeardBeacon]:
         """The newest beacon heard from each sender of ``kind``, however old."""
         for heard in self._heard.values():
@@ -97,3 +130,13 @@ class BeaconMemory:
     def killers(self) -> frozenset[RobotId]:
         """The peers the robot heard report themselves as killers."""
         return frozenset(self._killers)
+
+    def latest_sighting(self, since: Time) -> CellId | None:
+        """The cell of the pest the robot saw itself last, at ``since`` or later, if any."""
+        latest: CellId | None = None
+        latest_at = since
+        for cell, at in self._sightings.items():
+            if at >= latest_at:
+                latest = cell
+                latest_at = at
+        return latest

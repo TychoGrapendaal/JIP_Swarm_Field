@@ -10,10 +10,9 @@ hop gradient that falls towards the pest. How the gradient pulls a robot is in
 from dataclasses import dataclass
 from math import hypot
 
-from swarm_field.contracts import Beacon, BeaconKind, CellId, RobotId, Time, TimeUnit
+from swarm_field.contracts import Beacon, BeaconKind, CellId, Time, TimeUnit
 from swarm_field.swarm.hop.escape import EscapeConfig
 from swarm_field.swarm.hop.memory import BeaconView, HeardBeacon
-from swarm_field.swarm.memory import MemoryView
 
 
 @dataclass(frozen=True)
@@ -93,27 +92,17 @@ def own_value(fresh: list[HeardBeacon], position: CellId, config: BeaconConfig) 
 
 
 def treat_beacon(
-    beacons: BeaconView,
-    sightings: MemoryView,
-    robot: RobotId,
-    position: CellId,
-    now: Time,
-    config: BeaconConfig,
+    beacons: BeaconView, position: CellId, now: Time, config: BeaconConfig
 ) -> Beacon | None:
     """The robot's TREAT beacon, or ``None`` if it neither saw a pest nor heard a fresh beacon.
 
-    A robot that saw several pests within ``source_for`` beacons the one it saw last. A relay
-    whose value would be above ``max_value`` beacons nothing. The robot's own pest sightings
-    are read from ``sightings``.
+    A robot that saw a pest itself within ``source_for`` is its source; one that saw several
+    beacons the one it saw last. A relay whose value would be above ``max_value`` beacons
+    nothing.
     """
-    sighting_cell: CellId | None = None
-    sighting_time: Time = now - config.source_for
-    for pest in sightings.infestations():
-        if pest.source == robot and pest.severity > 0 and pest.observed_at >= sighting_time:
-            sighting_cell = pest.cell
-            sighting_time = pest.observed_at
-    if sighting_cell is not None:
-        return Beacon(BeaconKind.TREAT, 0.0, sighting_cell)
+    sighting = beacons.latest_sighting(now - config.source_for)
+    if sighting is not None:
+        return Beacon(BeaconKind.TREAT, 0.0, sighting)
 
     fresh = fresh_beacons(beacons, BeaconKind.TREAT, now, config)
     if not fresh:

@@ -106,3 +106,36 @@ def test_a_robot_that_sees_a_pest_is_its_source() -> None:
     (message,) = _beacon_messages(_relay(1), _perception(1, (3, 3), sensed=[pest]))
 
     assert message.payload == (Beacon(BeaconKind.TREAT, 0.0, (3, 3)),)
+
+
+def _pest(cell: CellId, time: Time, source: int, severity: float) -> InfestationObservation:
+    return InfestationObservation(
+        cell=cell, confidence=1.0, observed_at=time, source=source, severity=severity, pest=None
+    )
+
+
+def test_a_peers_later_report_of_the_pest_does_not_end_the_robots_source() -> None:
+    relay = _relay(1)
+    relay.decide(_perception(1, (3, 3), 0, sensed=[_pest((3, 3), 0, 1, 0.5)]))
+    peer_report = Message(
+        sender=-9,
+        sent_at=10 * TimeUnit.SECOND,
+        kind=MessageKind.KNOWLEDGE,
+        payload=(_pest((3, 3), 10 * TimeUnit.SECOND, -9, 0.5),),
+    )
+
+    later = _perception(1, (5, 5), 15 * TimeUnit.SECOND, inbox=[peer_report])
+    (message,) = _beacon_messages(relay, later)
+
+    assert message.payload == (Beacon(BeaconKind.TREAT, 0.0, (3, 3)),)
+
+
+def test_a_robot_that_sees_its_pest_gone_is_no_longer_its_source() -> None:
+    relay = _relay(1)
+    relay.decide(_perception(1, (3, 3), 0, sensed=[_pest((3, 3), 0, 1, 0.5)]))
+
+    cleared = _perception(
+        1, (3, 3), TimeUnit.SECOND, sensed=[_pest((3, 3), TimeUnit.SECOND, 1, 0.0)]
+    )
+
+    assert _beacon_messages(relay, cleared) == []
