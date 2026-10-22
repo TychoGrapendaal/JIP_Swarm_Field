@@ -25,7 +25,11 @@ _FIELD = FieldGeometry(width=10, height=10, cell_size=10.0, row_sp=0.0, in_row_s
 
 def _relay(robot_id: int) -> ComposedAgent:
     spec = BrainSpec(
-        behaviors=(), seeders=(), sharing=KnowledgeSharing.NOTHING, beacons=BeaconConfig()
+        behaviors=(),
+        seeders=(),
+        sharing=KnowledgeSharing.NOTHING,
+        beacons=BeaconConfig(),
+        keeps_map=False,
     )
     return build_agent(spec, robot_id, _FIELD, Random(0))
 

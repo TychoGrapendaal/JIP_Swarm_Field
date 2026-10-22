@@ -216,6 +216,7 @@ def test_sensed_terrain_reaches_memory_and_the_quadtree() -> None:
     agent.decide(_perception(sensed=[wall]))
 
     assert wall in list(agent.memory.records())
+    assert agent.fields.quadtree is not None
     assert not agent.fields.quadtree.is_traversable((1, 1))
 
 

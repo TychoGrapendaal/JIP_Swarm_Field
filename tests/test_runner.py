@@ -214,6 +214,22 @@ def test_a_hop_brain_gets_the_hop_field_and_needs_beacons() -> None:
         build_agent(spec, 1, field, Random(0))
 
 
+def test_a_brain_without_a_map_has_no_quadtree_and_refuses_a_seeder() -> None:
+    hop = BrainSpec(
+        behaviors=(TreatByBeacon.name,),
+        seeders=(HopField.name,),
+        beacons=BeaconConfig(),
+        keeps_map=False,
+    )
+    field = build_scenario(ScenarioId.S1).field
+
+    agent = build_agent(hop, 1, field, Random(0))
+
+    assert agent.fields.quadtree is None
+    with pytest.raises(ValueError):
+        build_agent(replace(hop, seeders=(HopField.name, "explore")), 1, field, Random(0))
+
+
 def test_build_run_leaves_the_pest_dynamics_the_run_random_source() -> None:
     config = _config()
     ctx, _ = build_run(config)

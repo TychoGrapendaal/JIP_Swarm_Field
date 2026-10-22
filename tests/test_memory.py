@@ -121,6 +121,19 @@ def test_ingest_stores_terrain_infestation_and_named_peers_only() -> None:
     assert crop not in set(memory.records())
 
 
+def test_a_memory_without_a_map_keeps_only_peers() -> None:
+    field = FieldGeometry(
+        width=10, height=10, cell_size=10.0, row_sp=0.0, in_row_sp=0.0, headland=0.0
+    )
+    memory = AgentMemory(_SELF, field, keeps_map=False)
+    peer = _peer(2, (3, 3), 0)
+
+    memory.merge([_terrain((1, 1), Terrain.OBSTACLE, 0), _pest((2, 2), 0.5, 0), peer])
+
+    assert list(memory.records()) == [peer]
+    assert memory.terrain_at((1, 1)) is None
+
+
 def test_terrain_is_unknown_until_observed_and_outside_beyond_the_field() -> None:
     memory = _memory()
 

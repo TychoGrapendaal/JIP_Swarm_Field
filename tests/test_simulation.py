@@ -442,6 +442,16 @@ def test_a_pest_source_reaches_only_the_robots_in_range() -> None:
     assert ctx.channel.sent == 0
 
 
+def test_a_pest_source_sends_only_the_kinds_its_spec_names() -> None:
+    ctx = SimulationContext(now=0, rng=Random(0), agents={}, world=_pest_source_world())
+    ctx.world.cells[(2, 1)].infestation = 0.5
+    spec = PestSourceSpec(radio_range_m=15.0, kinds=frozenset({MessageKind.BEACON}))
+
+    PestSourceBroadcast(time=0, spec=spec).handle(ctx)
+
+    assert [message.kind for message in ctx.channel.take_inbox(1)] == [MessageKind.BEACON]
+
+
 def test_a_cleared_pest_is_reported_clean_once_then_falls_silent() -> None:
     ctx = SimulationContext(now=0, rng=Random(0), agents={}, world=_pest_source_world())
     ctx.world.cells[(2, 1)].infestation = 0.5

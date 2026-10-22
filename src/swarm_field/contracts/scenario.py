@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 
 from swarm_field.contracts.ids import BodyType, CellId, CropType, RobotId, TimeUnit
+from swarm_field.contracts.messages import MessageKind
 from swarm_field.contracts.world import FieldGeometry
 
 
@@ -134,10 +135,14 @@ class PestSourceSpec:
     Attributes:
         period: Time between two broadcasts in simulation milliseconds.
         radio_range_m: How far a source's broadcast reaches.
+        kinds: What a source sends: ``KNOWLEDGE``, the pest's infestation fact, for robots
+            that keep a map, and ``BEACON``, a hop value of 0 on the pest, for robots that
+            relay beacons.
     """
 
     period: int = 15 * TimeUnit.SECOND
     radio_range_m: float = 0.0
+    kinds: frozenset[MessageKind] = frozenset({MessageKind.KNOWLEDGE, MessageKind.BEACON})
 
     def __post_init__(self) -> None:
         """Validate the supported parameter ranges."""
@@ -145,6 +150,8 @@ class PestSourceSpec:
             raise ValueError("pest source period must be positive")
         if self.radio_range_m < 0.0:
             raise ValueError("pest source range must not be negative")
+        if not self.kinds or not self.kinds <= {MessageKind.KNOWLEDGE, MessageKind.BEACON}:
+            raise ValueError("a pest source sends KNOWLEDGE, BEACON or both")
 
 
 @dataclass(frozen=True)

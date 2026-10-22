@@ -30,7 +30,7 @@ class Navigator:
 
     def __init__(
         self,
-        quadtree: Quadtree,
+        quadtree: Quadtree | None,
         steering: SteeringConfig | None = None,
         heading_sensing: Sensing | None = None,
     ) -> None:
@@ -38,13 +38,23 @@ class Navigator:
 
         A heading is a direction rather than a route, so a robot of the hop method steers it by
         what it senses around itself, without a map; without ``heading_sensing`` headings are
-        steered over the quadtree like a stalled field.
+        steered over the quadtree like a stalled field. A robot without a map has no quadtree,
+        and steers by ``heading_sensing`` alone.
+
+        Raises:
+            ValueError: If neither a quadtree nor ``heading_sensing`` is given.
         """
         self._config: SteeringConfig = steering if steering is not None else SteeringConfig()
-        self._steerer: Steerer = Steerer(QuadtreeSensing(quadtree), self._config)
-        self._heading_steerer: Steerer = self._steerer
-        if heading_sensing is not None:
-            self._heading_steerer = Steerer(heading_sensing, self._config)
+        if quadtree is not None:
+            self._steerer: Steerer = Steerer(QuadtreeSensing(quadtree), self._config)
+            self._heading_steerer: Steerer = self._steerer
+            if heading_sensing is not None:
+                self._heading_steerer = Steerer(heading_sensing, self._config)
+        elif heading_sensing is not None:
+            self._steerer = Steerer(heading_sensing, self._config)
+            self._heading_steerer = self._steerer
+        else:
+            raise ValueError("a navigator needs a quadtree or heading sensing to steer by")
         self._followed: SeededField | None = None
         self._heading_target: CellId | None = None
         self._best_value: float | None = None

@@ -205,10 +205,11 @@ class FailureCheck:
 class PestSourceBroadcast:
     """Broadcast every pest from its own cell, as an explorer hovering above it would.
 
-    Each infested cell sends a ``KNOWLEDGE`` message with the infestation fact that own-cell
-    sensing gives, and a ``BEACON`` message with a TREAT beacon of 0 on the cell, from a
-    synthetic sender of its own. A pest cleared since the last broadcast is reported once more,
-    as clean and without a beacon, and then falls silent. Draws nothing from ``ctx.rng``.
+    Each infested cell sends, of the spec's ``kinds``, a ``KNOWLEDGE`` message with the
+    infestation fact that own-cell sensing gives, and a ``BEACON`` message with a TREAT beacon of
+    0 on the cell, from a synthetic sender of its own. A pest cleared since the last broadcast is
+    reported once more, as clean and without a beacon, and then falls silent. Draws nothing from
+    ``ctx.rng``.
 
     Attributes:
         time: Simulation time of this broadcast.
@@ -240,19 +241,24 @@ class PestSourceBroadcast:
         )
 
     def _source_messages(self, cell: CellId, source: RobotId, severity: float) -> list[Message]:
-        """What the source on ``cell`` sends: the infestation fact, and a beacon while infested."""
-        fact = InfestationObservation(
-            cell=cell,
-            confidence=1.0,
-            observed_at=self.time,
-            source=source,
-            severity=severity,
-            pest=None,
-        )
-        messages = [
-            Message(sender=source, sent_at=self.time, kind=MessageKind.KNOWLEDGE, payload=(fact,))
-        ]
-        if severity > 0.0:
+        """What the source on ``cell`` sends, of the spec's ``kinds``: the infestation fact, and
+        a beacon while infested."""
+        messages: list[Message] = []
+        if MessageKind.KNOWLEDGE in self.spec.kinds:
+            fact = InfestationObservation(
+                cell=cell,
+                confidence=1.0,
+                observed_at=self.time,
+                source=source,
+                severity=severity,
+                pest=None,
+            )
+            messages.append(
+                Message(
+                    sender=source, sent_at=self.time, kind=MessageKind.KNOWLEDGE, payload=(fact,)
+                )
+            )
+        if MessageKind.BEACON in self.spec.kinds and severity > 0.0:
             beacon = Beacon(BeaconKind.TREAT, 0.0, cell)
             messages.append(
                 Message(

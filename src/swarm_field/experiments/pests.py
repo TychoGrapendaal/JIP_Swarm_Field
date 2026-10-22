@@ -28,6 +28,7 @@ from swarm_field.contracts import (
     BodyType,
     CellId,
     FieldGeometry,
+    MessageKind,
     PestDynamicsSpec,
     PestSourceSpec,
     RobotSpec,
@@ -248,7 +249,9 @@ class PestScenario:
         pest_sources = None
         if self.pest_source_range_m is not None:
             pest_sources = PestSourceSpec(
-                period=self.decision_interval, radio_range_m=self.pest_source_range_m
+                period=self.decision_interval,
+                radio_range_m=self.pest_source_range_m,
+                kinds=self._pest_source_kinds(),
             )
         scenario = ScenarioConfig(
             field=self.field_geometry(),
@@ -284,7 +287,7 @@ class PestScenario:
     def _brain(
         self, behaviors: tuple[str, ...], seeders: tuple[str, ...], params: dict[str, ExploreConfig]
     ) -> BrainSpec:
-        """A brain with the scenario's arbiter, sharing and beacons."""
+        """A brain with the scenario's arbiter, sharing and beacons, and a map if it needs one."""
         return BrainSpec(
             behaviors=behaviors,
             seeders=seeders,
@@ -292,7 +295,26 @@ class PestScenario:
             arbiter=self.arbiter,
             sharing=self.sharing,
             beacons=self.beacons,
+            keeps_map=self._keeps_map(),
         )
+
+    def _keeps_map(self) -> bool:
+        """Whether the robots keep a map: all but those of the hop method alone.
+
+        The seeded pest response and exploration plan over the map, and relays of the seeded
+        response gossip the pests they know; with ``hop_treat`` and no exploration, no robot
+        reads a map.
+        """
+        return not self.hop_treat or self.killers_explore
+
+    def _pest_source_kinds(self) -> frozenset[MessageKind]:
+        """What the mock sources send: pest facts for robots with a map, beacons for relays."""
+        kinds: set[MessageKind] = set()
+        if self._keeps_map():
+            kinds.add(MessageKind.KNOWLEDGE)
+        if self.beacons is not None:
+            kinds.add(MessageKind.BEACON)
+        return frozenset(kinds)
 
 
 RELAYED_KILLERS = PestScenario(

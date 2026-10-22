@@ -87,10 +87,12 @@ class FieldProvider:
 
     Every seeder becomes a ``SeededObjectiveField`` over the quadtree; other objective fields
     are registered as they are. Each field keeps its own cache, so a robot switching between
-    objectives does not evict the other fields.
+    objectives does not evict the other fields. A robot whose memory keeps no map has no
+    quadtree, and so no seeders.
 
     Attributes:
-        quadtree: Where this robot can be and move, read from its memory's terrain.
+        quadtree: Where this robot can be and move, read from its memory's terrain, or ``None``
+            if its memory keeps no map.
     """
 
     def __init__(
@@ -100,17 +102,29 @@ class FieldProvider:
         seeders: Iterable[FieldSeeder] = (),
         fields: Iterable[ObjectiveField] = (),
     ) -> None:
+        """Build the robot's quadtree, if its memory keeps a map, and register its fields.
+
+        Raises:
+            ValueError: If a seeder is given for a memory without a map: a seeded field plans
+                over the quadtree.
+        """
         self._memory: AgentMemory = memory
         self._flies: bool = flies
-        self.quadtree: Quadtree = Quadtree(traversable_cells(memory, flies))
+        self.quadtree: Quadtree | None = None
+        if memory.keeps_map:
+            self.quadtree = Quadtree(traversable_cells(memory, flies))
         self._fields: dict[str, ObjectiveField] = {}
         for seeder in seeders:
+            if self.quadtree is None:
+                raise ValueError(f"seeder {seeder.name} needs a memory that keeps a map")
             self._fields[seeder.name] = SeededObjectiveField(seeder, self.quadtree)
         for field in fields:
             self._fields[field.name] = field
 
     def update_terrain(self, cells: Iterable[CellId]) -> None:
         """Re-read the given cells from the terrain, after new terrain facts about them."""
+        if self.quadtree is None:
+            return
         changes = {cell: can_enter(self._memory.terrain_at(cell), self._flies) for cell in cells}
         if changes:
             self.quadtree.update(changes)

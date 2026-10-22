@@ -17,7 +17,7 @@ A decentralized swarm of robots that monitor and cultivate a crop field. Each ro
 ## Modules
 
 - `contracts/` — shared boundary types (dataclasses, enums, the `SwarmAgent` protocol). Depends on nothing; everything depends on it.
-- `swarm/` (A) — the robot brain: `ComposedAgent` combines `Behavior`s that propose scored actions. `swarm/hop/` holds the hop method (pest response on relayed hop beacons): its parts read only the robot's beacons, never the map, and a `BeaconLink` connects them to the brain.
+- `swarm/` (A) — the robot brain: `ComposedAgent` combines `Behavior`s that propose scored actions. `swarm/hop/` holds the hop method (pest response on relayed hop beacons): its parts read only the robot's beacons, never the map, and a `BeaconLink` connects them to the brain. A brain of the hop method alone sets `BrainSpec.keeps_map=False`: it then stores no map, and a seeded field cannot be added to it.
 - `simulation/` (B) — the environment simulation: `SimulationLoop` processes timestamped events from an `EventQueue`, and owns ground truth.
 - `visualization/` (C) — the visualization adapter: `Renderer`s draw read-only `WorldSnapshot`s.
 - `runner.py` — the composition root: resolves brain parts from registries, assembles one run, and holds the sweep logic. The only module that knows every concrete class.

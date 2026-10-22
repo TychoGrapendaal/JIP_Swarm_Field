@@ -73,6 +73,7 @@ from swarm_field.swarm import (
     KnowledgeSharing,
     Navigator,
     ObjectiveField,
+    SensedSurroundings,
     TreatByBeacon,
     TreatInfestation,
     TreatSeeder,
@@ -205,6 +206,9 @@ class BrainSpec:
         sharing: Which memory facts the robot broadcasts to its peers.
         beacons: How beacons are kept, relayed and weighed, or ``None`` for a robot that
             neither keeps nor broadcasts them.
+        keeps_map: Whether the robot's memory stores terrain and infestation facts. A brain of
+            the hop method alone needs none; without a map it has no quadtree, so a seeder in
+            ``seeders`` is refused.
     """
 
     behaviors: tuple[str, ...] = ("treat-infestation",)
@@ -214,6 +218,7 @@ class BrainSpec:
     arbiter: ArbiterConfig = field(default_factory=ArbiterConfig)
     sharing: KnowledgeSharing = KnowledgeSharing.EVERYTHING
     beacons: BeaconConfig | None = None
+    keeps_map: bool = True
 
 
 @dataclass(frozen=True)
@@ -613,7 +618,7 @@ def build_agent(
     beacons gets a ``BeaconLink``, whose beacons its hop parts read, and steers headings from
     what it senses around itself at each decision only, not from a map.
     """
-    memory = AgentMemory(robot_id, field)
+    memory = AgentMemory(robot_id, field, keeps_map=spec.keeps_map)
     memory.merge(terrain)
     link: BeaconLink | None = None
     if spec.beacons is not None:
@@ -621,9 +626,10 @@ def build_agent(
     params = _params_for(spec, link)
     behaviors: list[Behavior] = [BEHAVIORS.build(name, params, rng) for name in spec.behaviors]
     fields = build_field_provider(spec, memory, rng, link)
-    navigator = Navigator(fields.quadtree)
+    heading_sensing: SensedSurroundings | None = None
     if link is not None:
-        navigator = Navigator(fields.quadtree, heading_sensing=link.surroundings)
+        heading_sensing = link.surroundings
+    navigator = Navigator(fields.quadtree, heading_sensing=heading_sensing)
     return ComposedAgent(
         robot_id=robot_id,
         behaviors=behaviors,

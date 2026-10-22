@@ -129,6 +129,7 @@ def _hop_killer(config: BeaconConfig) -> ComposedAgent:
         seeders=(HopField.name,),
         sharing=KnowledgeSharing.NOTHING,
         beacons=config,
+        keeps_map=False,
     )
     return build_agent(spec, 1, _FIELD, Random(0))
 

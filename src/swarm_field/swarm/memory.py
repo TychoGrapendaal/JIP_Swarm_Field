@@ -79,12 +79,21 @@ class AgentMemory:
     """One robot's facts about the field and its peers, merged from its own sensing and peers.
 
     Terrain, infestation and peer facts are stored; crop facts, anonymous peer sightings and
-    sightings of the robot itself are ignored.
+    sightings of the robot itself are ignored. A memory that keeps no map stores only peer
+    facts, for a robot that steers by beacons and its own sensing alone.
+
+    Attributes:
+        keeps_map: Whether terrain and infestation facts are stored.
     """
 
     def __init__(
-        self, robot_id: RobotId, field: FieldGeometry, decay: DecayConfig | None = None
+        self,
+        robot_id: RobotId,
+        field: FieldGeometry,
+        decay: DecayConfig | None = None,
+        keeps_map: bool = True,
     ) -> None:
+        self.keeps_map: bool = keeps_map
         self._robot_id: RobotId = robot_id
         self._field: FieldGeometry = field
         self._decay: DecayConfig = DecayConfig()
@@ -114,9 +123,12 @@ class AgentMemory:
         A fact replaces the stored one only if it is strictly newer, so on a tie the robot
         keeps what it already knows. The arrays over the field follow the stored facts, so a fact
         that is not stored leaves them as they are; most facts gossiped by peers are not newer.
+        Without ``keeps_map``, terrain and infestation facts are dropped.
         """
         for fact in facts:
             match fact:
+                case TerrainObservation() | InfestationObservation() if not self.keeps_map:
+                    pass
                 case TerrainObservation():
                     if _keep_newest(self._terrain, fact.cell, fact) and self._is_inside(fact.cell):
                         self._monitorable[fact.cell] = fact.terrain is Terrain.FREE
