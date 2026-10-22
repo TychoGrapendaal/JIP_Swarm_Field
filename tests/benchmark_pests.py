@@ -20,7 +20,8 @@ steps. A row reports the mean over the seeds, with its standard error (±) where
 - ``drift 1/2/3 h``: mean distance in cells of the killers from their start after each hour;
 - ``wall``: seconds of computation per run.
 
-Runs are spread over processes. Not part of ``pytest``; run it with:
+Runs are spread over processes with ``swarm_field.experiments.Experiment``, which writes every
+run's result and the table to a new folder in ``output/``. Not part of ``pytest``; run it with:
 
     uv run python -m tests.benchmark_pests --hours 3 --seeds 10 --pests-per-hour 15
 """
@@ -30,13 +31,20 @@ from __future__ import annotations
 import argparse
 import math
 import time
-from collections.abc import Iterator
-from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, replace
-from statistics import mean, median, quantiles, stdev
+from statistics import mean, median, quantiles
 
 from swarm_field.contracts import BodyType, CellId, Idle, RobotId, Time, TimeUnit
-from swarm_field.experiments import RELAYED_KILLERS, PestScenario
+from swarm_field.experiments import (
+    RELAYED_KILLERS,
+    Experiment,
+    PestScenario,
+    Run,
+    by_arm,
+    markdown_table,
+    mean_and_error,
+    runs_for,
+)
 from swarm_field.experiments.run import LiveRun
 from swarm_field.swarm import BeaconConfig, EscapeConfig, KnowledgeSharing, treat_beacon
 
@@ -47,52 +55,52 @@ METRIC_BEACONS = BeaconConfig(
 """Metric hops of one radio range, capped where a beacon's strength falls below 0.05."""
 
 
-@dataclass(frozen=True)
-class Arm:
-    """One way of responding to pests: a row's label and its scenario."""
-
-    name: str
-    scenario: PestScenario
-
-
-def arms() -> Iterator[Arm]:
-    """The seeded arm, the oracle, which hears every pest at once, and the hop arms.
+def arms() -> dict[str, PestScenario]:
+    """The seeded arm, the oracle, which hears every pest at once, and the hop arms, by name.
 
     ``hop repel`` has metric hops, the cap, and killers repelling each other. ``hop tuned`` is
     the best hop configuration so far: ``hop repel`` with pulls weighted by the square root of
     the distance, and the escape.
     """
-    yield Arm("seeded", RELAYED_KILLERS)
     oracle = replace(
         RELAYED_KILLERS, pest_source_range_m=math.inf, sharing=KnowledgeSharing.NOTHING
     )
-    yield Arm("oracle", oracle)
     hop = replace(
         RELAYED_KILLERS,
         hop_treat=True,
         beacons=BeaconConfig(),
         sharing=KnowledgeSharing.NOTHING,
     )
-    yield Arm("hop", hop)
-    yield Arm("hop metric", replace(hop, beacons=METRIC_BEACONS))
     repel = replace(METRIC_BEACONS, killer_repulsion=2.0)
-    yield Arm("hop repel", replace(hop, beacons=repel))
     tuned = replace(repel, distance_power=0.5, escape=EscapeConfig())
-    yield Arm("hop tuned", replace(hop, beacons=tuned))
+    return {
+        "seeded": RELAYED_KILLERS,
+        "oracle": oracle,
+        "hop": hop,
+        "hop metric": replace(hop, beacons=METRIC_BEACONS),
+        "hop repel": replace(hop, beacons=repel),
+        "hop tuned": replace(hop, beacons=tuned),
+    }
 
 
 @dataclass(frozen=True)
-class Job:
-    """One run to make: an arm for ``hours`` at ``pests_per_hour``, with ``seed``.
+class Measurement:
+    """How to run and measure one arm: its scenario for ``hours`` at ``pests_per_hour``.
 
     ``infested`` is averaged after ``warmup_hours``.
     """
 
-    arm: Arm
+    scenario: PestScenario
     hours: int
-    seed: int
     pests_per_hour: float = 15.0
     warmup_hours: int = 1
+
+    def cost(self) -> float:
+        """A rough relative cost: the field's cells, five times for the seeded arm's gossip."""
+        cost = float(self.scenario.size**2 * self.hours)
+        if not self.scenario.hop_treat:
+            cost *= 5
+        return cost
 
 
 @dataclass(frozen=True)
@@ -195,17 +203,18 @@ class PestTracker:
         return mean(distances)
 
 
-def run(job: Job) -> Result:
+def measure(run: Run[Measurement]) -> Result:
     """Make one run and measure it."""
+    job = run.config
     scenario = replace(
-        job.arm.scenario,
+        job.scenario,
         until=job.hours * TimeUnit.HOUR,
         sample_period=TimeUnit.MINUTE,
-        seed=job.seed,
+        seed=run.seed,
         pests_per_hour=job.pests_per_hour,
     )
     started = time.perf_counter()
-    live = LiveRun.from_config(scenario.into_experiment(job.arm.name))
+    live = LiveRun.from_config(scenario.into_experiment(run.arm))
     starts: dict[RobotId, CellId] = {}
     for robot_id, robot in live.context.world.robots.items():
         if robot.body is BodyType.KILLER:
@@ -252,8 +261,18 @@ def _percentile_90(values: list[Time]) -> float:
     return quantiles(values, n=10)[-1]
 
 
-def table_row(name: str, results: list[Result], hours: int) -> str:
-    """One Markdown table row: the means over the seeds' results."""
+def table_headers(hours: int) -> list[str]:
+    """The table's column names, with one drift column per hour."""
+    headers = ["arm", "infested", "treated", "response", "p90", "open", "cells/treat", "msgs"]
+    headers.extend(["stuck", "commit hop", "empty"])
+    for hour in range(1, hours + 1):
+        headers.append(f"drift {hour} h")
+    headers.append("wall (s)")
+    return headers
+
+
+def table_cells(name: str, results: list[Result], hours: int) -> list[str]:
+    """One table row: the means over the seeds' results, under ``table_headers``."""
     cells = [
         name,
         mean_and_error([result.infested for result in results]),
@@ -270,15 +289,7 @@ def table_row(name: str, results: list[Result], hours: int) -> str:
     for hour in range(hours):
         cells.append(f"{mean(result.drift[hour] for result in results):.1f}")
     cells.append(f"{mean(result.wall for result in results):.0f}")
-    return "| " + " | ".join(cells) + " |"
-
-
-def mean_and_error(values: list[float]) -> str:
-    """The mean of ``values`` and its standard error, as ``mean ± error``."""
-    error = 0.0
-    if len(values) > 1:
-        error = stdev(values) / math.sqrt(len(values))
-    return f"{mean(values):.2f} ± {error:.2f}"
+    return cells
 
 
 def _median_or_dash(results: list[Result]) -> str:
@@ -310,30 +321,27 @@ def main() -> None:
     parser.add_argument("--warmup-hours", type=int, default=1, help="left out of infested")
     args = parser.parse_args()
 
-    section = list(arms())
-    jobs: list[Job] = []
-    for arm in section:
-        for seed in range(args.seeds):
-            jobs.append(Job(arm, args.hours, seed, args.pests_per_hour, args.warmup_hours))
-    with ProcessPoolExecutor(max_workers=args.jobs) as pool:
-        results = list(pool.map(run, jobs))
+    measurements: dict[str, Measurement] = {}
+    for name, scenario in arms().items():
+        measurements[name] = Measurement(
+            scenario, args.hours, args.pests_per_hour, args.warmup_hours
+        )
+    experiment = Experiment("pest_benchmark")
+    runs = runs_for(measurements, range(args.seeds), Measurement.cost)
+    results = experiment.run(runs, measure, args.jobs)
 
     scenario = RELAYED_KILLERS
-    print(
+    title = (
         f"{scenario.scouts} relays, {scenario.killers} killers, "
         f"{scenario.radio_range_m:g} m radio, {args.pests_per_hour:g} pests per hour, "
-        f"{args.hours} h (warm-up {args.warmup_hours} h), mean over {args.seeds} seeds\n"
+        f"{args.hours} h (warm-up {args.warmup_hours} h), mean over {args.seeds} seeds"
     )
-    headers = ["arm", "infested", "treated", "response", "p90", "open", "cells/treat", "msgs"]
-    headers.extend(["stuck", "commit hop", "empty"])
-    for hour in range(1, args.hours + 1):
-        headers.append(f"drift {hour} h")
-    headers.append("wall (s)")
-    print("| " + " | ".join(headers) + " |")
-    print("|" + " --- |" * len(headers))
-    for index, arm in enumerate(section):
-        seeds = results[index * args.seeds : (index + 1) * args.seeds]
-        print(table_row(arm.name, seeds, args.hours))
+    rows: list[list[str]] = []
+    for name, arm_results in by_arm(results).items():
+        rows.append(table_cells(name, arm_results, args.hours))
+    text = f"{title}\n\n{markdown_table(table_headers(args.hours), rows)}"
+    print(text)
+    experiment.write_text("tables.md", text)
 
 
 if __name__ == "__main__":
