@@ -71,7 +71,7 @@ class TreatSeeder:
 
     Each infested cell attracts by its severity times the memory's confidence in it, and
     clustered infestations attract more than isolated ones. A cell that a peer is already
-    heading to, to treat it, attracts less. Rebuilt once a minute, and whenever the infested
+    heading for, to treat it, attracts less. Rebuilt once a minute, and whenever the infested
     cells or the peers' targets change.
 
     Attributes:
@@ -116,8 +116,8 @@ class TreatSeeder:
         return now // TimeUnit.MINUTE, facts, _cells_targeted_by_peers(memory)
 
     def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
-        targeted = _cells_targeted_by_peers(memory)
         seeds: list[Seed] = []
+        targeted = _cells_targeted_by_peers(memory)
         for pest in memory.infestations():
             if pest.severity <= 0.0:
                 continue
@@ -127,31 +127,32 @@ class TreatSeeder:
             if attractiveness > 0.0:
                 seeds.append(Seed(pest.cell, -self._value_amplifier * attractiveness))
 
-        if not seeds:
+        if len(seeds) == 0:
             return ()
-        return tuple(self.reinforce_clustered_seeds(seeds))
+        updated_seeds = self.reinforce_clustered_seeds(seeds)
+        return tuple(updated_seeds)
 
     def reinforce_clustered_seeds(self, seeds: list[Seed]) -> list[Seed]:
         """Update each value by the values of its neighbours, so clusters attract more.
 
         Every seed gains the values of the other seeds within ``cutoff_sigmas`` widths of it,
-        weighted by a Gaussian of their Euclidean distance in cells. Only those nearby pairs are
-        stored in a sparse matrix, so the cost grows with the number of neighbours rather than
-        with the number of seeds squared.
+        weighted by a Gaussian of their Euclidean distance in cells. Only those nearby pairs
+        are stored, in a sparse matrix, so the cost grows with the number of neighbours rather
+        than with the number of seeds squared.
         """
-        if len(seeds) < 2:
-            return list(seeds)
-        coords = np.asarray([seed.cell for seed in seeds], dtype=float)
-        values = np.asarray([seed.value for seed in seeds], dtype=float)
+        coords = np.array([s.cell for s in seeds])
+        values = np.array([s.value for s in seeds])
         tree = KDTree(coords)
         cutoff = self._cutoff_sigmas * self._sigma
         weights = tree.sparse_distance_matrix(tree, cutoff, output_type="coo_matrix").tocsr()
         weights.data = np.exp(-((weights.data / self._sigma) ** 2))
         weights.setdiag(0)
         new_values = values + weights.dot(values)
-        return [
-            Seed(seed.cell, float(value)) for seed, value in zip(seeds, new_values, strict=True)
-        ]
+
+        updated_seeds = []
+        for s, new_value in zip(seeds, new_values, strict=True):
+            updated_seeds.append(Seed(s.cell, new_value))
+        return updated_seeds
 
 
 class BatteryRequestSeeder:
@@ -220,9 +221,9 @@ class DockSeeder:
 
 
 def _cells_targeted_by_peers(memory: MemoryView) -> frozenset[CellId]:
-    """Return cells peers report targeting for the TREAT objective."""
-    return frozenset(
-        peer.target
-        for peer in memory.peers()
-        if peer.target is not None and peer.objective is AgentObjective.TREAT
-    )
+    """The cells the remembered peers say they are heading for, to treat them."""
+    targeted: set[CellId] = set()
+    for peer in memory.peers():
+        if peer.target is not None and peer.objective is AgentObjective.TREAT:
+            targeted.add(peer.target)
+    return frozenset(targeted)
