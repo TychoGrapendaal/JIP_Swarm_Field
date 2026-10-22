@@ -37,6 +37,7 @@ from swarm_field.swarm import (
     FieldSeeder,
     FollowField,
     Intent,
+    KnowledgeSnapshot,
     MemoryView,
     Navigator,
     Regroup,
@@ -302,8 +303,8 @@ def test_agent_broadcasts_its_memory_and_peer_learns_it() -> None:
     assert isinstance(status.payload, PeerObservation)
     assert status.payload.battery == 1.0
     assert knowledge.kind is MessageKind.KNOWLEDGE
-    assert isinstance(knowledge.payload, tuple)
-    assert set(knowledge.payload) == {fact, crop_fact}
+    assert isinstance(knowledge.payload, KnowledgeSnapshot)
+    assert set(knowledge.payload.facts()) == {fact, crop_fact}
 
     receiver.decide(
         Perception(

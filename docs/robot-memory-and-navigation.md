@@ -22,9 +22,10 @@ Memory holds facts and nothing else. The quadtree says where a robot can be and 
 
 | Module | Contents |
 | --- | --- |
-| `swarm/memory.py` | `AgentMemory`, `MemoryView`, `DecayConfig` |
+| `swarm/memory.py` | `AgentMemory`, `MemoryView`, `DecayConfig`, `KnowledgeSnapshot`, `CellFacts` |
+| `swarm/sharing.py` | `KnowledgeExchange`, `SharingConfig`, `SharingStrategy` |
 | `swarm/field/quadtree.py` | `Quadtree`, `Leaf`, `find_leaves`, `TerrainView`, `traversable_cells` |
-| `swarm/field/dijkstra.py` | `multi_source_dijkstra`, `SettledNode` |
+| `swarm/field/dijkstra.py` | `IndexedGraph`, `SearchResult`, `SettledNode` |
 | `swarm/field/builder.py` | `Seed`, `build_grid_potential_field`, `GridPotentialField`, `MixedGraph` |
 | `swarm/provider.py` | `FieldProvider` (the quadtree, the seeders, one cached field per seeder) |
 | `swarm/navigator.py` | `Navigator` (the seam: progress, fallback) |
@@ -33,11 +34,13 @@ Memory holds facts and nothing else. The quadtree says where a robot can be and 
 | `swarm/behavior.py` | `Behavior`, `ActionCandidate`, `FollowField`, `Intent`, `DecisionContext`, `TreatInfestation`, `ExploreBehaviour`, `Regroup` |
 | `swarm/brain.py` | `ComposedAgent` |
 
-Tests: `tests/test_memory.py`, `tests/test_quadtree.py`, `tests/test_field.py`, `tests/test_provider.py`, `tests/test_navigator.py`, `tests/test_steering.py`, `tests/test_swarm.py`.
+Tests: `tests/test_memory.py`, `tests/test_quadtree.py`, `tests/test_field.py`, `tests/test_provider.py`, `tests/test_navigator.py`, `tests/test_steering.py`, `tests/test_swarm.py`, `tests/test_sharing.py`.
 
 ## Memory
 
 `AgentMemory` stores the contract `Observation`s a robot senses or receives, unchanged. Each fact has an identity: the cell for terrain and infestation facts, the robot id for peer facts. Memory keeps one fact per identity: an incoming fact replaces the stored one only if it was observed strictly later, so on a tie the robot keeps what it already has. The robot's own sensing (`ingest`) and facts from peers (`merge`) go through this same rule, so a fact that comes back through a third robot changes nothing. A cell seen to be clean is stored as an infestation fact with severity 0. That is how memory tells "known clean" from "never seen", and how a report that a pest was treated replaces the old pest fact.
+
+Terrain and infestation facts are stored in arrays over the field (`CellFacts`), one entry per cell: the fact object itself, when it was observed, and the memory `version` at which it was first and last stored. The version counts the facts memory has stored so far. Peer facts stay in a small dict. The arrays make sharing cheap: `knowledge()` copies the facts into a `KnowledgeSnapshot`, a few arrays per kind, and `merge_snapshot` merges one with a few vectorised operations instead of a dict lookup per fact. The result is exactly what merging the snapshot's facts one by one would give, including the order in which facts are read back, so a run does not change; `tests/test_sharing.py` checks this on whole pest runs.
 
 Confidence is not stored. `AgentMemory.confidence` computes it when asked, from the fact's age and the decay time of its kind in `DecayConfig` (24 h for infestation, 10 min for peers, no decay for terrain). Nothing in memory changes as time passes, so there is no decay step, unlike the `decay(now)` sketched for the `Memory` port in `architecture.md`.
 
@@ -63,7 +66,7 @@ Because every leaf is uniform, two leaves are neighbours exactly when a robot ca
 
 The design document computes a potential field in two passes: coarse over the whole field, then fine around the robot, seeded at the edge of the fine window from the coarse result. A two-pass version was built and replaced by a single search over a graph of mixed resolution, which is simpler and at least as accurate.
 
-`build_grid_potential_field` takes the targets as a tuple of `Seed`s (a cell and a start value, lower is more attractive, typically `-beta * value` as in the design document), the robot's `Quadtree`, and the robot's cell. Around the robot, the graph has single cells: the window is the robot's 16 × 16 block and the blocks within `window_blocks` of it (default 2, so 80 × 80 cells). Everywhere else the graph has the quadtree's leaves, and a move between leaves costs the distance between their centres. Since every leaf lies inside one 16 × 16 block, each leaf is entirely inside the window (its cells are used) or entirely outside it (the leaf itself is used). `MixedGraph` links the two kinds of nodes at the window's border. One multi-source Dijkstra (`multi_source_dijkstra`) then spreads from all targets at once, and records for every node its value, the target whose wave reached it first, and the next node towards that target.
+`build_grid_potential_field` takes the targets as a tuple of `Seed`s (a cell and a start value, lower is more attractive, typically `-beta * value` as in the design document), the robot's `Quadtree`, and the robot's cell. Around the robot, the graph has single cells: the window is the robot's 16 × 16 block and the blocks within `window_blocks` of it (default 2, so 80 × 80 cells). Everywhere else the graph has the quadtree's leaves, and a move between leaves costs the distance between their centres. Since every leaf lies inside one 16 × 16 block, each leaf is entirely inside the window (its cells are used) or entirely outside it (the leaf itself is used). `MixedGraph` links the two kinds of nodes at the window's border. One multi-source Dijkstra then spreads from all targets at once, and records for every node its value, the target whose wave reached it first, and the next node towards that target. The search runs in scipy (`scipy.sparse.csgraph.dijkstra`): the graph is indexed once into a sparse matrix (`IndexedGraph`), with a virtual source linked to every target at the cost of its start value, so `FieldProvider`, which keeps the graph while the robot stays in its block, walks it in Python only once. Where two routes are equally short, scipy may pick a different one than a heap-based search would.
 
 The result is a `GridPotentialField` with three queries:
 
@@ -89,7 +92,7 @@ The `Steerer` is the fallback, used when the field cannot guide. That is either 
 
 ## The brain
 
-`ComposedAgent` owns one `AgentMemory`, one `FieldProvider`, one `Navigator` and one `Arbiter`. At every decision it merges what the robot sensed and received into memory, gives the provider the cells that got new terrain facts (the provider re-reads them from memory and updates its `Quadtree`), and hands the robot's state and memory to the behaviours in the `DecisionContext`. Every behaviour returns a tuple of `ActionCandidate`s, and the arbiter picks one (see [`research/arbiter.md`](./research/arbiter.md)). The brain then turns the winner's intent into one action: for a `FollowField` it asks the provider for that seeder's field, whose target becomes the robot's current target, and the navigator steps along it. Any other intent (`Treat`, `Charge`, `Idle`) passes through unchanged. A winning `FollowField` whose seeder has no targets logs a warning and idles. With every decision the brain broadcasts two messages: a `STATUS` message, a `PeerObservation` of the robot itself carrying its current target and objective, and a `KNOWLEDGE` message with all its facts. A receiver merges both into memory, so a peer's target is read through `MemoryView.peers()`. `inspect()` returns the memory's facts, for visualization.
+`ComposedAgent` owns one `AgentMemory`, one `FieldProvider`, one `Navigator` and one `Arbiter`. At every decision it merges what the robot sensed and received into memory, gives the provider the cells that got new terrain facts (the provider re-reads them from memory and updates its `Quadtree`), and hands the robot's state and memory to the behaviours in the `DecisionContext`. Every behaviour returns a tuple of `ActionCandidate`s, and the arbiter picks one (see [`research/arbiter.md`](./research/arbiter.md)). The brain then turns the winner's intent into one action: for a `FollowField` it asks the provider for that seeder's field, whose target becomes the robot's current target, and the navigator steps along it. Any other intent (`Treat`, `Charge`, `Idle`) passes through unchanged. A winning `FollowField` whose seeder has no targets logs a warning and idles. With every decision the brain broadcasts two messages: a `STATUS` message, a `PeerObservation` of the robot itself carrying its current target and objective, and a `KNOWLEDGE` message whose `KnowledgeSnapshot` its `KnowledgeExchange` picks: by default all its facts at every decision, but the `SharingStrategy` in `BrainSpec.sharing` can send them less often. A receiver merges both into memory, so a peer's target is read through `MemoryView.peers()`. `inspect()` returns the memory's facts, for visualization.
 
 ## Writing a behaviour
 
