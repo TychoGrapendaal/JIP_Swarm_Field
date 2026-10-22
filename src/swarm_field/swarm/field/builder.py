@@ -28,8 +28,11 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from math import inf
 
+import numpy as np
+from numpy.typing import NDArray
+
 from swarm_field.contracts import CellId
-from swarm_field.swarm.field.dijkstra import SettledNode, multi_source_dijkstra
+from swarm_field.swarm.field.dijkstra import IndexedGraph, SearchResult, SettledNode
 from swarm_field.swarm.field.quadtree import Leaf, Quadtree
 
 Node = CellId | Leaf
@@ -105,9 +108,10 @@ class MixedGraph:
     Nodes of the two kinds meet at the window's border, where an edge cell is linked to every
     leaf just outside it that it can hop into.
 
-    A graph describes the quadtree as it was at ``version``, and remembers each node's hops
-    once asked for, so a robot that stays in its window can reuse the graph for every field it
-    builds there until its terrain changes; ``is_current_for`` says whether it still can.
+    A graph describes the quadtree as it was at ``version``, and is indexed for the search
+    once, on the first field solved on it, so a robot that stays in its window can reuse the
+    graph for every field it builds there until its terrain changes; ``is_current_for`` says
+    whether it still can.
 
     Attributes:
         quadtree: The terrain the graph was built from.
@@ -121,7 +125,7 @@ class MixedGraph:
         self.version: int = quadtree.version
         self._crossings: dict[CellId, dict[Leaf, _Crossing]] = {}
         self._cells_bordering: dict[Leaf, list[tuple[CellId, float]]] = {}
-        self._hops: dict[Node, list[tuple[Node, float]]] = {}
+        self._indexed: IndexedGraph[Node] | None = None
         self._link_border()
 
     @classmethod
@@ -145,15 +149,78 @@ class MixedGraph:
             return cell
         return self.quadtree.leaf_at(cell)
 
-    def neighbours(self, node: Node) -> list[tuple[Node, float]]:
-        """The nodes a robot may hop to from ``node``, with the cost of each hop."""
-        hops = self._hops.get(node)
-        if hops is None:
-            hops = list(self._find_hops(node))
-            self._hops[node] = hops
-        return hops
+    def indexed(self) -> IndexedGraph[Node]:
+        """The graph indexed for the search, built on the first call and kept."""
+        if self._indexed is None:
+            self._indexed = self._index_hops()
+        return self._indexed
 
-    def _find_hops(self, node: Node) -> Iterator[tuple[Node, float]]:
+    def _index_hops(self) -> IndexedGraph[Node]:
+        """Index every node and hop: the traversable cells of the window, then the leaves.
+
+        The hops between cells of the window, nearly all of them, are found with numpy, one
+        shifted copy of the window per hop direction; the hops to and from leaves one by one.
+        """
+        window = self.window
+        inside = self.quadtree.traversable[window.x_min : window.x_max, window.y_min : window.y_max]
+        xs, ys = np.nonzero(inside)
+        cell_index = np.full(inside.shape, -1, dtype=np.intp)
+        cell_index[xs, ys] = np.arange(len(xs))
+        nodes: list[Node] = []
+        for x, y in zip((xs + window.x_min).tolist(), (ys + window.y_min).tolist(), strict=True):
+            nodes.append((x, y))
+        first_leaf = len(nodes)
+        for leaf in self.quadtree.leaves():
+            if not window.contains((leaf.x, leaf.y)):
+                nodes.append(leaf)
+
+        starts: list[NDArray[np.intp]] = []
+        ends: list[NDArray[np.intp]] = []
+        costs: list[NDArray[np.float64]] = []
+        for dx, dy in self.quadtree.hop_offsets:
+            from_x, to_x = _shifted_ranges(inside.shape[0], dx)
+            from_y, to_y = _shifted_ranges(inside.shape[1], dy)
+            allowed = inside[from_x, from_y] & inside[to_x, to_y]
+            cost = 1.0
+            if dx != 0 and dy != 0:
+                # A diagonal hop needs both cells beside it, as in ``Quadtree.cell_neighbours``.
+                allowed &= inside[to_x, from_y] & inside[from_x, to_y]
+                cost = _DIAGONAL_LENGTH
+            starts.append(cell_index[from_x, from_y][allowed])
+            ends.append(cell_index[to_x, to_y][allowed])
+            costs.append(np.full(int(allowed.sum()), cost))
+
+        leaf_numbers: dict[Node, int] = {}
+        for number, leaf in enumerate(nodes[first_leaf:], start=first_leaf):
+            leaf_numbers[leaf] = number
+
+        def number_of(node: Node) -> int:
+            if isinstance(node, Leaf):
+                return leaf_numbers[node]
+            return int(cell_index[node[0] - window.x_min, node[1] - window.y_min])
+
+        leaf_starts: list[int] = []
+        leaf_ends: list[int] = []
+        leaf_costs: list[float] = []
+        for edge, crossings in self._crossings.items():
+            for leaf, crossing in crossings.items():
+                leaf_starts.append(number_of(edge))
+                leaf_ends.append(number_of(leaf))
+                leaf_costs.append(crossing.cost)
+        for leaf in nodes[first_leaf:]:
+            for neighbour, cost in self.neighbours(leaf):
+                leaf_starts.append(number_of(leaf))
+                leaf_ends.append(number_of(neighbour))
+                leaf_costs.append(cost)
+        starts.append(np.array(leaf_starts, dtype=np.intp))
+        ends.append(np.array(leaf_ends, dtype=np.intp))
+        costs.append(np.array(leaf_costs, dtype=np.float64))
+        return IndexedGraph(
+            nodes, np.concatenate(starts), np.concatenate(ends), np.concatenate(costs)
+        )
+
+    def neighbours(self, node: Node) -> Iterator[tuple[Node, float]]:
+        """The nodes a robot may hop to from ``node``, with the cost of each hop."""
         if isinstance(node, Leaf):
             for leaf in self.quadtree.leaf_neighbours(node):
                 # The window is made of whole blocks, so a leaf is inside it iff its corner is.
@@ -180,6 +247,8 @@ class MixedGraph:
         cheapest crossing is kept. The links go both ways, with the same cost.
         """
         for edge in self.window.edge_cells():
+            if not self.quadtree.is_traversable(edge):
+                continue
             for outside in self.quadtree.cell_neighbours(edge):
                 if self.window.contains(outside):
                     continue
@@ -206,9 +275,9 @@ class GridPotentialField:
         settled: The result per reached node.
     """
 
-    def __init__(self, graph: MixedGraph, settled: dict[Node, SettledNode[Node]]) -> None:
+    def __init__(self, graph: MixedGraph, settled: SearchResult[Node]) -> None:
         self.graph: MixedGraph = graph
-        self.settled: dict[Node, SettledNode[Node]] = settled
+        self.settled: SearchResult[Node] = settled
 
     def value_at(self, cell: CellId) -> float:
         """The potential at ``cell``; ``inf`` if no target is reachable from it."""
@@ -276,9 +345,7 @@ def solve_grid_potential_field(seeds: tuple[Seed, ...], graph: MixedGraph) -> Gr
         if stored is None or candidate.value < stored.value:
             node_seeds[node] = candidate
 
-    # Hops and their costs are symmetric, so the hops into a node are the hops out of it.
-    settled = multi_source_dijkstra(node_seeds, graph.neighbours)
-    return GridPotentialField(graph, settled)
+    return GridPotentialField(graph, graph.indexed().search(node_seeds))
 
 
 def _window_around(robot: CellId, quadtree: Quadtree, window_blocks: int) -> BoundingBox:
@@ -291,6 +358,14 @@ def _window_around(robot: CellId, quadtree: Quadtree, window_blocks: int) -> Bou
         y_min=max(0, (block_y - window_blocks) * side),
         x_max=min(quadtree.width, (block_x + window_blocks + 1) * side),
         y_max=min(quadtree.height, (block_y + window_blocks + 1) * side),
+    )
+
+
+def _shifted_ranges(length: int, shift: int) -> tuple[slice, slice]:
+    """Along an axis of ``length`` cells, the cells a hop of ``shift`` can start from, and the
+    cells it then ends in, as slices of the same length."""
+    return slice(max(0, -shift), length - max(0, shift)), slice(
+        max(0, shift), length + min(0, shift)
     )
 
 

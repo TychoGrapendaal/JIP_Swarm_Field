@@ -25,7 +25,7 @@ Memory holds facts and nothing else. The quadtree says where a robot can be and 
 | `swarm/memory.py` | `AgentMemory`, `MemoryView`, `DecayConfig`, `KnowledgeSnapshot`, `CellFacts` |
 | `swarm/sharing.py` | `KnowledgeExchange`, `SharingConfig`, `SharingStrategy` |
 | `swarm/field/quadtree.py` | `Quadtree`, `Leaf`, `find_leaves`, `TerrainView`, `traversable_cells` |
-| `swarm/field/dijkstra.py` | `multi_source_dijkstra`, `SettledNode` |
+| `swarm/field/dijkstra.py` | `IndexedGraph`, `SearchResult`, `SettledNode` |
 | `swarm/field/builder.py` | `Seed`, `build_grid_potential_field`, `GridPotentialField`, `MixedGraph` |
 | `swarm/provider.py` | `FieldProvider` (the quadtree, the seeders, one cached field per seeder) |
 | `swarm/navigator.py` | `Navigator` (the seam: progress, fallback) |
@@ -66,7 +66,7 @@ Because every leaf is uniform, two leaves are neighbours exactly when a robot ca
 
 The design document computes a potential field in two passes: coarse over the whole field, then fine around the robot, seeded at the edge of the fine window from the coarse result. A two-pass version was built and replaced by a single search over a graph of mixed resolution, which is simpler and at least as accurate.
 
-`build_grid_potential_field` takes the targets as a tuple of `Seed`s (a cell and a start value, lower is more attractive, typically `-beta * value` as in the design document), the robot's `Quadtree`, and the robot's cell. Around the robot, the graph has single cells: the window is the robot's 16 × 16 block and the blocks within `window_blocks` of it (default 2, so 80 × 80 cells). Everywhere else the graph has the quadtree's leaves, and a move between leaves costs the distance between their centres. Since every leaf lies inside one 16 × 16 block, each leaf is entirely inside the window (its cells are used) or entirely outside it (the leaf itself is used). `MixedGraph` links the two kinds of nodes at the window's border. One multi-source Dijkstra (`multi_source_dijkstra`) then spreads from all targets at once, and records for every node its value, the target whose wave reached it first, and the next node towards that target.
+`build_grid_potential_field` takes the targets as a tuple of `Seed`s (a cell and a start value, lower is more attractive, typically `-beta * value` as in the design document), the robot's `Quadtree`, and the robot's cell. Around the robot, the graph has single cells: the window is the robot's 16 × 16 block and the blocks within `window_blocks` of it (default 2, so 80 × 80 cells). Everywhere else the graph has the quadtree's leaves, and a move between leaves costs the distance between their centres. Since every leaf lies inside one 16 × 16 block, each leaf is entirely inside the window (its cells are used) or entirely outside it (the leaf itself is used). `MixedGraph` links the two kinds of nodes at the window's border. One multi-source Dijkstra then spreads from all targets at once, and records for every node its value, the target whose wave reached it first, and the next node towards that target. The search runs in scipy (`scipy.sparse.csgraph.dijkstra`): the graph is indexed once into a sparse matrix (`IndexedGraph`), with a virtual source linked to every target at the cost of its start value, so `FieldProvider`, which keeps the graph while the robot stays in its block, walks it in Python only once. Where two routes are equally short, scipy may pick a different one than a heap-based search would.
 
 The result is a `GridPotentialField` with three queries:
 
