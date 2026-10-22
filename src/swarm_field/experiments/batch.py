@@ -212,12 +212,23 @@ def by_arm[C, R](results: Iterable[RunResult[C, R]]) -> dict[str, list[R]]:
     return grouped
 
 
-def mean_and_error(values: Sequence[float]) -> str:
-    """The mean of ``values`` and its standard error, as ``mean ± error``."""
+def mean_and_error(values: Sequence[float | None]) -> str:
+    """The mean of ``values`` and its standard error, as ``mean ± error``.
+
+    ``-`` if there are no values or any is ``None``, e.g. a response time of a run that
+    treated nothing: a mean over the other runs would hide it.
+    """
+    present: list[float] = []
+    for value in values:
+        if value is None:
+            return "-"
+        present.append(value)
+    if not present:
+        return "-"
     error = 0.0
-    if len(values) > 1:
-        error = stdev(values) / math.sqrt(len(values))
-    return f"{mean(values):.2f} ± {error:.2f}"
+    if len(present) > 1:
+        error = stdev(present) / math.sqrt(len(present))
+    return f"{mean(present):.2f} ± {error:.2f}"
 
 
 def paired_difference(values: Sequence[float], baseline: Sequence[float]) -> str:

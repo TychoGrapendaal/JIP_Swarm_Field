@@ -1,8 +1,8 @@
 """Benchmark pest response on fields with obstacles: four configurations, two scenarios (#70).
 
 Every configuration of ``pest_response_configurations`` runs on ``RIVER_SMALL`` and on
-``RIVERS_LARGE``, with the same seeds. A run is measured as in ``tests/benchmark_pests.py``, whose
-columns the table repeats, and adds:
+``RIVERS_LARGE``, with the same seeds. A run is measured with ``measure_pest_response``, whose
+standard columns the table repeats, and adds:
 
 - ``treated %``: the share of the pests that appeared and were treated, ``treated / (treated +
   open)``;
@@ -27,16 +27,20 @@ from swarm_field.experiments import (
     RIVER_SMALL,
     RIVERS_LARGE,
     Experiment,
+    PestResponse,
+    PestRunSpec,
     PestScenario,
     arm_name,
     by_arm,
     markdown_table,
-    mean_and_error,
+    measure_pest_response,
     paired_difference,
     pest_response_configurations,
+    pest_table_cells,
+    pest_table_headers,
     runs_for,
+    treated_share,
 )
-from tests.benchmark_pests import Measurement, Result, measure, table_cells, table_headers
 
 SCENARIOS: dict[str, PestScenario] = {"river-small": RIVER_SMALL, "rivers-large": RIVERS_LARGE}
 """The scenarios by the name used in arm names and tables."""
@@ -57,18 +61,9 @@ class Section:
     rows: dict[str, str]
 
 
-def treated_fraction(results: list[Result]) -> str:
-    """The share of the appeared pests that were treated, as mean ± standard error."""
-    fractions: list[float] = []
-    for result in results:
-        fractions.append(result.treated / max(result.treated + result.open, 1))
-    return mean_and_error(fractions)
-
-
-def section_table(section: Section, results: dict[str, list[Result]], hours: int) -> str:
-    """One section as Markdown: the ``benchmark_pests`` columns, the treated share, Δ infested."""
-    headers = table_headers(hours)
-    headers[0] = "config"
+def section_table(section: Section, results: dict[str, list[PestResponse]], hours: int) -> str:
+    """One section as Markdown: the standard columns, the treated share, and Δ infested."""
+    headers = pest_table_headers(hours, first="config")
     headers.extend(["treated %", "Δ infested"])
     baseline: list[float] | None = None
     if BASELINE in section.rows:
@@ -80,8 +75,8 @@ def section_table(section: Section, results: dict[str, list[Result]], hours: int
         if baseline is not None and label != BASELINE:
             infested = [result.infested for result in arm_results]
             difference = paired_difference(infested, baseline)
-        cells = table_cells(label, arm_results, hours)
-        cells.extend([treated_fraction(arm_results), difference])
+        cells = pest_table_cells(label, arm_results, hours)
+        cells.extend([treated_share(arm_results), difference])
         rows.append(cells)
     return f"{section.title}\n\n{markdown_table(headers, rows)}"
 
@@ -102,7 +97,7 @@ def main() -> None:
     names = list(SCENARIOS)
     if args.scenario != "both":
         names = [args.scenario]
-    arms: dict[str, Measurement] = {}
+    arms: dict[str, PestRunSpec] = {}
     sections: list[Section] = []
     for name in names:
         scenario = SCENARIOS[name]
@@ -116,7 +111,7 @@ def main() -> None:
             rows: dict[str, str] = {}
             for config, configured in configs.items():
                 arm = arm_name(name, config, killers=scenario.killers, rate=rate)
-                arms[arm] = Measurement(configured, args.hours, rate, args.warmup_hours)
+                arms[arm] = PestRunSpec(configured, args.hours, rate, args.warmup_hours)
                 rows[config] = arm
             title = (
                 f"{name}: {scenario.scouts} relays, {scenario.killers} killers, "
@@ -128,8 +123,8 @@ def main() -> None:
     experiment = Experiment("obstacle_comparison")
     if args.calibrate is not None:
         experiment = Experiment("obstacle_calibration")
-    runs = runs_for(arms, range(args.seeds), Measurement.cost)
-    results = by_arm(experiment.run(runs, measure, args.jobs))
+    runs = runs_for(arms, range(args.seeds), PestRunSpec.cost)
+    results = by_arm(experiment.run(runs, measure_pest_response, args.jobs))
     tables: list[str] = []
     for section in sections:
         tables.append(section_table(section, results, args.hours))

@@ -30,6 +30,15 @@ from swarm_field.experiments.explore import (
     river_and_rocks,
     two_rivers_and_rocks,
 )
+from swarm_field.experiments.pest_response import (
+    PestResponse,
+    PestRunSpec,
+    PestTracker,
+    measure_pest_response,
+    pest_table_cells,
+    pest_table_headers,
+    treated_share,
+)
 from swarm_field.experiments.pests import (
     FAST_TREATMENT,
     RELAYED_KILLERS,
@@ -49,7 +58,10 @@ __all__ = [
     "Experiment",
     "ExploreScenario",
     "LiveRun",
+    "PestResponse",
+    "PestRunSpec",
     "PestScenario",
+    "PestTracker",
     "Run",
     "RunResult",
     "arm_name",
@@ -58,11 +70,15 @@ __all__ = [
     "cropped_cells",
     "markdown_table",
     "mean_and_error",
+    "measure_pest_response",
     "paired_difference",
     "pest_response_configurations",
+    "pest_table_cells",
+    "pest_table_headers",
     "river_and_rocks",
     "runs_for",
     "scenario_names",
     "sweep_scenarios",
+    "treated_share",
     "two_rivers_and_rocks",
 ]

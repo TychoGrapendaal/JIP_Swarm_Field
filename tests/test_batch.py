@@ -13,6 +13,7 @@ from swarm_field.experiments import (
     arm_name,
     by_arm,
     markdown_table,
+    mean_and_error,
     paired_difference,
     runs_for,
 )
@@ -65,3 +66,4 @@ def test_the_table_helpers_format_markdown_and_paired_differences() -> None:
 
     assert table == "| arm | value |\n| --- | --- |\n| a | 1 |\n| b | 2.5 |\n"
     assert paired_difference([3.0, 5.0], [1.0, 2.0]) == "+2.50 ± 0.50"
+    assert mean_and_error([1.0, None]) == "-"

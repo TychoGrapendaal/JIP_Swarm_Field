@@ -23,7 +23,7 @@ A decentralized swarm of robots that monitor and cultivate a crop field. Each ro
 - `simulation/` (B) — the environment simulation: `SimulationLoop` processes timestamped events from an `EventQueue`, and owns ground truth.
 - `visualization/` (C) — the visualization adapter: `Renderer`s draw read-only `WorldSnapshot`s.
 - `runner.py` — the composition root: resolves brain parts from registries, assembles one run, and holds the sweep logic. The only module that knows every concrete class.
-- `experiments/` — hand-built scenarios (exploration, pests) described as `ExperimentConfig`s for the runner, the catalogue that names every scenario (presets and hand-built) for sweeps and viewers, `LiveRun`: one run, stepped by a frontend, that records and replays the commands applied to it, and `Experiment` (`batch.py`): runs a batch of named runs in parallel and writes their results to `output/`.
+- `experiments/` — hand-built scenarios (exploration, pests) described as `ExperimentConfig`s for the runner, the catalogue that names every scenario (presets and hand-built) for sweeps and viewers, `LiveRun`: one run, stepped by a frontend, that records and replays the commands applied to it, `Experiment` (`batch.py`): runs a batch of named runs in parallel and writes their results to `output/`, and `measure_pest_response` (`pest_response.py`): the standard measurement of a pest run and its table columns.
 - `console.py` — the interactive console: advances a `LiveRun` frame by frame and turns key presses and clicks into `Command`s. It sits at the package root next to `runner.py` because it combines the simulation and the visualization, which must not import each other.
 
 ## Architecture rules
