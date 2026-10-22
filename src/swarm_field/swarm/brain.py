@@ -25,7 +25,6 @@ from swarm_field.contracts import (
     Message,
     MessageKind,
     Observation,
-    ObservationBase,
     PeerObservation,
     Perception,
     RobotId,
@@ -235,8 +234,8 @@ class ComposedAgent:
                 if not isinstance(message.payload, (tuple, list)):
                     continue
                 for fact in message.payload:
-                    if isinstance(fact, ObservationBase):
-                        facts.append(cast(Observation, fact))
+                    if isinstance(fact, Observation):
+                        facts.append(fact)
             elif message.kind is MessageKind.STATUS:
                 if not isinstance(message.payload, PeerObservation):
                     logger.warning(

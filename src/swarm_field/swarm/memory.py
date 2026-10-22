@@ -138,18 +138,17 @@ class AgentMemory:
         """Merge facts, keeping per identity the one with the newest ``observed_at``.
 
         A fact replaces the stored one only if it is strictly newer, so on a tie the robot
-        keeps what it already knows.
+        keeps what it already knows. The arrays over the field follow the stored facts, so a fact
+        that is not stored leaves them as they are; most facts gossiped by peers are not newer.
         """
         for fact in facts:
             match fact:
                 case TerrainObservation():
-                    _keep_newest(self._terrain, fact.cell, fact)
-                    if self._is_inside(fact.cell):
-                        newest = self._terrain[fact.cell]
-                        self._monitorable[fact.cell] = newest.terrain is Terrain.FREE
+                    if _keep_newest(self._terrain, fact.cell, fact) and self._is_inside(fact.cell):
+                        self._monitorable[fact.cell] = fact.terrain is Terrain.FREE
                 case InfestationObservation():
-                    _keep_newest(self._infestation, fact.cell, fact)
-                    if self._is_inside(fact.cell):
+                    stored = _keep_newest(self._infestation, fact.cell, fact)
+                    if stored and self._is_inside(fact.cell):
                         seen = max(self._last_seen[fact.cell], fact.observed_at)
                         self._last_seen[fact.cell] = seen
                 case PeerObservation(peer=int() as peer) if peer != self._robot_id:
@@ -260,8 +259,10 @@ def _read_only[T: np.generic](array: NDArray[T]) -> NDArray[T]:
     return view
 
 
-def _keep_newest[K, F: ObservationBase](store: dict[K, F], key: K, fact: F) -> None:
-    """Store ``fact`` under ``key`` unless the stored fact is at least as new."""
+def _keep_newest[K, F: ObservationBase](store: dict[K, F], key: K, fact: F) -> bool:
+    """Store ``fact`` under ``key`` unless the stored fact is at least as new; whether it was."""
     stored = store.get(key)
     if stored is None or fact.observed_at > stored.observed_at:
         store[key] = fact
+        return True
+    return False
