@@ -6,6 +6,9 @@ Run from the repository root with:
 Sweep every failure mode and write the table to a directory:
     uv run python examples/robustness_demo.py --out runs/robustness
 
+Run the conditions against any scenario of the catalogue, e.g. the pest experiment:
+    uv run python examples/robustness_demo.py --scenario pests --hours 1
+
 Watch one condition as PNG frames, one per metric tick, with lost robots drawn hollow:
     uv run --with matplotlib python examples/robustness_demo.py \
         --render failure-offline-0.005
@@ -14,15 +17,13 @@ Watch one condition as PNG frames, one per metric tick, with lost robots drawn h
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 from pathlib import Path
 
-from swarm_field.contracts import (
-    FailureMode,
-    FailureSpec,
-    PositionErrorSpec,
-    ScenarioId,
-)
+from swarm_field.contracts import FailureMode, FailureSpec, PositionErrorSpec, TimeUnit
+from swarm_field.experiments import build_named_experiment, scenario_names
 from swarm_field.runner import (
+    ExperimentConfig,
     RobustnessCase,
     RunSummary,
     export_summary_csv,
@@ -31,10 +32,9 @@ from swarm_field.runner import (
     robustness_sweep,
     run_experiment,
 )
-from swarm_field.simulation import MetricsConfig
 from swarm_field.visualization import FrameWriter, MatplotlibRenderer
 
-HOUR = 3_600_000
+HOUR = TimeUnit.HOUR
 FAILURE_RATES = (0.001, 0.005)
 POSITION_ERROR_RATES = (0.1, 0.3)
 
@@ -47,11 +47,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=101, help="seed shared by every condition")
     parser.add_argument(
         "--scenario",
-        type=ScenarioId.__getitem__,
-        choices=list(ScenarioId),
-        default=ScenarioId.S2,
-        metavar="{S1,S2,S3,S4,S5}",
-        help="scenario to run every condition against, by name",
+        choices=scenario_names(),
+        default="S2",
+        help="scenario to run every condition against, by name (default: S2)",
     )
     parser.add_argument(
         "--hours", type=float, default=6.0, help="how many simulation hours each run lasts"
@@ -130,26 +128,14 @@ def select_case(cases: tuple[RobustnessCase, ...], label: str) -> RobustnessCase
     raise SystemExit(f"no condition named {label!r}; choose one of: {names}")
 
 
-def render_condition(
-    case: RobustnessCase,
-    scenario: ScenarioId,
-    seed: int,
-    until: int,
-    directory: Path,
-) -> int:
+def render_condition(case: RobustnessCase, base: ExperimentConfig, directory: Path) -> int:
     """Re-run one condition with a renderer and write its frames. Returns the frame count.
 
     The sweep above already ran this exact case, and a run is a function of its seed, so drawing
     it a second time reproduces the row in the table rather than a different experiment. That is
     why the frames can be trusted against the numbers next to them.
     """
-    config = robustness_case_config(
-        scenario,
-        case,
-        seed,
-        until=until,
-        metrics=MetricsConfig(period=HOUR),
-    )
+    config = robustness_case_config(base, case)
     writer = FrameWriter(MatplotlibRenderer(show_targets=False), directory, case.label)
     run_experiment(config, writer)
     return writer.frames_written
@@ -159,14 +145,10 @@ def main() -> None:
     args = parse_args()
     until = int(args.hours * HOUR)
     cases = all_cases()
+    base = build_named_experiment(args.scenario, args.seed, until)
+    base = replace(base, metrics=replace(base.metrics, period=HOUR))
 
-    runs = robustness_sweep(
-        args.scenario,
-        cases,
-        seed=args.seed,
-        until=until,
-        metrics=MetricsConfig(period=HOUR),
-    )
+    runs = robustness_sweep(base, cases)
 
     print_table(runs)
 
@@ -179,7 +161,7 @@ def main() -> None:
 
     if args.render is not None:
         case = select_case(cases, args.render)
-        written = render_condition(case, args.scenario, args.seed, until, args.render_out)
+        written = render_condition(case, base, args.render_out)
         print(f"Wrote {written} frames of {case.label} to {args.render_out}")
 
 

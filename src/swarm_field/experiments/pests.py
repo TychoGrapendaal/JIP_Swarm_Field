@@ -46,6 +46,7 @@ from swarm_field.swarm import (
     ExploreConfig,
     HopField,
     KnowledgeSharing,
+    SharingConfig,
     TreatByBeacon,
     TreatInfestation,
     TreatSeeder,
@@ -83,6 +84,8 @@ class PestScenario:
         beacons: How every robot keeps, relays and weighs beacons, or ``None`` for robots
             without beacons.
         robots_know_terrain: Whether every robot starts with the field's terrain map.
+        treatment_rate: How much infestation severity a treating killer removes per hour. It
+            must beat the growth, ``growth_rate`` per ``pest_period``, or no pest ever clears.
         pests_per_hour: How many pests spawn per hour, on average, on the free healthy cells.
         pest_period: The time between two pest updates (``WorldTick``).
         growth_rate: How much a pest's severity grows per pest update.
@@ -116,6 +119,7 @@ class PestScenario:
     sharing: KnowledgeSharing = KnowledgeSharing.EVERYTHING
     beacons: BeaconConfig | None = None
     robots_know_terrain: bool = True
+    treatment_rate: float = 1.0
     pests_per_hour: float = 15.0
     pest_period: Time = TimeUnit.MINUTE
     growth_rate: float = 0.05
@@ -265,6 +269,7 @@ class PestScenario:
             obstacles=obstacles,
             pest_dynamics=self.pest_dynamics(),
             pest_sources=pest_sources,
+            treatment_rate=self.treatment_rate,
         )
         params: dict[str, object] = {"explore": self.explore}
         explore = self._brain(("explore",), ("explore",), params)
@@ -299,7 +304,7 @@ class PestScenario:
             seeders=seeders,
             params=params,
             arbiter=self.arbiter,
-            sharing=self.sharing,
+            sharing=SharingConfig(facts=self.sharing),
             beacons=self.beacons,
             keeps_map=self._keeps_map(),
         )
@@ -323,6 +328,13 @@ class PestScenario:
         return frozenset(kinds)
 
 
+FAST_TREATMENT = 60.0
+"""A treatment rate that clears a pest of full severity in one minute, far above its growth.
+
+The #70 pest-response results were measured with treatment that cleared a pest at once, so their
+scenarios treat this fast to stay comparable.
+"""
+
 RELAYED_KILLERS = PestScenario(
     obstacles=(),
     scouts=400,
@@ -334,6 +346,7 @@ RELAYED_KILLERS = PestScenario(
     pest_source_range_m=20.0,
     sharing=KnowledgeSharing.INFESTATIONS,
     robots_know_terrain=False,
+    treatment_rate=FAST_TREATMENT,
 )
 """The seeded arm of the pest-response benchmark (#70): relays on a lattice, a few killers.
 
@@ -355,6 +368,7 @@ RIVER_SMALL = PestScenario(
     sharing=KnowledgeSharing.INFESTATIONS,
     robots_know_terrain=False,
     pests_per_hour=18.0,
+    treatment_rate=FAST_TREATMENT,
 )
 """The obstacle comparison's small field (#70): one river with a bridge, and two rocks.
 

@@ -18,7 +18,7 @@ from swarm_field.contracts import (
     TimeUnit,
 )
 from swarm_field.runner import BrainSpec, build_agent
-from swarm_field.swarm import BeaconConfig, ComposedAgent, KnowledgeSharing
+from swarm_field.swarm import BeaconConfig, ComposedAgent, KnowledgeSharing, SharingConfig
 
 _FIELD = FieldGeometry(width=10, height=10, cell_size=10.0, row_sp=0.0, in_row_sp=0.0, headland=0.0)
 
@@ -27,7 +27,7 @@ def _relay(robot_id: int) -> ComposedAgent:
     spec = BrainSpec(
         behaviors=(),
         seeders=(),
-        sharing=KnowledgeSharing.NOTHING,
+        sharing=SharingConfig(facts=KnowledgeSharing.NOTHING),
         beacons=BeaconConfig(),
         keeps_map=False,
     )

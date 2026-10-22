@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from swarm_field.contracts import BodyType, CellState, FieldGeometry, Treat, WorldSnapshot
+from swarm_field.contracts import BodyType, CellState, FieldGeometry, TimeUnit, Treat, WorldSnapshot
 from swarm_field.simulation import RobotState, WorldState
 from swarm_field.visualization import MatplotlibRenderer, save_frames
 from swarm_field.visualization.matplotlib_renderer import cell_rgba_image
@@ -75,7 +75,7 @@ def test_render_tracks_an_infestation_as_it_is_treated() -> None:
     before = renderer.axes.get_images()[0].get_array().copy()
 
     world.apply_action(1, Treat(cell=(3, 1)), time=100)
-    renderer.render(world.snapshot(100))
+    renderer.render(world.snapshot(30 * TimeUnit.MINUTE + 100))
     after = renderer.axes.get_images()[0].get_array()
 
     assert not (before == after).all()
@@ -101,3 +101,14 @@ def test_save_frames_draws_every_frame_into_a_video_or_png_directory(
         assert len(list((tmp_path / name).glob("*.png"))) == 3
     else:
         assert (tmp_path / name).stat().st_size > 0
+
+
+def test_render_draws_a_line_on_every_cell_border() -> None:
+    field = _field(width=3, height=2)
+    renderer = MatplotlibRenderer()
+
+    renderer.render(WorldState(field).snapshot(time=0))
+
+    assert list(renderer.axes.xaxis.get_minorticklocs()) == [0, 1, 2, 3]
+    assert list(renderer.axes.yaxis.get_minorticklocs()) == [0, 1, 2]
+    assert all(tick.gridline.get_visible() for tick in renderer.axes.xaxis.get_minor_ticks())

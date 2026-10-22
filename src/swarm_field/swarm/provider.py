@@ -1,7 +1,8 @@
 """The robot's field provider: its quadtree, kept in sync with memory, and its objective fields.
 
 A seeder's field is a grid potential field built on the quadtree and cached by its
-``SeededObjectiveField``. Behaviours never read the fields. Only the brain asks
+``SeededObjectiveField``; the search graphs around the robot are kept per window size and shared
+by all its seeded fields. Behaviours never read the fields. Only the brain asks
 :meth:`FieldProvider.field_for`, for the winning candidate's field, which picks the robot's
 target and which the ``Navigator`` follows.
 """
@@ -10,7 +11,12 @@ from collections.abc import Hashable, Iterable
 from dataclasses import dataclass
 
 from swarm_field.contracts import CellId, Time
-from swarm_field.swarm.field import Quadtree, build_grid_potential_field, traversable_cells
+from swarm_field.swarm.field import (
+    MixedGraph,
+    Quadtree,
+    solve_grid_potential_field,
+    traversable_cells,
+)
 from swarm_field.swarm.field.quadtree import can_enter
 from swarm_field.swarm.guidance import Guidance, ObjectiveField
 from swarm_field.swarm.memory import AgentMemory, MemoryView
@@ -39,6 +45,26 @@ class _CachedField:
         return self.key == key and self.version == version and self.block == block
 
 
+class _GraphCache:
+    """The search graphs around one robot, one per window size, shared by its seeded fields.
+
+    A graph depends only on the terrain and the window, not on the seeds, so a robot that stays
+    in its block rebuilds a field without rebuilding the graph or its hops.
+    """
+
+    def __init__(self, quadtree: Quadtree) -> None:
+        self._quadtree: Quadtree = quadtree
+        self._graphs: dict[int, MixedGraph] = {}
+
+    def around(self, robot: CellId, window_blocks: int) -> MixedGraph:
+        """The search graph around the robot, kept per window size while it stays current."""
+        graph = self._graphs.get(window_blocks)
+        if graph is None or not graph.is_current_for(self._quadtree, robot, window_blocks):
+            graph = MixedGraph.around(self._quadtree, robot, window_blocks)
+            self._graphs[window_blocks] = graph
+        return graph
+
+
 class SeededObjectiveField:
     """The objective field of a ``FieldSeeder``: a grid potential field over the quadtree.
 
@@ -52,10 +78,11 @@ class SeededObjectiveField:
         name: The seeder's name.
     """
 
-    def __init__(self, seeder: FieldSeeder, quadtree: Quadtree) -> None:
+    def __init__(self, seeder: FieldSeeder, quadtree: Quadtree, graphs: _GraphCache) -> None:
         self.name: str = seeder.name
         self._seeder: FieldSeeder = seeder
         self._quadtree: Quadtree = quadtree
+        self._graphs: _GraphCache = graphs
         self._cached: _CachedField | None = None
 
     def guidance_for(self, memory: MemoryView, robot: CellId, now: Time) -> SeededField | None:
@@ -69,9 +96,8 @@ class SeededObjectiveField:
         seeds = self._seeder.seeds(memory, robot, now)
         field: SeededField | None = None
         if seeds:
-            built = build_grid_potential_field(
-                seeds, self._quadtree, robot, self._seeder.window_blocks
-            )
+            graph = self._graphs.around(robot, self._seeder.window_blocks)
+            built = solve_grid_potential_field(seeds, graph)
             field = SeededField(seeds, built)
         self._cached = _CachedField(key=key, version=version, block=block, field=field)
         return field
@@ -114,12 +140,19 @@ class FieldProvider:
         if memory.keeps_map:
             self.quadtree = Quadtree(traversable_cells(memory, flies))
         self._fields: dict[str, ObjectiveField] = {}
+        graphs: _GraphCache | None = None
+        if self.quadtree is not None:
+            graphs = _GraphCache(self.quadtree)
         for seeder in seeders:
-            if self.quadtree is None:
+            if self.quadtree is None or graphs is None:
                 raise ValueError(f"seeder {seeder.name} needs a memory that keeps a map")
-            self._fields[seeder.name] = SeededObjectiveField(seeder, self.quadtree)
+            self._fields[seeder.name] = SeededObjectiveField(seeder, self.quadtree, graphs)
         for field in fields:
             self._fields[field.name] = field
+
+    def names(self) -> frozenset[str]:
+        """The names of the registered objective fields, seeded or not."""
+        return frozenset(self._fields)
 
     def update_terrain(self, cells: Iterable[CellId]) -> None:
         """Re-read the given cells from the terrain, after new terrain facts about them."""

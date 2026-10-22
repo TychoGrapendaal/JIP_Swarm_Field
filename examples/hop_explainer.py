@@ -1,4 +1,4 @@
-"""One killer follows the hop field over a lattice of relays, on ``SimulationViewer``.
+"""One killer follows the hop field over a lattice of relays, drawn with the overlays.
 
 An explainer for the hop-based potential field (#70). A lattice of relay scouts stands still
 over a field with a river and two rocks; in the future real explorers take their place. A mock
@@ -38,7 +38,7 @@ from swarm_field.contracts import (
     TimeUnit,
     WorldSnapshot,
 )
-from swarm_field.experiments import LiveRun, PestScenario
+from swarm_field.experiments import FAST_TREATMENT, LiveRun, PestScenario
 from swarm_field.swarm import (
     BeaconConfig,
     BeaconMemory,
@@ -56,7 +56,17 @@ from swarm_field.swarm.hop import (
     obstacle_push,
     own_value,
 )
-from swarm_field.visualization import Arrow, Marker, RobotStyle, SimulationViewer
+from swarm_field.visualization import (
+    Arrow,
+    Marker,
+    MatplotlibRenderer,
+    RobotStyle,
+    SidePanel,
+    draw_arrows,
+    draw_markers,
+    draw_targets,
+    save_frames,
+)
 
 OBSTACLE_SHOWN_DECAYS = 3.0
 """Obstacle beacons older than this many decay times push next to nothing and are not drawn."""
@@ -331,6 +341,7 @@ def main() -> None:
         beacons=config,
         robots_know_terrain=False,
         pests_per_hour=args.pests_per_hour,
+        treatment_rate=FAST_TREATMENT,
         seed=args.seed,
     )
     run = LiveRun.from_config(scenario.into_experiment("hop explainer"))
@@ -344,22 +355,42 @@ def main() -> None:
                 killers[robot_id] = targets[robot_id]
         return killers
 
-    viewer = SimulationViewer(
-        run.snapshot_at,
-        goals=killer_targets,
-        panel=explainer.panel,
-        arrows=explainer.arrows,
-        markers=explainer.markers,
+    renderer = MatplotlibRenderer(
+        (12.0, 8.0),
+        show_targets=False,
         body_styles={
             BodyType.KILLER: RobotStyle("red", size=160.0, label="killer"),
             BodyType.SCOUT: RobotStyle("slategray", size=40.0, alpha=0.7, label="relay"),
         },
-        title=(
-            f"#70 hop-based potential field: 1 killer, {args.relays} relays, "
-            f"{args.radio:g} m radio, seed {args.seed}"
-        ),
     )
-    viewer.animate(frame_times(args), fps=args.fps, save=args.save)
+    panel = SidePanel(renderer)
+    title = (
+        f"#70 hop-based potential field: 1 killer, {args.relays} relays, "
+        f"{args.radio:g} m radio, seed {args.seed}"
+    )
+    times = frame_times(args)
+
+    def draw_frame(index: int) -> None:
+        snapshot = run.snapshot_at(times[index])
+        renderer.render(snapshot)
+        axes = renderer.axes
+        draw_targets(axes, snapshot, killer_targets())
+        draw_markers(axes, explainer.markers(snapshot))
+        draw_arrows(axes, explainer.arrows(snapshot))
+        axes.set_title(f"{title}\n{axes.get_title()}")
+        panel.show(explainer.panel(snapshot))
+
+    if args.save is not None:
+        save_frames(renderer.figure, draw_frame, len(times), args.save, fps=args.fps)
+        return
+    import matplotlib.pyplot as plt
+    from matplotlib.animation import FuncAnimation
+
+    animation = FuncAnimation(
+        renderer.figure, draw_frame, frames=len(times), interval=1000 / args.fps, repeat=False
+    )
+    _ = animation
+    plt.show()
 
 
 if __name__ == "__main__":

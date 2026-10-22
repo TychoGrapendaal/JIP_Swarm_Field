@@ -370,6 +370,8 @@ class WorldTick:
         new_infestations = self._spread(ctx)
         self._apply_new_infestations(ctx, new_infestations)
         self._spawn(ctx)
+        if ctx.metrics is not None:
+            ctx.metrics.track_infestation(ctx.world, self.time)
 
         ctx.schedule(
             WorldTick(

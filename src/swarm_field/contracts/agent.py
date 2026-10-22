@@ -21,6 +21,7 @@ class RobotSelfState:
         speed_mps: Current maximum travel speed in metres per second.
         consumable: Remaining treatment consumable, 0..1.
         health: Condition, 0..1.
+        spare_batteries: Number of charged spare batteries carried by a support robot.
     """
 
     robot_id: RobotId
@@ -30,6 +31,7 @@ class RobotSelfState:
     speed_mps: float
     consumable: float
     health: float
+    spare_batteries: int = 0
 
 
 @dataclass(frozen=True)

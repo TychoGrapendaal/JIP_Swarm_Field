@@ -15,14 +15,16 @@ from __future__ import annotations
 
 import csv
 import json
-from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from collections import Counter
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from random import Random
 from typing import Any, TypeVar
 
 from swarm_field.contracts import (
     BodyType,
+    CellId,
     FailureMode,
     FailureSpec,
     FieldGeometry,
@@ -65,15 +67,18 @@ from swarm_field.swarm import (
     Behavior,
     ComposedAgent,
     ExploreConfig,
+    ExploreField,
     ExploreSeeder,
     FieldProvider,
     FieldSeeder,
-    FollowSeederField,
     HopField,
-    KnowledgeSharing,
+    KnowledgeSnapshot,
     Navigator,
     ObjectiveField,
+    Regroup,
+    RegroupSeeder,
     SensedSurroundings,
+    SharingConfig,
     TreatByBeacon,
     TreatInfestation,
     TreatSeeder,
@@ -175,9 +180,9 @@ def _build_treat_seeder(params: dict[str, Any], rng: Random) -> TreatSeeder:
 
 
 @BEHAVIORS.register("explore")
-def _build_explore(params: dict[str, Any], rng: Random) -> FollowSeederField:
-    """Build the mock explore behaviour: an even bid to follow the EXPLORE seeder's field."""
-    return FollowSeederField(ExploreSeeder.name)
+def _build_explore(params: dict[str, Any], rng: Random) -> ExploreField:
+    """Build the memory-scored exploration behaviour for the EXPLORE seeder."""
+    return ExploreField(ExploreSeeder.name)
 
 
 @SEEDERS.register("explore")
@@ -187,12 +192,29 @@ def _build_explore_seeder(params: dict[str, Any], rng: Random) -> ExploreSeeder:
     return ExploreSeeder(config)
 
 
+@BEHAVIORS.register("regroup")
+def _build_regroup(params: dict[str, Any], rng: Random) -> Regroup:
+    """Build the regroup behaviour, with the silence timeout under ``"regroup-silence"`` and the
+    rally point under ``"rally-point"``, if given."""
+    silence: Time = params.get("regroup-silence", 2 * TimeUnit.MINUTE)
+    rally_point: CellId | None = params.get("rally-point")
+    return Regroup(RegroupSeeder.name, silence, rally_point)
+
+
+@SEEDERS.register("regroup")
+def _build_regroup_seeder(params: dict[str, Any], rng: Random) -> RegroupSeeder:
+    """Build the REGROUP seeder, with the rally point under ``"rally-point"``, if given."""
+    rally_point: CellId | None = params.get("rally-point")
+    return RegroupSeeder(rally_point=rally_point)
+
+
 @dataclass(frozen=True)
 class BrainSpec:
     """How to assemble one robot's brain, by name.
 
     This is the data-driven assembly of architecture §A.4. Every brain gets a
-    ``UtilityArbiter`` with ``arbiter``.
+    ``UtilityArbiter`` with ``arbiter``, and shares its memory as ``sharing`` says; neither
+    has a registry entry.
 
     Attributes:
         behaviors: Registry names of the behaviors, combined at every decision point. Order
@@ -204,7 +226,7 @@ class BrainSpec:
         params: Per-part parameters, passed through to the named factory, e.g. an
             ``ExploreConfig`` under ``"explore"`` for the EXPLORE seeder.
         arbiter: The overrides and hysteresis of the robot's ``UtilityArbiter``.
-        sharing: Which memory facts the robot broadcasts to its peers.
+        sharing: What the robot broadcasts of its memory, and how often.
         beacons: How beacons are kept, relayed and weighed, or ``None`` for a robot that
             neither keeps nor broadcasts them.
         keeps_map: Whether the robot's memory stores terrain and infestation facts. A brain of
@@ -217,9 +239,29 @@ class BrainSpec:
     navigator: str = "potential-field"
     params: dict[str, Any] = field(default_factory=dict)
     arbiter: ArbiterConfig = field(default_factory=ArbiterConfig)
-    sharing: KnowledgeSharing = KnowledgeSharing.EVERYTHING
+    sharing: SharingConfig = field(default_factory=SharingConfig)
     beacons: BeaconConfig | None = None
     keeps_map: bool = True
+
+    def describe(self) -> str:
+        """The parts of this brain by name, e.g. ``behaviors=explore seeders=explore``.
+
+        Parameters are named but not spelled out, so a summary table stays readable. A brain
+        with beacons, or without a map, says so.
+        """
+        parts = [
+            "behaviors=" + "+".join(self.behaviors),
+            "seeders=" + "+".join(self.seeders),
+            "navigator=" + self.navigator,
+            "sharing=" + self.sharing.describe(),
+        ]
+        if self.params:
+            parts.append("params=" + "+".join(sorted(self.params)))
+        if self.beacons is not None:
+            parts.append("beacons")
+        if not self.keeps_map:
+            parts.append("no-map")
+        return " ".join(parts)
 
 
 @dataclass(frozen=True)
@@ -256,6 +298,112 @@ class ExperimentConfig:
     metrics: MetricsConfig = field(default_factory=MetricsConfig)
     decision_interval: Time = 5_000
 
+    def with_sharing(self, sharing: SharingConfig) -> ExperimentConfig:
+        """This experiment with every robot, whatever its body, sharing as ``sharing`` says."""
+        by_body: dict[BodyType, BrainSpec] = {}
+        for body, brain in self.brains_by_body.items():
+            by_body[body] = replace(brain, sharing=sharing)
+        return replace(self, brain=replace(self.brain, sharing=sharing), brains_by_body=by_body)
+
+
+@dataclass(frozen=True)
+class RunMetadata:
+    """How one run was set up: what tells two rows of a results table apart.
+
+    Every field is a plain value, so the metadata fits next to the results in one CSV row.
+
+    Attributes:
+        horizon_ms: How far the run went, in simulation time.
+        decision_interval_ms: Time between a robot's consecutive decisions.
+        metrics_period_ms: Time between two metrics samples.
+        field_width: Field width in cells.
+        field_height: Field height in cells.
+        cell_size_m: The side of a cell in metres.
+        robots: How many robots the run started with.
+        bodies: How many robots of each body type, e.g. ``KILLER=3 SCOUT=5``.
+        radio_ranges_m: The robots' broadcast ranges in metres, each distinct range once, e.g.
+            ``300`` or ``100 300``.
+        brain: The brain of every robot whose body has no brain of its own.
+        brains_by_body: The brain of each body type that has one of its own, e.g.
+            ``KILLER: behaviors=...``; empty if every robot has ``brain``.
+        robots_know_terrain: Whether the robots started with the terrain map.
+        stagger_decisions: Whether the robots' first decisions were spread over one interval.
+        pest_spawn_probability: Chance per cell and pest update that a pest spawns.
+        pest_growth_rate: How much a pest's severity grows per pest update.
+        pest_spread_probability: Chance per pest update that a pest infests a neighbour.
+        failure_probability: Chance per check that a live robot fails.
+        failure_mode: What a failure is, by name.
+        failure_period_ms: Time between two failure checks.
+        position_error_probability: Chance per decision that a robot mislocates itself.
+        position_error_max_offset: Largest such displacement, in cells.
+    """
+
+    horizon_ms: Time
+    decision_interval_ms: Time
+    metrics_period_ms: Time
+    field_width: int
+    field_height: int
+    cell_size_m: float
+    robots: int
+    bodies: str
+    radio_ranges_m: str
+    brain: str
+    brains_by_body: str
+    robots_know_terrain: bool
+    stagger_decisions: bool
+    pest_spawn_probability: float
+    pest_growth_rate: float
+    pest_spread_probability: float
+    failure_probability: float
+    failure_mode: str
+    failure_period_ms: Time
+    position_error_probability: float
+    position_error_max_offset: int
+
+    @classmethod
+    def from_config(cls, config: ExperimentConfig) -> RunMetadata:
+        """The setup of the run that ``config`` describes."""
+        scenario = config.scenario
+        bodies: Counter[str] = Counter()
+        for robot in scenario.robots:
+            bodies[robot.body.name] += 1
+        counts: list[str] = []
+        for body, count in sorted(bodies.items()):
+            counts.append(f"{body}={count}")
+        ranges: list[str] = []
+        for radio_range in sorted({robot.radio_range for robot in scenario.robots}):
+            ranges.append(f"{radio_range:g}")
+        own_brains: list[str] = []
+        for body in sorted(config.brains_by_body, key=lambda body: body.name):
+            own_brains.append(f"{body.name}: {config.brains_by_body[body].describe()}")
+        return cls(
+            horizon_ms=config.until,
+            decision_interval_ms=config.decision_interval,
+            metrics_period_ms=config.metrics.period,
+            field_width=scenario.field.width,
+            field_height=scenario.field.height,
+            cell_size_m=scenario.field.cell_size,
+            robots=len(scenario.robots),
+            bodies=" ".join(counts),
+            radio_ranges_m=" ".join(ranges),
+            brain=config.brain.describe(),
+            brains_by_body="; ".join(own_brains),
+            robots_know_terrain=config.robots_know_terrain,
+            stagger_decisions=config.stagger_decisions,
+            pest_spawn_probability=scenario.pest_dynamics.spawn_probability,
+            pest_growth_rate=scenario.pest_dynamics.growth_rate,
+            pest_spread_probability=scenario.pest_dynamics.spread_probability,
+            failure_probability=scenario.failures.probability,
+            failure_mode=scenario.failures.mode.name,
+            failure_period_ms=scenario.failures.period,
+            position_error_probability=scenario.position_error.probability,
+            position_error_max_offset=scenario.position_error.max_offset,
+        )
+
+    def to_row(self) -> dict[str, int | float | str | bool]:
+        """The metadata as a flat ``dict`` of field name to value, for a summary row."""
+        return asdict(self)
+
 
 @dataclass(frozen=True)
 class RunSummary:
@@ -265,6 +413,7 @@ class RunSummary:
         label: Name of the configuration this run used.
         scenario: Name of the scenario preset this run used.
         seed: The scenario seed the run was reproducible from.
+        metadata: How the run was set up, from its ``ExperimentConfig``.
         series: Every metrics sample, oldest first.
         targets_remaining: Active targets left at the end of the run.
         coverage: Fraction of the crop cells sensed by the end of the run.
@@ -279,6 +428,7 @@ class RunSummary:
     label: str
     scenario: str
     seed: int
+    metadata: RunMetadata
     series: tuple[MetricsSample, ...]
     targets_remaining: int
     coverage: float
@@ -289,22 +439,23 @@ class RunSummary:
     active_robots: int
 
     @classmethod
-    def from_series(
-        cls,
-        label: str,
-        scenario: str,
-        seed: int,
-        series: Iterable[MetricsSample],
-    ) -> RunSummary:
-        """Summarise a metrics series, taking the last sample for the whole-run figures."""
+    def from_run(cls, config: ExperimentConfig, series: Iterable[MetricsSample]) -> RunSummary:
+        """Summarise the run of ``config`` from its metrics series.
+
+        The whole-run figures are taken from the last sample, and the metadata from ``config``.
+
+        Raises:
+            ValueError: If the series holds no sample.
+        """
         taken = tuple(series)
         if not taken:
             raise ValueError("a run summary needs at least one metrics sample")
         final = taken[-1]
         return cls(
-            label=label,
-            scenario=scenario,
-            seed=seed,
+            label=config.label,
+            scenario=config.scenario_name,
+            seed=config.scenario.seed,
+            metadata=RunMetadata.from_config(config),
             series=taken,
             targets_remaining=final.targets_remaining,
             coverage=final.coverage,
@@ -315,9 +466,13 @@ class RunSummary:
             active_robots=final.active_robots,
         )
 
-    def to_row(self) -> dict[str, int | float | str | None]:
-        """This summary as one flat record, the shape a sweep's table is written in."""
-        return {
+    def to_row(self) -> dict[str, int | float | str | bool | None]:
+        """This summary as one flat record, the shape a sweep's table is written in.
+
+        The results come first and the metadata after them, so the result columns keep their
+        place when the metadata grows.
+        """
+        row: dict[str, int | float | str | bool | None] = {
             "label": self.label,
             "scenario": self.scenario,
             "seed": self.seed,
@@ -330,6 +485,8 @@ class RunSummary:
             "messages_received": self.messages_received,
             "active_robots": self.active_robots,
         }
+        row.update(self.metadata.to_row())
+        return row
 
     def export(self, directory: Path) -> tuple[Path, Path]:
         """Write this run's series as CSV and JSON under ``directory``, and return both paths.
@@ -358,9 +515,7 @@ def run_experiment(
     """
     ctx, collector = build_run(config, renderer)
     SimulationLoop().run(ctx, config.until)
-    return RunSummary.from_series(
-        config.label, config.scenario_name, config.scenario.seed, collector.series()
-    )
+    return RunSummary.from_run(config, collector.series())
 
 
 def sweep(
@@ -373,29 +528,6 @@ def sweep(
     results can be compared row by row.
     """
     return tuple(run_experiment(config, renderer) for config in configs)
-
-
-def sweep_scenarios(
-    scenarios: Iterable[ScenarioId],
-    seeds: Iterable[int],
-    brain: BrainSpec | None = None,
-    until: Time = TimeUnit.HOUR,
-    metrics: MetricsConfig | None = None,
-    renderer: Renderer | None = None,
-) -> tuple[RunSummary, ...]:
-    """Run the cross product of ``scenarios`` and ``seeds``, labelling each run ``SCENARIO/SEED``.
-
-    The label is derived rather than passed in, so a sweep's rows stay in the same order as the
-    configuration that produced them and cannot be mislabelled by hand.
-    """
-    configs: list[ExperimentConfig] = []
-    for scenario in scenarios:
-        for seed in seeds:
-            label = f"{scenario.name}/{seed}"
-            configs.append(
-                build_experiment(label, scenario, seed, brain=brain, until=until, metrics=metrics)
-            )
-    return sweep(configs, renderer)
 
 
 @dataclass(frozen=True)
@@ -416,62 +548,42 @@ class RobustnessCase:
     position_error: PositionErrorSpec = field(default_factory=PositionErrorSpec)
 
 
-def robustness_case_config(
-    scenario: ScenarioId,
-    case: RobustnessCase,
-    seed: int,
-    until: Time = 3_600_000,
-    metrics: MetricsConfig | None = None,
-) -> ExperimentConfig:
-    """Assemble the configuration for one robustness condition.
+def robustness_case_config(base: ExperimentConfig, case: RobustnessCase) -> ExperimentConfig:
+    """The configuration of ``base`` under one robustness condition, labelled ``NAME/CASE``.
 
     Separated from ``robustness_sweep`` so a caller can reproduce a single condition exactly as
     the sweep built it, which is what makes rendering that condition again trustworthy: the same
-    case, seed and duration produce the same run whether it was swept or drawn.
+    base and case produce the same run whether it was swept or drawn. ``base`` is left as it is.
     """
-    config = build_experiment(
-        f"{scenario.name}/{case.label}",
-        scenario,
-        seed,
-        until=until,
-        metrics=metrics,
-    )
-    config.scenario.failures = case.failures
-    config.scenario.position_error = case.position_error
-    return config
+    name = base.scenario_name
+    if not name:
+        name = base.label
+    scenario = replace(base.scenario, failures=case.failures, position_error=case.position_error)
+    return replace(base, label=f"{name}/{case.label}", scenario=scenario)
 
 
 def robustness_sweep(
-    scenario: ScenarioId,
+    base: ExperimentConfig,
     cases: Iterable[RobustnessCase],
-    seed: int,
-    until: Time = TimeUnit.HOUR,
-    metrics: MetricsConfig | None = None,
     renderer: Renderer | None = None,
 ) -> tuple[RunSummary, ...]:
-    """Run one scenario under each robustness condition, from the same seed.
+    """Run one experiment under each robustness condition, from the seed of ``base``.
 
     Every case is run against the same seed, so a run and its baseline differ only in the
     faults: the pest dynamics see the same random stream either way. That is what makes a
     difference in the metrics attributable to the condition rather than to the weather.
 
     Args:
-        scenario: Which built-in scenario preset to run under every condition.
+        base: The experiment every condition is applied to, e.g. from
+            ``experiments.build_named_experiment``; its seed is shared by every case.
         cases: The conditions to run, including the baseline.
-        seed: The seed shared by every case, which is what makes them comparable.
-        until: How far to run each case, in simulation time.
-        metrics: Sampling cadence and target threshold.
         renderer: Draws every case's world on every metric tick. One renderer sees all of them,
             so it cannot tell the conditions apart; render a single condition through
             ``robustness_case_config`` when the frames need to be attributable.
     """
-    runs = [
-        run_experiment(
-            robustness_case_config(scenario, case, seed, until=until, metrics=metrics),
-            renderer,
-        )
-        for case in cases
-    ]
+    runs: list[RunSummary] = []
+    for case in cases:
+        runs.append(run_experiment(robustness_case_config(base, case), renderer))
     return tuple(runs)
 
 
@@ -546,13 +658,13 @@ def build_run(
     scenario = config.scenario
     rng = Random(scenario.seed)
     world = build_world(scenario)
-    terrain: list[TerrainObservation] = []
+    known: KnowledgeSnapshot | None = None
     if config.robots_know_terrain:
-        terrain = terrain_map(world)
+        known = terrain_knowledge(world)
     agents: dict[RobotId, SwarmAgent] = {}
     for spec in scenario.robots:
         brain = config.brains_by_body.get(spec.body, config.brain)
-        agents[spec.robot_id] = build_agent(brain, spec.robot_id, scenario.field, rng, terrain)
+        agents[spec.robot_id] = build_agent(brain, spec.robot_id, scenario.field, rng, known)
 
     collector = MetricsCollector(config=config.metrics)
     collector.bind(world)
@@ -609,18 +721,19 @@ def build_agent(
     robot_id: RobotId,
     field: FieldGeometry,
     rng: Random,
-    terrain: Sequence[TerrainObservation] = (),
+    known: KnowledgeSnapshot | None = None,
 ) -> ComposedAgent:
     """Resolve a ``BrainSpec`` into one assembled brain for one robot.
 
     The robot's ``BodyType`` is not a parameter: ``ComposedAgent`` has no capability gate to
     apply it in, so a body gets its own brain through ``ExperimentConfig.brains_by_body``
-    instead (architecture §A.3). The robot's memory starts with ``terrain``. A brain with
-    beacons gets a ``BeaconLink``, whose beacons its hop parts read, and steers headings from
-    what it senses around itself at each decision only, not from a map.
+    instead (architecture §A.3). The robot's memory starts with what ``known`` holds. A brain
+    with beacons gets a ``BeaconLink``, whose beacons its hop parts read, and steers headings
+    from what it senses around itself at each decision only, not from a map.
     """
     memory = AgentMemory(robot_id, field, keeps_map=spec.keeps_map)
-    memory.merge(terrain)
+    if known is not None:
+        memory.merge_snapshot(known)
     link: BeaconLink | None = None
     if spec.beacons is not None:
         link = BeaconLink(robot_id, spec.beacons, field)
@@ -641,6 +754,17 @@ def build_agent(
         sharing=spec.sharing,
         beacon_link=link,
     )
+
+
+def terrain_knowledge(world: WorldState) -> KnowledgeSnapshot:
+    """The terrain of every cell as a snapshot to start each robot's memory with.
+
+    It is merged once here, and every robot merges the snapshot, rather than each robot merging
+    the terrain fact by fact.
+    """
+    memory = AgentMemory(0, world.field)
+    memory.merge(terrain_map(world))
+    return memory.knowledge()
 
 
 def terrain_map(world: WorldState) -> list[TerrainObservation]:

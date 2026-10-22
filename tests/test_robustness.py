@@ -19,6 +19,7 @@ from swarm_field.contracts import (
     RobotId,
     ScenarioId,
 )
+from swarm_field.experiments import build_named_experiment
 from swarm_field.runner import (
     ExperimentConfig,
     RobustnessCase,
@@ -36,6 +37,11 @@ from swarm_field.simulation import (
     WorldState,
 )
 from swarm_field.simulation.scenario import build_scenario
+
+
+def _s2(until: int) -> ExperimentConfig:
+    """The S2 preset from seed 101, the base every robustness condition is applied to."""
+    return build_named_experiment("S2", 101, until)
 
 
 class RecordingAgent:
@@ -285,7 +291,7 @@ def test_a_robustness_sweep_runs_every_case_from_the_same_seed() -> None:
         RobustnessCase(label="half-dead", failures=FailureSpec(period=1_000, probability=0.5)),
     )
 
-    runs = robustness_sweep(ScenarioId.S2, cases, seed=101, until=120_000)
+    runs = robustness_sweep(_s2(until=120_000), cases)
 
     assert [run.label for run in runs] == ["S2/baseline", "S2/half-dead"]
     assert {run.seed for run in runs} == {101}
@@ -293,15 +299,13 @@ def test_a_robustness_sweep_runs_every_case_from_the_same_seed() -> None:
 
 def test_failing_robots_show_up_as_fewer_active_robots() -> None:
     baseline, failing = robustness_sweep(
-        ScenarioId.S2,
+        _s2(until=120_000),
         (
             RobustnessCase(label="baseline"),
             RobustnessCase(
                 label="always-dead", failures=FailureSpec(period=1_000, probability=1.0)
             ),
         ),
-        seed=101,
-        until=120_000,
     )
 
     assert baseline.active_robots == 15
@@ -309,9 +313,7 @@ def test_failing_robots_show_up_as_fewer_active_robots() -> None:
 
 
 def test_a_baseline_sweep_keeps_every_robot() -> None:
-    (only,) = robustness_sweep(
-        ScenarioId.S2, (RobustnessCase(label="baseline"),), seed=101, until=120_000
-    )
+    (only,) = robustness_sweep(_s2(until=120_000), (RobustnessCase(label="baseline"),))
 
     assert only.active_robots == 15
 
@@ -331,8 +333,8 @@ def test_a_robustness_sweep_is_reproducible() -> None:
         failure_probabilities=(0.01,), position_error_probabilities=(0.2,)
     )
 
-    first = robustness_sweep(ScenarioId.S2, cases, seed=101, until=60_000)
-    second = robustness_sweep(ScenarioId.S2, cases, seed=101, until=60_000)
+    first = robustness_sweep(_s2(until=60_000), cases)
+    second = robustness_sweep(_s2(until=60_000), cases)
 
     assert [run.to_row() for run in first] == [run.to_row() for run in second]
 
@@ -347,6 +349,6 @@ def test_sweeping_every_failure_mode_keeps_the_baseline_intact() -> None:
     )
     cases = (RobustnessCase(label="baseline"), *failing)
 
-    runs = robustness_sweep(ScenarioId.S2, cases, seed=101, until=60_000)
+    runs = robustness_sweep(_s2(until=60_000), cases)
 
     assert [run.active_robots for run in runs] == [15, 0, 0, 0]

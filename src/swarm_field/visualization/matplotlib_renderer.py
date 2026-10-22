@@ -111,6 +111,7 @@ class MatplotlibRenderer:
         show_metrics: Whether to write the snapshot's metrics into the title.
         body_styles: How each body's robots are drawn; a body without a style is drawn in its
             ``BODY_COLORS`` colour.
+        show_grid: Whether to draw thin lines between the cells, so the grid is visible.
     """
 
     def __init__(
@@ -119,6 +120,7 @@ class MatplotlibRenderer:
         show_targets: bool = True,
         show_metrics: bool = True,
         body_styles: Mapping[BodyType, RobotStyle] | None = None,
+        show_grid: bool = True,
     ) -> None:
         import matplotlib.pyplot as plt
 
@@ -132,6 +134,7 @@ class MatplotlibRenderer:
             self.body_styles[body] = RobotStyle(BODY_COLORS[body])
         if body_styles is not None:
             self.body_styles.update(body_styles)
+        self.show_grid: bool = show_grid
 
     def render(
         self,
@@ -155,9 +158,26 @@ class MatplotlibRenderer:
         self.axes.set_aspect("equal")
         self.axes.set_xlim(0, field.width)
         self.axes.set_ylim(0, field.height)
+        if self.show_grid:
+            self._draw_grid(field.width, field.height)
         self.axes.set_xlabel("Field cell X")
         self.axes.set_ylabel("Field cell Y")
         self.axes.set_title(self._title(snapshot))
+
+    def _draw_grid(self, width: int, height: int) -> None:
+        """Draw thin lines on every cell border, over the field but under the robots.
+
+        They are the axes' minor grid lines, one per cell border, so they need no artist per cell.
+        Matplotlib drops a minor tick where a major one sits, which would leave out every border
+        that carries a number, so that is switched off.
+        """
+        self.axes.xaxis.remove_overlapping_locs = False
+        self.axes.yaxis.remove_overlapping_locs = False
+        self.axes.set_xticks(range(width + 1), minor=True)
+        self.axes.set_yticks(range(height + 1), minor=True)
+        self.axes.tick_params(which="minor", length=0)
+        self.axes.grid(which="minor", color="black", linewidth=0.3, alpha=0.35)
+        self.axes.set_axisbelow(True)
 
     def _title(self, snapshot: WorldSnapshot) -> str:
         """The figure title: time, field size, live robot count and the current metrics."""

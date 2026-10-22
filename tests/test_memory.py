@@ -86,7 +86,7 @@ def test_merge_order_does_not_matter() -> None:
     assert set(forward.records()) == set(backward.records())
 
 
-def test_ingest_stores_terrain_infestation_and_named_peers_only() -> None:
+def test_ingest_stores_crop_terrain_infestation_and_named_peers_only() -> None:
     memory = _memory()
     crop = CropObservation(
         cell=(2, 2), confidence=1.0, observed_at=0, source=_SELF, crop=None, growth_stage=0.5
@@ -118,7 +118,22 @@ def test_ingest_stores_terrain_infestation_and_named_peers_only() -> None:
     assert memory.terrain_at((2, 3)) is Terrain.OBSTACLE
     assert memory.infestation_at((2, 2)) is not None
     assert [peer.peer for peer in memory.peers()] == [5]
-    assert crop not in set(memory.records())
+    assert crop in set(memory.records())
+
+
+def test_newer_crop_observation_replaces_older_and_is_in_memory_snapshot() -> None:
+    memory = _memory()
+    older = CropObservation(
+        cell=(3, 3), confidence=0.7, observed_at=10, source=2, crop=None, growth_stage=0.2
+    )
+    newer = CropObservation(
+        cell=(3, 3), confidence=1.0, observed_at=20, source=3, crop=None, growth_stage=0.8
+    )
+
+    memory.merge([newer, older])
+
+    assert older not in memory.snapshot()
+    assert newer in memory.snapshot()
 
 
 def test_a_memory_without_a_map_keeps_only_peers() -> None:

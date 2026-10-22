@@ -3,7 +3,8 @@
 Each of the four pest responses of ``pest_response_configurations`` runs on ``RIVER_SMALL`` or
 ``RIVERS_LARGE``. ``record`` runs it once through ``LiveRun``, one frame per decision interval,
 and writes a ``Trace``: everything the videos might show, so that new visuals need no new run.
-``render`` turns traces into videos with ``SimulationViewer``, without the simulation.
+``render`` turns traces into videos with ``MatplotlibRenderer`` and the overlays, without the
+simulation.
 
 Red cells are the pests in ground truth. Big red dots are the killers, small grey dots the
 relays. A black arrow points from each killer to where it walks: along its heading for the hop
@@ -71,7 +72,19 @@ from swarm_field.swarm.hop import (
     obstacle_push,
     obstacle_strength,
 )
-from swarm_field.visualization import Arrow, Marker, Polyline, RobotStyle, SimulationViewer
+from swarm_field.visualization import (
+    Arrow,
+    Marker,
+    MatplotlibRenderer,
+    Polyline,
+    RobotStyle,
+    SidePanel,
+    draw_arrows,
+    draw_cell_overlay,
+    draw_markers,
+    draw_polylines,
+    save_frames,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -546,7 +559,7 @@ def relay_knowledge(frame: Frame, hop_cap: float | None) -> list[Marker]:
 
 
 class TracePlayback:
-    """Plays a trace into ``SimulationViewer``: the snapshot, the overlays and the panel by time.
+    """Draws a trace frame by frame: the snapshot, what is drawn over it, and the panel.
 
     Attributes:
         trace: The run played.
@@ -568,6 +581,22 @@ class TracePlayback:
 
     def times(self) -> list[Time]:
         return [frame.time for frame in self.trace.frames]
+
+    def draw(self, renderer: MatplotlibRenderer, panel: SidePanel, time: Time) -> None:
+        """Draw the frame of ``time``: robots between cells, the overlay, the visuals, the panel."""
+        snapshot = self.snapshot(time)
+        renderer.render(snapshot, self.positions(snapshot))
+        axes = renderer.axes
+        colormap = "Reds"
+        if self.shows_field():
+            colormap = "viridis_r"
+        draw_cell_overlay(axes, snapshot, self.overlay(snapshot), colormap)
+        visuals = self.visuals(snapshot)
+        draw_polylines(axes, visuals.lines)
+        draw_markers(axes, visuals.markers)
+        draw_arrows(axes, visuals.arrows)
+        axes.set_title(f"{self.title(snapshot)}\n{axes.get_title()}")
+        panel.show(self.panel(snapshot))
 
     def snapshot(self, time: Time) -> WorldSnapshot:
         return self.trace.snapshot(self._frames[time])
@@ -703,29 +732,24 @@ def render(path: Path, videos: Path, fps: int, every: int, png: bool) -> Path:
 
     matplotlib.use("Agg")
     playback = TracePlayback(load_trace(path))
-    colormap = "Reds"
-    if playback.shows_field():
-        colormap = "viridis_r"
-    viewer = SimulationViewer(
-        playback.snapshot,
-        overlay=playback.overlay,
-        overlay_colormap=colormap,
-        panel=playback.panel,
-        arrows=lambda snapshot: playback.visuals(snapshot).arrows,
-        markers=lambda snapshot: playback.visuals(snapshot).markers,
-        lines=lambda snapshot: playback.visuals(snapshot).lines,
-        positions=playback.positions,
-        trail_length=0,
+    renderer = MatplotlibRenderer(
+        (12.0, 8.0),
+        show_targets=False,
         body_styles={
             BodyType.KILLER: RobotStyle("red", size=160.0, label="killer"),
             BodyType.SCOUT: RobotStyle("slategray", size=40.0, alpha=0.6, label="relay"),
         },
-        title=playback.title,
     )
+    panel = SidePanel(renderer)
+    times = playback.times()[::every]
+
+    def draw_frame(index: int) -> None:
+        playback.draw(renderer, panel, times[index])
+
     out = videos / f"{playback.trace.file_stem()}.mp4"
     if png:
         out = videos / playback.trace.file_stem()
-    viewer.animate(playback.times()[::every], fps=fps, save=out)
+    save_frames(renderer.figure, draw_frame, len(times), out, fps=fps)
     logger.info("Rendered %s", out)
     return out
 

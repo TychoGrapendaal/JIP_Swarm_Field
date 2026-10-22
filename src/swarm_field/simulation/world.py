@@ -21,6 +21,7 @@ from swarm_field.contracts import (
     Move,
     Observation,
     PeerObservation,
+    ReplaceBattery,
     RobotId,
     RobotPublicState,
     RobotSelfState,
@@ -94,6 +95,12 @@ class RobotState:
     move_started_at: Time | None = None
     move_arrival_at: Time | None = None
     current_action: Action | None = None
+    spare_batteries: int = 0
+    treating_cell: CellId | None = None
+    treatment_updated_at: Time | None = None
+    charging_updated_at: Time | None = None
+    replacing_battery_for: RobotId | None = None
+    replacement_complete_at: Time | None = None
     energy_spent: float = 0.0
     failed: bool = False
 
@@ -104,15 +111,20 @@ class WorldState:
     Cells represent patches of field, not individual plants. Obstacles are represented by
     marking one or more cells as blocked, so a river can occupy several adjacent cells.
     Robot occupancy is intentionally unrestricted: many robots may share one cell.
+
+    Attributes:
+        treatment_rate: How much infestation severity one treating robot removes per hour.
     """
 
     def __init__(
         self,
         field: FieldGeometry,
         robots: Iterable[RobotState] = (),
+        docks: Iterable[CellId] = (),
         energy: EnergyConfig | None = None,
+        treatment_rate: float = 1.0,
     ) -> None:
-        """Create the field and place any initial robots."""
+        """Create the field, fixed charging docks, and any initial robots."""
         if field.width <= 0 or field.height <= 0:
             raise ValueError("field dimensions must be positive")
         if field.cell_size <= 0:
@@ -121,7 +133,13 @@ class WorldState:
             raise ValueError("field connectivity must be 4 or 8")
 
         self.field: FieldGeometry = field
+        self.docks: frozenset[CellId] = frozenset(docks)
+        if any(not self.is_inside(cell) for cell in self.docks):
+            raise ValueError("dock outside field")
         self.energy: EnergyConfig = energy if energy is not None else EnergyConfig()
+        if treatment_rate <= 0:
+            raise ValueError("treatment_rate must be positive")
+        self.treatment_rate: float = treatment_rate
         self.cells: dict[CellId, CellState] = {
             (x, y): CellState(
                 crop=None,
@@ -175,8 +193,14 @@ class WorldState:
         return result
 
     def is_walkable(self, cell: CellId) -> bool:
-        """Return whether a target cell is physically traversable."""
+        """Return whether a ground robot can enter a target cell."""
         return self.is_inside(cell) and not self.cells[cell].obstacle
+
+    def is_traversable_for(self, body: BodyType, cell: CellId) -> bool:
+        """Return whether a body can enter a cell (scouts fly over ground obstacles)."""
+        if not self.is_inside(cell):
+            return False
+        return body is BodyType.SCOUT or not self.cells[cell].obstacle
 
     def add_robot(self, robot: RobotState) -> None:
         """Add a robot without imposing any per-cell occupancy limit."""
@@ -184,8 +208,10 @@ class WorldState:
             raise ValueError(f"robot already exists: {robot.robot_id}")
         if not self.is_inside(robot.position):
             raise ValueError(f"robot position outside field: {robot.position}")
-        if not self.is_walkable(robot.position):
-            raise ValueError(f"robot cannot occupy obstacle cell: {robot.position}")
+        if not self.is_traversable_for(robot.body, robot.position):
+            raise ValueError(f"robot cannot occupy this cell: {robot.position}")
+        if robot.spare_batteries < 0:
+            raise ValueError("spare_batteries cannot be negative")
         if robot.speed_mps <= 0:
             raise ValueError("robot speed_mps must be positive")
         self.robots[robot.robot_id] = robot
@@ -220,14 +246,78 @@ class WorldState:
             speed_mps=robot.speed_mps,
             consumable=robot.consumable,
             health=robot.health,
+            spare_batteries=robot.spare_batteries,
         )
 
-    def fail_robot(self, robot_id: RobotId, mode: FailureMode) -> None:
-        """Stop one robot from taking part in the run, in the way ``mode`` describes.
+    def observe_for(self, robot_id: RobotId, time: Time) -> list[Observation]:
+        """Generate body-specific pest, terrain, and peer observations."""
+        from swarm_field.swarm.capabilities import capabilities_for
 
-        A robot that has already failed stays failed: a later check cannot bring it back, so a
-        sweep's failure count is monotone and the swarm only ever loses capacity.
-        """
+        robot = self._robot(robot_id)
+        profile = capabilities_for(robot.body)
+        observations: list[Observation] = []
+        pest_cells = self._cells_in_square(robot.position, profile.pest_sensing_radius)
+        terrain_cells = self._cells_in_square(robot.position, profile.terrain_sensing_radius)
+        peer_cells = self._cells_in_square(robot.position, profile.peer_sensing_radius)
+
+        for cell in pest_cells:
+            state = self.cells[cell]
+            observations.append(
+                CropObservation(
+                    cell=cell,
+                    confidence=1.0,
+                    observed_at=time,
+                    source=robot_id,
+                    crop=state.crop,
+                    growth_stage=state.growth_stage,
+                )
+            )
+            if profile.can_detect_pests:
+                observations.append(
+                    InfestationObservation(
+                        cell=cell,
+                        confidence=1.0,
+                        observed_at=time,
+                        source=robot_id,
+                        severity=state.infestation,
+                        pest=None,
+                    )
+                )
+
+        for cell in terrain_cells:
+            terrain = Terrain.OBSTACLE if self.cells[cell].obstacle else Terrain.FREE
+            observations.append(
+                TerrainObservation(
+                    cell=cell,
+                    confidence=1.0,
+                    observed_at=time,
+                    source=robot_id,
+                    terrain=terrain,
+                )
+            )
+
+        for cell in peer_cells:
+            for peer_id in self.robots_at(cell):
+                if peer_id == robot_id:
+                    continue
+                peer = self._robot(peer_id)
+                observations.append(
+                    PeerObservation(
+                        cell=cell,
+                        confidence=1.0,
+                        observed_at=time,
+                        source=robot_id,
+                        peer=peer_id,
+                        body=peer.body,
+                        battery=peer.battery,
+                        target=peer.move_target,
+                    )
+                )
+
+        return observations
+
+    def fail_robot(self, robot_id: RobotId, mode: FailureMode) -> None:
+        """Stop one robot from taking part in the run, in the way ``mode`` describes."""
         robot = self._robot(robot_id)
         if robot.failed:
             return
@@ -248,81 +338,48 @@ class WorldState:
             robot_id for robot_id, robot in sorted(self.robots.items()) if not robot.failed
         )
 
-    def observe_for(self, robot_id: RobotId, time: Time) -> list[Observation]:
-        """Generate what the robot senses: its own cell, and the terrain around it.
-
-        A cell is a patch of field the robot monitors as a whole, so its crop, its infestation
-        and the peers sharing it come from the robot's own cell only. Obstacles are large, such
-        as a river, so the robot also sees the terrain of its neighbouring cells.
-        """
-        robot = self._robot(robot_id)
-        observations: list[Observation] = []
-
-        cell = robot.position
-        state = self.cells[cell]
-        observations.append(
-            CropObservation(
-                cell=cell,
-                confidence=1.0,
-                observed_at=time,
-                source=robot_id,
-                crop=state.crop,
-                growth_stage=state.growth_stage,
-            )
-        )
-        observations.append(
-            InfestationObservation(
-                cell=cell,
-                confidence=1.0,
-                observed_at=time,
-                source=robot_id,
-                severity=state.infestation,
-                pest=None,
-            )
-        )
-        for seen in [cell, *self.neighbours(cell)]:
-            terrain = Terrain.FREE
-            if self.cells[seen].obstacle:
-                terrain = Terrain.OBSTACLE
-            observations.append(
-                TerrainObservation(
-                    cell=seen,
-                    confidence=1.0,
-                    observed_at=time,
-                    source=robot_id,
-                    terrain=terrain,
-                )
-            )
-
-        for peer in self.robots_at(cell):
-            if peer != robot_id:
-                observations.append(
-                    PeerObservation(
-                        cell=cell,
-                        confidence=1.0,
-                        observed_at=time,
-                        source=robot_id,
-                        peer=peer,
-                        body=self._robot(peer).body,
-                    )
-                )
-
-        return observations
+    def _cells_in_square(self, centre: CellId, radius: int) -> list[CellId]:
+        """Cells in a bounded square sensing footprint, independent of field connectivity."""
+        x, y = centre
+        return [
+            (cx, cy)
+            for cx in range(x - radius, x + radius + 1)
+            for cy in range(y - radius, y + radius + 1)
+            if self.is_inside((cx, cy))
+        ]
 
     def apply_action(self, robot_id: RobotId, action: Action, time: Time = 0) -> Time | None:
         """Apply an action at a time already advanced by the simulation event."""
         robot = self._robot(robot_id)
+        # While a cell-to-cell movement is in progress, new decision ticks may only preserve
+        # that movement. Treating, charging and battery exchange require physical co-location.
+        if robot.move_target is not None and not isinstance(action, Move):
+            return robot.move_arrival_at
         robot.current_action = action
         self._spend(robot, self.energy.per_decision)
 
         if isinstance(action, Move):
+            self._stop_treatment(robot)
+            self._stop_charging(robot)
+            self._stop_battery_replacement(robot)
             return self._start_move(robot, action.to, time)
         if isinstance(action, Treat):
-            self._apply_treat(robot, action.cell)
+            self._stop_charging(robot)
+            self._stop_battery_replacement(robot)
+            self._spend(robot, self.energy.treat_per_action)
+            self._apply_treat(robot, action.cell, time)
+        elif isinstance(action, ReplaceBattery):
+            self._stop_treatment(robot)
+            self._stop_charging(robot)
+            self._apply_replace_battery(robot, action.robot_id, time)
         elif isinstance(action, Charge):
-            robot.battery = 1.0
+            self._stop_treatment(robot)
+            self._stop_battery_replacement(robot)
+            self._start_charging(robot, time)
         elif isinstance(action, Idle):
-            pass
+            self._stop_treatment(robot)
+            self._stop_charging(robot)
+            self._stop_battery_replacement(robot)
         return None
 
     def energy_spent(self) -> float:
@@ -334,8 +391,39 @@ class WorldState:
         return sum(robot.energy_spent for robot in self.robots.values())
 
     def advance_to(self, time: Time) -> None:
-        """Advance any robot whose direct-cell movement has completed by ``time``."""
+        """Advance movement, treatment, recharging, and replacement work through ``time``."""
+        from swarm_field.swarm.capabilities import capabilities_for
+
         for robot in self.robots.values():
+            if robot.treating_cell is not None and robot.treatment_updated_at is not None:
+                elapsed = max(0, time - robot.treatment_updated_at)
+                cell = self.cells.get(robot.treating_cell)
+                if cell is not None and elapsed > 0:
+                    # At a rate of 1.0, a severity of 1.0 takes one simulated hour to treat.
+                    treated = self.treatment_rate * elapsed / TimeUnit.HOUR
+                    cell.infestation = max(0.0, cell.infestation - treated)
+                robot.treatment_updated_at = time
+                if cell is None or cell.infestation <= 0.0:
+                    self._stop_treatment(robot)
+
+            if robot.charging_updated_at is not None:
+                profile = capabilities_for(robot.body)
+                elapsed = max(0, time - robot.charging_updated_at)
+                recharge_ms = (
+                    None
+                    if profile.dock_recharge_seconds is None
+                    else profile.dock_recharge_seconds * TimeUnit.SECOND
+                )
+                if recharge_ms is not None and elapsed > 0:
+                    robot.battery = min(1.0, robot.battery + elapsed / recharge_ms)
+                robot.charging_updated_at = time
+                if robot.battery >= 1.0 or recharge_ms is None:
+                    self._stop_charging(robot)
+                    robot.current_action = Idle()
+
+            if robot.replacement_complete_at is not None and robot.replacement_complete_at <= time:
+                self._complete_battery_replacement(robot)
+
             if robot.move_arrival_at is None or robot.move_target is None:
                 continue
             if robot.move_arrival_at > time:
@@ -377,8 +465,8 @@ class WorldState:
         robot = self._robot(robot_id)
         if not self.is_inside(target):
             raise ValueError(f"target outside field: {target}")
-        if not self.is_walkable(target):
-            raise ValueError(f"target is an obstacle: {target}")
+        if not self.is_traversable_for(robot.body, target):
+            raise ValueError(f"target is not traversable for {robot.body.name}: {target}")
 
         distance_m = self._distance_m(robot.position, target)
         return max(1, ceil(distance_m / robot.speed_mps * TimeUnit.SECOND))
@@ -424,25 +512,124 @@ class WorldState:
         if target == robot.position:
             robot.current_action = Idle()
             return None
-        if not self.is_walkable(target):
+        if not self.is_traversable_for(robot.body, target):
             robot.current_action = Idle()
             return None
 
+        if robot.battery <= 0.0:
+            robot.current_action = Idle()
+            return None
         duration = self.movement_duration(robot.robot_id, target)
+        from swarm_field.swarm.capabilities import capabilities_for
+
+        endurance = capabilities_for(robot.body).endurance_seconds * TimeUnit.SECOND
+        self._spend(robot, duration / endurance)
         self._spend(robot, self.energy.per_metre * self._distance_m(target, robot.position))
         robot.move_target = target
         robot.move_started_at = time
         robot.move_arrival_at = time + duration
         return robot.move_arrival_at
 
-    def _apply_treat(self, robot: RobotState, target: CellId) -> None:
-        if not self.is_inside(target):
+    def _apply_treat(self, robot: RobotState, target: CellId, time: Time) -> None:
+        """Start or continue a treatment; severity decreases with elapsed simulation time."""
+        if (
+            robot.body is not BodyType.KILLER
+            or target != robot.position
+            or not self.is_inside(target)
+            or self.cells[target].infestation <= 0.0
+        ):
+            robot.treating_cell = None
+            robot.treatment_updated_at = None
+            robot.current_action = Idle()
             return
-        if robot.consumable <= 0:
+        if robot.treating_cell != target:
+            # Consumable stock is charged once when a treatment job starts. The last dose must
+            # still be allowed to finish its treatment after stock reaches zero.
+            if robot.consumable <= 0.0:
+                robot.treating_cell = None
+                robot.treatment_updated_at = None
+                robot.current_action = Idle()
+                return
+            robot.consumable = max(0.0, robot.consumable - 0.1)
+            robot.treating_cell = target
+        robot.treatment_updated_at = time
+
+    def _apply_replace_battery(
+        self, support: RobotState, recipient_id: RobotId, time: Time
+    ) -> None:
+        """Start a battery exchange that completes after the configured service duration."""
+        from swarm_field.swarm.capabilities import capabilities_for
+
+        recipient = self.robots.get(recipient_id)
+        if (
+            support.body is not BodyType.BATTERY
+            or support.spare_batteries <= 0
+            or recipient is None
+            or recipient.body not in (BodyType.SCOUT, BodyType.KILLER)
+            or recipient.position != support.position
+            or recipient.battery >= 1.0
+        ):
+            self._stop_battery_replacement(support)
+            support.current_action = Idle()
             return
-        self._spend(robot, self.energy.treat_per_action)
-        self.cells[target].infestation = 0.0
-        robot.consumable = max(0.0, robot.consumable - 0.1)
+
+        if support.replacing_battery_for == recipient_id:
+            # Repeated decision ticks must not restart an exchange already in progress.
+            return
+        self._stop_battery_replacement(support)
+        duration = capabilities_for(support.body).battery_replacement_seconds * TimeUnit.SECOND
+        support.replacing_battery_for = recipient_id
+        support.replacement_complete_at = time + max(1, ceil(duration))
+        support.current_action = ReplaceBattery(robot_id=recipient_id)
+
+    def _complete_battery_replacement(self, support: RobotState) -> None:
+        """Finish an exchange only if both robots are still co-located and stock remains."""
+        recipient_id = support.replacing_battery_for
+        recipient = self.robots.get(recipient_id) if recipient_id is not None else None
+        if (
+            support.body is BodyType.BATTERY
+            and support.spare_batteries > 0
+            and recipient is not None
+            and recipient.body in (BodyType.SCOUT, BodyType.KILLER)
+            and recipient.position == support.position
+            and recipient.battery < 1.0
+        ):
+            recipient.battery = 1.0
+            support.spare_batteries -= 1
+        self._stop_battery_replacement(support)
+        support.current_action = Idle()
+
+    def _start_charging(self, robot: RobotState, time: Time) -> None:
+        """Start charging at a dock; battery replacement stock is restocked there."""
+        from swarm_field.swarm.capabilities import capabilities_for
+
+        if robot.position not in self.docks:
+            self._stop_charging(robot)
+            robot.current_action = Idle()
+            return
+        if robot.body is BodyType.BATTERY:
+            robot.spare_batteries = capabilities_for(robot.body).spare_battery_capacity
+        if robot.battery >= 1.0:
+            self._stop_charging(robot)
+            robot.current_action = Idle()
+            return
+        if robot.charging_updated_at is None:
+            robot.charging_updated_at = time
+        robot.current_action = Charge()
+
+    @staticmethod
+    def _stop_treatment(robot: RobotState) -> None:
+        robot.treating_cell: CellId | None = None
+        robot.treatment_updated_at: Time | None = None
+
+    @staticmethod
+    def _stop_charging(robot: RobotState) -> None:
+        robot.charging_updated_at: Time | None = None
+
+    @staticmethod
+    def _stop_battery_replacement(robot: RobotState) -> None:
+        robot.replacing_battery_for: RobotId | None = None
+        robot.replacement_complete_at: Time | None = None
 
     @staticmethod
     def _spend(robot: RobotState, amount: float) -> None:

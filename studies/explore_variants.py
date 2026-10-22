@@ -1,4 +1,4 @@
-"""Benchmark the EXPLORE seeder: variants and parameters of a swarm exploring one field.
+"""Study the EXPLORE seeder: variants and parameters of a swarm exploring one field.
 
 Each run is a ``swarm_field.experiments`` exploration run by ``swarm_field.runner``, repeated
 with several seeds (which stagger the robots' decisions). A row reports the ground-truth
@@ -13,7 +13,7 @@ measures of ``MetricsCollector``, sampled once a minute, as the mean over the se
 
 Runs are spread over processes. Not part of ``pytest``; run it with:
 
-    uv run python -m tests.benchmark_explore --size 32 --hours 3 --seeds 4
+    uv run python -m studies.explore_variants --size 32 --hours 3 --seeds 4
 """
 
 from __future__ import annotations
@@ -25,11 +25,12 @@ from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, replace
 from statistics import mean
 
+from tests.baselines import RANDOM_WAYPOINT_BRAIN
+
 from swarm_field.contracts import CellId, MetricsSample, Time, TimeUnit
 from swarm_field.experiments import ExploreScenario, river_and_rocks
 from swarm_field.runner import run_experiment
 from swarm_field.swarm import ExploreConfig
-from tests.baselines import RANDOM_WAYPOINT_BRAIN
 
 _REFERENCE = ExploreConfig()
 """The variant the others are compared with: the defaults, 8 x 8 blocks with the discount."""

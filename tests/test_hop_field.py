@@ -31,6 +31,7 @@ from swarm_field.swarm import (
     Heading,
     HopField,
     KnowledgeSharing,
+    SharingConfig,
     TreatByBeacon,
     treat_beacon,
 )
@@ -130,7 +131,7 @@ def _hop_killer(config: BeaconConfig) -> ComposedAgent:
     spec = BrainSpec(
         behaviors=(TreatByBeacon.name,),
         seeders=(HopField.name,),
-        sharing=KnowledgeSharing.NOTHING,
+        sharing=SharingConfig(facts=KnowledgeSharing.NOTHING),
         beacons=config,
         keeps_map=False,
     )

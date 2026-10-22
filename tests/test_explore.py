@@ -4,6 +4,7 @@ import pytest
 from swarm_field.contracts import (
     BodyType,
     FieldGeometry,
+    InfestationObservation,
     Message,
     PeerObservation,
     RobotSelfState,
@@ -86,8 +87,9 @@ def test_update_weight_blends_toward_equal_weights_after_time_advances() -> None
 def test_explore_score_criterion_uses_target_worth() -> None:
     behavior = ExploreBehaviour("explore")
     memory: AgentMemory = AgentMemory(1, _FIELD)
-    memory._last_seen[1, 1] = 0.0
-    memory._monitorable[1, 1] = True
+    memory.merge(
+        [InfestationObservation((1, 1), 1.0, observed_at=0, source=2, severity=0.0, pest=None)]
+    )
 
     expected = np.mean(
         revisit_worths(

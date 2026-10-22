@@ -13,6 +13,7 @@ A decentralized swarm of robots that monitor and cultivate a crop field. Each ro
 - [`docs/research/`](docs/research/) — research notes: navigation design, and the robustness measurement (failure and position error).
 - `docs/*.pdf` — the problem statement and literature review (domain background on swarm robotics for crop fields).
 - Source lives under `src/swarm_field/<package>/`; tests mirror it under `tests/`.
+- [`studies/`](studies/README.md) — the experiments behind the report, one script per research question; `examples/` holds demonstrations.
 
 ## Modules
 
@@ -21,8 +22,8 @@ A decentralized swarm of robots that monitor and cultivate a crop field. Each ro
 - `simulation/` (B) — the environment simulation: `SimulationLoop` processes timestamped events from an `EventQueue`, and owns ground truth.
 - `visualization/` (C) — the visualization adapter: `Renderer`s draw read-only `WorldSnapshot`s.
 - `runner.py` — the composition root: resolves brain parts from registries, assembles one run, and holds the sweep logic. The only module that knows every concrete class.
-- `experiments/` — hand-built scenarios (exploration, pests) described as `ExperimentConfig`s for the runner, and `LiveRun` to step one for a viewer.
-- `console.py` — the interactive console: advances one run frame by frame, turns key presses and clicks into `Command`s, and records and replays runs. It sits at the package root next to `runner.py` because it combines the simulation and the visualization, which must not import each other.
+- `experiments/` — hand-built scenarios (exploration, pests) described as `ExperimentConfig`s for the runner, the catalogue that names every scenario (presets and hand-built) for sweeps and viewers, and `LiveRun`: one run, stepped by a frontend, that records and replays the commands applied to it.
+- `console.py` — the interactive console: advances a `LiveRun` frame by frame and turns key presses and clicks into `Command`s. It sits at the package root next to `runner.py` because it combines the simulation and the visualization, which must not import each other.
 
 ## Architecture rules
 
