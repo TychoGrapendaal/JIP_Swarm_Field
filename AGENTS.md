@@ -14,6 +14,7 @@ A decentralized swarm of robots that monitor and cultivate a crop field. Each ro
 - `docs/*.pdf` — the problem statement and literature review (domain background on swarm robotics for crop fields).
 - Source lives under `src/swarm_field/<package>/`; tests mirror it under `tests/`.
 - [`studies/`](studies/README.md) — the experiments behind the report, one script per research question; `examples/` holds demonstrations.
+- [`configs/`](configs/) — experiments described in JSON, run with `uv run python -m swarm_field.experiments.from_json FILE` (see the README).
 
 ## Modules
 

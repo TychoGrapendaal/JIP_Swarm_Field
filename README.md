@@ -63,6 +63,36 @@ Compare variants and parameters of the EXPLORE seeder: five robots exploring a 3
 uv run python -m studies.explore_variants --size 32 --hours 3 --seeds 4 --jobs 20
 ```
 
+## Running an experiment from a JSON file
+
+To run an experiment without writing code, describe it in a JSON file and run that file. [`configs/`](configs/) has three to copy: `pests.json` (one setup), `radio_range.json` (several conditions compared over the same seeds) and `explore.json`.
+
+```bash
+uv run python -m swarm_field.experiments.from_json configs/radio_range.json
+```
+
+```json
+{
+  "name": "radio-range",
+  "scenario": "pests",
+  "seeds": [0, 1, 2],
+  "hours": 1,
+  "jobs": 6,
+  "parameters": {"sample_period": 60000},
+  "conditions": {
+    "radio-50": {"radio_range_m": 50},
+    "radio-300": {"radio_range_m": 300}
+  }
+}
+```
+
+- `scenario` is `pests` or `explore`; every run starts from its defaults.
+- `parameters` changes them for every run, and each entry of `conditions` (optional) changes them further for one condition. Every condition runs with every seed, labelled `CONDITION/SEED`.
+- A parameter has the name and unit of the field of `PestScenario` or `ExploreScenario` it sets, so times are in milliseconds; `explore` and `arbiter` take an object of `ExploreConfig` and `ArbiterConfig` fields. List them all with their defaults with `uv run python -m swarm_field.experiments.from_json --list pests`. An unknown name is an error rather than silently ignored.
+- `hours` sets every run's length, and `jobs` how many runs go at once: more is faster but takes more memory.
+
+The run prints the mean of a few measures per condition and writes every run's metrics series, one summary row per run and a copy of the JSON file to `runs/NAME/` (or `--out`).
+
 ## Studies
 
 `examples/` shows what the simulation and its tools can do; [`studies/`](studies/README.md) holds the experiments behind the report, one script per research question. A study runs fixed configurations with fixed seeds and writes every run's series and a summary row per run under `runs/<study>/`:
@@ -331,5 +361,6 @@ src/swarm_field/   # contracts, swarm brain, simulation, runner and visualizatio
 tests/             # pytest suite
 examples/          # executable demonstrations
 studies/           # experiments behind the report, one per research question
+configs/           # experiments described in JSON, for swarm_field.experiments.from_json
 docs/              # design documents, research notes and source material
 ```

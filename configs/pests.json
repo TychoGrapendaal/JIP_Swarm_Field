@@ -1,0 +1,16 @@
+{
+  "name": "pests",
+  "scenario": "pests",
+  "seeds": [0, 1, 2],
+  "hours": 1,
+  "jobs": 3,
+  "parameters": {
+    "scouts": 5,
+    "killers": 3,
+    "radio_range_m": 300,
+    "pests_per_hour": 15,
+    "growth_rate": 0.05,
+    "spread_probability": 0.0,
+    "sample_period": 60000
+  }
+}
