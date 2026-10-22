@@ -95,12 +95,18 @@ def downhill_beacons(
 ) -> list[HeardBeacon]:
     """The fresh TREAT beacons that pull the robot: below its own value and off its cell.
 
-    A beacon on the robot's own cell pulls in no direction, so it is left out.
+    A beacon on the robot's own cell pulls in no direction, so it is left out. A robot standing
+    on a beacon's cell is as close to the pest as that beacon, so only beacons below it pull:
+    its own value, which adds at least one hop, would let a neighbour just above that beacon
+    pull it back, and the robot would shuttle between the two cells.
     """
     fresh = fresh_beacons(memory, BeaconKind.TREAT, now, config)
     if not fresh:
         return []
     here = own_value(fresh, position, config)
+    for heard in fresh:
+        if heard.beacon.cell == position:
+            here = min(here, heard.beacon.value)
     downhill: list[HeardBeacon] = []
     for heard in fresh:
         if heard.beacon.value < here and heard.beacon.cell != position:

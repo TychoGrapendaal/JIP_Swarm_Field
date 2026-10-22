@@ -77,6 +77,12 @@ def test_beacons_at_the_same_value_pull_together() -> None:
     assert heading.offset[0] == heading.offset[1]
 
 
+def test_a_robot_on_a_relay_is_not_pulled_back_to_a_higher_neighbour() -> None:
+    memory = _memory_hearing((1.5, (3, 1)), (1.7, (3, 2)))
+
+    assert HopField(BeaconConfig(hop_cells=2.0)).guidance_for(memory, (3, 1), 0) is None
+
+
 def _bids(memory: AgentMemory, position: CellId, sensed: list[Observation]) -> list[object]:
     ctx = DecisionContext(time=0, self_state=_self_state(position), sensed=sensed, memory=memory)
     return [candidate.action for candidate in TreatByBeacon(_CONFIG).propose(ctx)]

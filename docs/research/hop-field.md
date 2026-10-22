@@ -33,7 +33,7 @@ A relay broadcasts this own hop number, unless it is above `max_value`.
 
 ### The direction a robot walks in
 
-Only the heard beacons that are closer to the pest than the robot itself pull it. These are the **downhill beacons**: their hop number is below the robot's own, and they are not on the robot's own cell.
+Only the heard beacons that are closer to the pest than the robot itself pull it. These are the **downhill beacons**: their hop number is below the robot's own, and they are not on the robot's own cell. A robot standing on a beacon's cell compares with that beacon's hop number instead, if it is lower, since it is as close to the pest as that beacon. Its own hop number adds at least one minimum hop, so without this a neighbour just above the beacon would pull the robot back, and it would shuttle between the two cells.
 
 Each downhill beacon pulls the robot towards its cell with a strength:
 
@@ -122,11 +122,15 @@ The 15/h runs last 3 hours. The 30/h runs last 2 hours, so that no killer runs o
 - **The hop field matches the shared cell.** `hop repel` leaves as many infested cells as the seeded arm at both loads. It moves its killers 40 % less per treatment, its robots receive 25 % fewer messages, and a run simulates about eight times faster, because relays send one beacon instead of their memory.
 - **Limiting recruitment is what makes it good.** Without the cap and without repulsion, every killer that hears a pest walks towards it. The cap limits how far a pest recruits, and repulsion stops a killer from following one that is closer. Each cuts the infested cells by about a tenth, and they add up.
 
+The table above predates the fix for the relay shuttle (below), which changes every hop arm.
+
 ## What went wrong on the way
 
 **Integer hops jitter.** With integer hops a robot's own value is one more than the lowest it hears, so only beacons at that one value pull, and that set changes with every cell moved. Killers reversed 10 % of their moves against 2.5 % in the seeded arm.
 
 **Two robots on one cell hold a value forever.** With metric hops and no minimum hop, a killer standing on a relay's cell takes the relay's value at no cost and broadcasts it, and the relay hears it back at no cost. The pair keeps a value that never rises, long after its pest was cleared, and killers sat motionless on such cells 83 % of the time. The minimum hop of one cell breaks the loop. Expiring beacons by the source's send time also fixed it; an inhibitor wave sent by the treating killer helped but did not fix it.
+
+**A killer on a relay shuttled back to a higher neighbour.** A killer standing on a relay's cell has its own hop number one minimum hop above that relay. A neighbouring relay just above the relay, but below the killer's own number, was therefore downhill and pulled the killer back, and from there the relay was downhill again. This happened wherever the next link of the chain was at the edge of the radio range, so that a killer passing the relay did not hear it. Killers shuttled in 39 % of their ten-minute windows on a heading. A robot on a beacon's cell now compares with that beacon's value.
 
 **Cleared pests leave ghosts.** When a pest is cleared its source falls silent, but relays keep feeding each other values that rise one hop per round and never vanish (count-to-infinity). The cap removes them once they rise past it. While other pests exist, their live gradients win the minimum, so ghosts cost about two cells of travel per treatment.
 
