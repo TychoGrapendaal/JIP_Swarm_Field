@@ -33,7 +33,7 @@ from swarm_field.swarm.memory import MemoryView
 class ExploreConfig:
     """The parameters of the EXPLORE field.
 
-    The defaults did best in ``tests/benchmark_explore.py`` (see ``docs/explore.md``) for five
+    The defaults did best in ``studies/explore_variants.py`` (see ``docs/explore.md``) for five
     robots on 32 x 32 and 64 x 64 fields.
 
     Attributes:

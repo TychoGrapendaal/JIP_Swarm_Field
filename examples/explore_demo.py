@@ -1,4 +1,4 @@
-"""A swarm exploring and monitoring a field with the EXPLORE seeder, drawn by ``SimulationViewer``.
+"""A swarm exploring and monitoring a field with the EXPLORE seeder, on the interactive console.
 
 Five scouts start side by side in a corner of a field of 10 m cells. Each is a real
 ``ComposedAgent`` following the EXPLORE field (``ExploreSeeder``), assembled and run by
@@ -6,9 +6,9 @@ Five scouts start side by side in a corner of a field of 10 m cells. Each is a r
 
 The overlay shades what each cell is worth to the EXPLORE rule in ground truth, from the age
 since any robot last stood on it: dark is fresh (worth nothing until the revisit age), bright is
-stale. Trails show where the robots
-went, dashed lines the target each robot is heading for, and the panel the measures of
-``MetricsCollector``.
+stale. Trails show where the robots went, dashed lines the target each robot is heading for, and
+the panel the measures of ``MetricsCollector``. The console's controls work as in
+``scenario_viewer.py``: pause, step, change the speed, inject a pest, inspect a robot.
 
 Run from the repository root with:
     uv run python examples/explore_demo.py
@@ -23,35 +23,42 @@ Options: ``--no-discount`` turns off the peer discount, ``--block-side 16`` uses
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
+from dataclasses import replace
 
 import numpy as np
 from numpy.typing import NDArray
 
+from swarm_field.console import (
+    InteractiveConsole,
+    add_session_arguments,
+    format_time,
+    save_session,
+    show_window,
+)
 from swarm_field.contracts import CellId, Time, TimeUnit, WorldSnapshot
 from swarm_field.experiments import ExploreScenario, LiveRun, river_and_rocks
 from swarm_field.swarm import ExploreConfig
 from swarm_field.swarm.explore import revisit_worths
-from swarm_field.visualization import SimulationViewer
+from swarm_field.visualization import MatplotlibRenderer
+
+DEFAULT_SPEED = 40.0
+"""Twenty simulated seconds per frame."""
+TRAIL_LENGTH = 30
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--size", type=int, default=32, help="field side in cells")
     parser.add_argument("--robots", type=int, default=5)
-    parser.add_argument("--hours", type=float, default=2.0, help="simulated time")
-    parser.add_argument("--frame-seconds", type=float, default=20.0, help="simulated per frame")
-    parser.add_argument("--fps", type=int, default=20)
     parser.add_argument("--no-discount", action="store_true", help="turn the peer discount off")
     parser.add_argument("--block-side", type=int, default=8, help="block side in cells")
     parser.add_argument("--obstacles", action="store_true", help="a river and two rocks")
-    parser.add_argument("--save", type=Path, help="write a .mp4 or .gif instead of a window")
+    add_session_arguments(parser, default_speed=DEFAULT_SPEED, recording=False)
     return parser.parse_args()
 
 
-def main() -> None:
-    args = parse_args()
-    config = ExploreConfig(spread_peers=not args.no_discount, block_side=args.block_side)
+def build_scenario(args: argparse.Namespace, config: ExploreConfig) -> ExploreScenario:
+    """The scenario of the command line; idleness is measured over the second half of the run."""
     obstacles: tuple[CellId, ...] = ()
     if args.obstacles:
         obstacles = river_and_rocks(args.size)
@@ -62,9 +69,18 @@ def main() -> None:
         obstacles=obstacles,
         explore=config,
         sample_period=20 * TimeUnit.SECOND,
-        measure_from=int(args.hours * TimeUnit.HOUR) // 2,
     )
-    run = LiveRun.from_config(scenario.into_experiment())
+    if args.seed is not None:
+        scenario = replace(scenario, seed=args.seed)
+    if args.hours is not None:
+        scenario = replace(scenario, until=int(args.hours * TimeUnit.HOUR))
+    return replace(scenario, measure_from=scenario.until // 2)
+
+
+def main() -> None:
+    args = parse_args()
+    config = ExploreConfig(spread_peers=not args.no_discount, block_side=args.block_side)
+    run = LiveRun.from_config(build_scenario(args, config).into_experiment())
     monitorable = np.ones((args.size, args.size), dtype=np.bool_)
 
     def staleness(snapshot: WorldSnapshot) -> NDArray[np.float64]:
@@ -82,16 +98,21 @@ def main() -> None:
     def panel(snapshot: WorldSnapshot) -> list[str]:
         return panel_lines(run, snapshot.time, config)
 
-    viewer = SimulationViewer(
-        run.snapshot_at,
+    console = InteractiveConsole(
+        run,
+        MatplotlibRenderer((12.0, 8.0), show_targets=False),
+        speed=args.speed,
         overlay=staleness,
         overlay_label="worth of a visit, 0 until the revisit age",
-        goals=run.targets,
         panel=panel,
+        trail_length=TRAIL_LENGTH,
+        show_targets=True,
     )
-    step = int(args.frame_seconds * TimeUnit.SECOND)
-    frames = list(range(0, int(args.hours * TimeUnit.HOUR) + 1, step))
-    viewer.animate(frames, fps=args.fps, save=args.save)
+    if args.save is None:
+        show_window(console)
+        return
+    frames = save_session(console, args.save)
+    print(f"Wrote {frames} frames up to {format_time(run.now)} to {args.save}")
 
 
 def panel_lines(run: LiveRun, now: Time, config: ExploreConfig) -> list[str]:

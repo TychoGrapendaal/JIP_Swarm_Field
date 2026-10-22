@@ -1,5 +1,6 @@
 """Composable robot behaviours for the high-level cell model."""
 
+import logging
 import math
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -14,13 +15,23 @@ from swarm_field.contracts import (
     Idle,
     Message,
     Observation,
+    ReplaceBattery,
     RobotSelfState,
     Time,
+    TimeUnit,
     Treat,
 )
+from swarm_field.swarm.capabilities import CapabilitySet, capabilities_for
 from swarm_field.swarm.explore import ExploreConfig, ExploreSeeder, revisit_worths
 from swarm_field.swarm.memory import MemoryView
-from swarm_field.swarm.seeder import TreatSeeder
+from swarm_field.swarm.seeder import (
+    BatteryRequestSeeder,
+    RegroupSeeder,
+    TreatSeeder,
+    unsearched_peer_locations,
+)
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -34,7 +45,7 @@ class FollowField:
     seeder: str
 
 
-Intent = FollowField | Treat | Charge | Idle
+Intent = FollowField | Treat | Charge | ReplaceBattery | Idle
 """What a behaviour wants the robot to do if its candidate wins.
 
 The brain's own counterpart of a contract ``Action``; it never crosses into the simulation.
@@ -78,6 +89,7 @@ class DecisionContext:
         sensed: What the robot sensed at this decision point (already merged into memory).
         memory: The robot's facts about the field and its peers.
         inbox: The messages received at this decision point.
+        capabilities: The body's allowed actions and physical capability profile, if provided.
     """
 
     time: Time
@@ -85,6 +97,7 @@ class DecisionContext:
     sensed: list[Observation]
     memory: MemoryView
     inbox: list[Message] = field(default_factory=list)
+    capabilities: CapabilitySet | None = None
 
 
 class Behavior(Protocol):
@@ -118,7 +131,7 @@ Just below 1, so that the battery behaviour can still outbid it to save the robo
 
 
 class TreatInfestation:
-    """The pest-response behaviour: follow the field of the TREAT seeder and treat on arrival."""
+    """The pest-response behaviour: follow the TREAT field and treat on arrival."""
 
     name: str = "treat-infestation"
 
@@ -147,11 +160,53 @@ class TreatInfestation:
         return (ActionCandidate(FollowField(self._seeder), score, self.name, None, _TREAT),)
 
 
-class ExploreBehaviour:
-    """Score exploration using peer composition and the available exploration field.
+_REGROUP_SCORE = 0.85
+"""The score of walking back to the swarm after a long silence.
 
-    The behaviour combines its criteria with persistent weights, follows the configured
-    seeder's field when a target is available, and proposes ``Idle`` otherwise.
+Below the arbiter's override threshold, so regrouping goes through the ordinary arbitration
+and never outbids an override such as ``ReturnToDock`` saving a robot whose battery runs out.
+"""
+
+
+class Regroup:
+    """Returns a robot to the swarm once it has received no message for ``silence_timeout``.
+
+    It follows the field of the REGROUP seeder (``RegroupSeeder``) to where the peers were last
+    known to be; a location the robot has observed since without finding the peer no longer
+    counts (``unsearched_peer_locations``), and the rally point is where it finally waits. The
+    first message received ends the search. With no location left and no rally point it does
+    not bid, since there is nowhere to go.
+    """
+
+    name: str = "regroup"
+
+    def __init__(
+        self,
+        seeder: str = RegroupSeeder.name,
+        silence_timeout: Time = 2 * TimeUnit.MINUTE,
+        rally_point: CellId | None = None,
+    ) -> None:
+        self._seeder: str = seeder
+        self._silence_timeout: Time = silence_timeout
+        self._rally_point: CellId | None = rally_point
+        self._last_contact: Time | None = None
+
+    def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
+        if ctx.inbox or self._last_contact is None:
+            self._last_contact = ctx.time
+            return ()
+        if ctx.time - self._last_contact < self._silence_timeout:
+            return ()
+        if self._rally_point is None and not unsearched_peer_locations(ctx.memory):
+            return ()
+        return (ActionCandidate(FollowField(self._seeder), _REGROUP_SCORE, self.name, None),)
+
+
+class ExploreBehaviour:
+    """Score exploration from remembered terrain and the composition of nearby peers.
+
+    The behaviour proposes the configured exploration field as an intent. It never reads the
+    field itself; the brain builds it only after this candidate wins arbitration.
     """
 
     name: str = "explore"
@@ -162,11 +217,11 @@ class ExploreBehaviour:
         self._previous_time: Time | None = None
 
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
-        """Build this robot's exploration candidate for the current decision.
+        """Build an exploration candidate scored from memory, without inspecting a field.
 
-        The score combines the nearby non-scout fraction, the revisit worth of the selected
-        target cell, and the unexplored-cell fraction. If no usable field target exists, the
-        scored candidate proposes ``Idle`` instead of following a field.
+        The score combines the nearby non-scout fraction, revisit worth across monitorable cells,
+        and the fraction of cells already observed. The field provider resolves the target only
+        if this candidate wins arbitration.
         """
         memory = ctx.memory
 
@@ -279,3 +334,139 @@ class FollowSeederField:
             FollowField(self._seeder), 0.5, self.name, target=None, objective=AgentObjective.EXPLORE
         )
         return (candidate,)
+
+
+class ExploreField(ExploreBehaviour):
+    """Bid for the EXPLORE field using memory-based exploration scoring.
+
+    The legacy class name is retained for configuration and registry compatibility. Target
+    selection remains the responsibility of the winning field and navigator.
+    """
+
+    name: str = "explore-field"
+
+    def __init__(self, seeder: str = ExploreSeeder.name) -> None:
+        super().__init__(seeder)
+
+
+class SupplyBattery:
+    """Visit recent low-battery peer sightings and replace a battery when co-located.
+
+    Eligibility and urgency are calculated from memory alone. The battery-support field chooses
+    which eligible peer to visit only after this behaviour's movement intent wins arbitration.
+    """
+
+    name: str = "supply-battery"
+    low_battery_threshold: float = BatteryRequestSeeder.low_battery_threshold
+    observation_ttl: Time = BatteryRequestSeeder.observation_ttl
+    max_travel_score: float = 0.89
+
+    def __init__(self, seeder: str = BatteryRequestSeeder.name) -> None:
+        self._seeder = seeder
+
+    def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
+        if ctx.self_state.spare_batteries <= 0:
+            return ()
+
+        eligible = [
+            peer
+            for peer in ctx.memory.peers()
+            if peer.peer is not None
+            and peer.battery is not None
+            and peer.body in (BodyType.SCOUT, BodyType.KILLER)
+            and peer.battery <= self.low_battery_threshold
+            and 0 <= ctx.time - peer.observed_at <= self.observation_ttl
+            and ctx.memory.confidence(peer, ctx.time) >= 0.5
+        ]
+        if not eligible:
+            return ()
+
+        position = ctx.self_state.position
+        eligible_here = [peer for peer in eligible if peer.cell == position]
+        if eligible_here:
+            recipient = min(
+                eligible_here,
+                key=lambda peer: (peer.battery or 0.0, peer.peer or -1),
+            )
+            if recipient.peer is None:
+                return ()
+            return (
+                ActionCandidate(
+                    action=ReplaceBattery(robot_id=recipient.peer),
+                    score=self.max_travel_score,
+                    source=self.name,
+                    target=position,
+                ),
+            )
+
+        lowest_battery = min(peer.battery or 0.0 for peer in eligible)
+        urgency = 1.0 - lowest_battery / self.low_battery_threshold
+        score = 0.5 + (self.max_travel_score - 0.5) * max(0.0, min(1.0, urgency))
+        return (
+            ActionCandidate(
+                action=FollowField(self._seeder),
+                score=score,
+                source=self.name,
+                target=None,
+            ),
+        )
+
+
+class ReturnToDock:
+    """Return to a known dock when energy is low or a battery robot is out of spares.
+
+    Dock membership is checked from the configured dock cells. The dock field is not queried by
+    this behaviour; it is built only when the follow-field intent wins arbitration.
+    """
+
+    name: str = "return-to-dock"
+
+    def __init__(self, seeder: str = "dock", *, docks: tuple[CellId, ...] = ()) -> None:
+        self._seeder = seeder
+        self._docks = frozenset(docks)
+
+    def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
+        profile = ctx.capabilities
+        if profile is None:
+            profile = capabilities_for(ctx.self_state.body)
+
+        position = ctx.self_state.position
+        at_dock = position in self._docks
+        if at_dock and (
+            ctx.self_state.battery < 1.0
+            or (
+                ctx.self_state.body is BodyType.BATTERY
+                and ctx.self_state.spare_batteries < profile.spare_battery_capacity
+            )
+        ):
+            return (
+                ActionCandidate(
+                    action=Charge(),
+                    score=0.99,
+                    source=self.name,
+                    target=position,
+                    objective=AgentObjective.RECHARGE,
+                ),
+            )
+
+        if not self._docks:
+            return ()
+
+        if ctx.self_state.body is BodyType.BATTERY:
+            needs_dock = ctx.self_state.battery <= 0.25 or ctx.self_state.spare_batteries <= 0
+        else:
+            # A scout/killer stays available to the swarm while a support robot may still help;
+            # it heads to the dock only when the battery is nearly exhausted.
+            needs_dock = ctx.self_state.battery <= 0.10
+        if not needs_dock:
+            return ()
+
+        return (
+            ActionCandidate(
+                action=FollowField(self._seeder),
+                score=0.95,
+                source=self.name,
+                target=None,
+                objective=AgentObjective.RECHARGE,
+            ),
+        )

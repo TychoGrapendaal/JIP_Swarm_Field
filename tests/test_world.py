@@ -9,7 +9,9 @@ from swarm_field.contracts import (
     Idle,
     Move,
     PeerObservation,
+    ReplaceBattery,
     TerrainObservation,
+    TimeUnit,
     Treat,
 )
 from swarm_field.simulation import EnergyConfig, RobotState, WorldState
@@ -124,7 +126,7 @@ def test_faster_robot_arrives_earlier() -> None:
     assert slow_arrival == 2000
 
 
-def test_move_to_obstacle_is_rejected() -> None:
+def test_move_to_obstacle_is_rejected_for_ground_robot() -> None:
     world = WorldState(_field(), robots=[_robot()])
     world.cell((2, 1)).obstacle = True
 
@@ -135,15 +137,47 @@ def test_move_to_obstacle_is_rejected() -> None:
     assert world.robots[1].move_target is None
 
 
-def test_treat_changes_field_patch_and_consumable() -> None:
+def test_scout_can_fly_over_obstacle_cells() -> None:
+    scout = RobotState(robot_id=1, position=(1, 1), body=BodyType.SCOUT, speed_mps=8.0)
+    world = WorldState(_field(), robots=[scout])
+    world.cell((2, 1)).obstacle = True
+
+    arrival = world.apply_action(1, Move(to=(2, 1)), time=0)
+
+    assert arrival is not None
+    world.advance_to(arrival)
+    assert world.positions()[1] == (2, 1)
+
+
+def test_treat_reduces_severity_over_time_and_consumes_one_dose() -> None:
     world = WorldState(_field(), robots=[_robot()])
-    world.cell((2, 1)).infestation = 0.8
+    world.cell((1, 1)).infestation = 0.8
     world.robots[1].consumable = 0.9
 
-    world.apply_action(1, Treat(cell=(2, 1)))
+    world.apply_action(1, Treat(cell=(1, 1)), time=0)
+    world.advance_to(30 * TimeUnit.MINUTE)
 
-    assert world.cell((2, 1)).infestation == 0.0
+    assert world.cell((1, 1)).infestation == pytest.approx(0.3)
     assert world.robots[1].consumable == 0.8
+
+    world.advance_to(60 * TimeUnit.MINUTE)
+    assert world.cell((1, 1)).infestation == 0.0
+
+
+def test_last_treatment_dose_can_finish_after_consumable_reaches_zero() -> None:
+    world = WorldState(_field(), robots=[_robot()])
+    world.cell((1, 1)).infestation = 1.0
+    world.robots[1].consumable = 0.1
+
+    world.apply_action(1, Treat(cell=(1, 1)), time=0)
+    assert world.robots[1].consumable == 0.0
+
+    # Repeated simulation ticks advance treatment, while reissuing Treat maintains the job.
+    world.advance_to(30 * TimeUnit.MINUTE)
+    world.apply_action(1, Treat(cell=(1, 1)), time=30 * TimeUnit.MINUTE)
+    world.advance_to(60 * TimeUnit.MINUTE)
+
+    assert world.cell((1, 1)).infestation == 0.0
 
 
 def test_observe_for_reports_the_own_cell_and_the_terrain_around_it() -> None:
@@ -172,8 +206,9 @@ def test_observe_for_reports_the_own_cell_and_the_terrain_around_it() -> None:
     }
 
     assert terrain_cells == {(1, 1), *world.neighbours((1, 1))}
-    assert other_cells == {(1, 1)}
-    assert {peer.peer for peer in peers} == {2, 3}
+    # Peers are visible within the body's configured one-cell sensing radius.
+    assert other_cells == {(1, 1), (2, 1)}
+    assert {peer.peer for peer in peers} == {2, 3, 4}
 
 
 def test_continuous_position_interpolates() -> None:
@@ -196,6 +231,94 @@ def test_snapshot_contains_robot_target_without_cell_occupancy() -> None:
     assert not hasattr(snapshot.cells[(1, 1)], "occupant")
 
 
+def test_battery_robot_replaces_co_located_peer_battery_and_uses_one_spare() -> None:
+    support = RobotState(
+        robot_id=1,
+        position=(1, 1),
+        body=BodyType.BATTERY,
+        speed_mps=1.0,
+        spare_batteries=3,
+    )
+    recipient = RobotState(
+        robot_id=2,
+        position=(1, 1),
+        body=BodyType.SCOUT,
+        speed_mps=8.0,
+        battery=0.1,
+    )
+    world = WorldState(_field(), robots=[support, recipient])
+
+    world.apply_action(1, ReplaceBattery(robot_id=2), time=0)
+    assert world.robots[2].battery == 0.1
+    assert world.robots[1].spare_batteries == 3
+
+    world.advance_to(224 * TimeUnit.SECOND)
+    assert world.robots[2].battery == 1.0
+    assert world.robots[1].spare_batteries == 2
+
+
+def test_battery_replacement_requires_same_cell_and_spare_stock() -> None:
+    support = RobotState(
+        robot_id=1,
+        position=(1, 1),
+        body=BodyType.BATTERY,
+        speed_mps=1.0,
+        spare_batteries=0,
+    )
+    recipient = RobotState(
+        robot_id=2,
+        position=(2, 1),
+        body=BodyType.KILLER,
+        speed_mps=1.0,
+        battery=0.1,
+    )
+    world = WorldState(_field(), robots=[support, recipient])
+
+    world.apply_action(1, ReplaceBattery(robot_id=2))
+
+    assert world.robots[2].battery == 0.1
+    assert world.robots[1].spare_batteries == 0
+
+
+def test_charge_only_works_at_a_configured_dock() -> None:
+    from swarm_field.contracts import Charge
+
+    robot = _robot(position=(1, 1))
+    robot.battery = 0.2
+    world = WorldState(_field(), robots=[robot], docks=((2, 1),))
+
+    world.apply_action(1, Charge(), time=0)
+    assert world.robots[1].battery == 0.2
+    assert world.robots[1].current_action == Idle()
+
+    world.robots[1].position = (2, 1)
+    world.apply_action(1, Charge(), time=1)
+    assert world.robots[1].battery == 0.2
+    world.advance_to(3_600_001)
+    assert world.robots[1].battery == 1.0
+
+
+def test_battery_robot_refills_spares_when_charging_at_dock() -> None:
+    from swarm_field.contracts import Charge
+
+    support = RobotState(
+        robot_id=1,
+        position=(1, 1),
+        body=BodyType.BATTERY,
+        speed_mps=1.0,
+        battery=0.4,
+        spare_batteries=1,
+    )
+    world = WorldState(_field(), robots=[support], docks=((1, 1),))
+
+    world.apply_action(1, Charge(), time=0)
+
+    assert world.robots[1].battery == 0.4
+    assert world.robots[1].spare_batteries == 3
+    world.advance_to(3_600 * TimeUnit.SECOND)
+    assert world.robots[1].battery == 1.0
+
+
 def test_energy_is_drained_per_metre_and_per_decision() -> None:
     world = WorldState(
         _field(),
@@ -205,15 +328,19 @@ def test_energy_is_drained_per_metre_and_per_decision() -> None:
 
     world.apply_action(1, Move(to=(2, 1)), time=0)
 
-    # One cell across at 5 m per cell is 5 m of travel, plus the decision itself.
-    assert world.robots[1].battery == pytest.approx(1.0 - 0.05 - 0.02)
-    assert world.energy_spent() == pytest.approx(0.07)
+    # One cell is 5 m: configured movement and decision costs are joined by the body-specific
+    # endurance drain for the 1-second move (a KILLER has 8 hours of endurance).
+    endurance_drain = 1_000 / (8 * 60 * 60 * TimeUnit.SECOND)
+    expected_spend = 0.05 + 0.02 + endurance_drain
+    assert world.robots[1].battery == pytest.approx(1.0 - expected_spend)
+    assert world.energy_spent() == pytest.approx(expected_spend)
 
 
 def test_treat_costs_energy_and_charging_restores_the_battery() -> None:
     world = WorldState(
         _field(),
         robots=[_robot()],
+        docks=[(1, 1)],
         energy=EnergyConfig(per_decision=0.1, treat_per_action=0.05),
     )
     world.cell((1, 1)).infestation = 0.5
@@ -222,6 +349,8 @@ def test_treat_costs_energy_and_charging_restores_the_battery() -> None:
     assert world.robots[1].battery == pytest.approx(0.85)
 
     world.apply_action(1, Charge(), time=0)
+    assert world.robots[1].battery == pytest.approx(0.75)
+    world.advance_to(60 * 60 * TimeUnit.SECOND)
     assert world.robots[1].battery == pytest.approx(1.0)
     # Recharging tops the battery up but never gives back what was spent.
     assert world.energy_spent() == pytest.approx(0.25)

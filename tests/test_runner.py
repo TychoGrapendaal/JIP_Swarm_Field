@@ -7,22 +7,25 @@ from random import Random
 
 import pytest
 
-from swarm_field.contracts import ScenarioId, Time
+from swarm_field.contracts import FailureMode, FailureSpec, ScenarioId, Time, TimeUnit
+from swarm_field.experiments import build_named_experiment
 from swarm_field.runner import (
     BrainSpec,
     ExperimentConfig,
+    RobustnessCase,
+    RunMetadata,
     RunSummary,
     build_agent,
     build_experiment,
     build_run,
     export_summary_csv,
     export_summary_json,
+    robustness_case_config,
     run_experiment,
     sweep,
-    sweep_scenarios,
 )
 from swarm_field.simulation import MetricsConfig, build_scenario
-from swarm_field.swarm import TreatInfestation, TreatSeeder
+from swarm_field.swarm import Regroup, RegroupSeeder, TreatInfestation, TreatSeeder
 
 
 def _config(
@@ -96,27 +99,6 @@ def test_sweep_runs_every_configuration_once_in_order() -> None:
     assert [run.label for run in sweep(configs)] == ["a", "b"]
 
 
-def test_sweep_scenarios_covers_the_cross_product() -> None:
-    runs = sweep_scenarios([ScenarioId.S1, ScenarioId.S2], seeds=[101, 102], until=30_000)
-
-    assert [(run.scenario, run.seed) for run in runs] == [
-        ("S1", 101),
-        ("S1", 102),
-        ("S2", 101),
-        ("S2", 102),
-    ]
-
-
-def test_sweep_scenarios_labels_each_run_with_its_scenario_and_seed() -> None:
-    runs = sweep_scenarios([ScenarioId.S1], seeds=[101, 102], until=30_000)
-
-    assert [run.label for run in runs] == ["S1/101", "S1/102"]
-
-
-def test_sweep_scenarios_with_no_seeds_yields_nothing() -> None:
-    assert sweep_scenarios([ScenarioId.S1], seeds=[], until=1_000) == ()
-
-
 def test_to_row_flattens_the_summary_into_one_record() -> None:
     run = run_experiment(_config())
 
@@ -128,7 +110,12 @@ def test_to_row_flattens_the_summary_into_one_record() -> None:
 
 
 def test_export_summary_csv_writes_one_row_per_run(tmp_path: Path) -> None:
-    runs = sweep_scenarios([ScenarioId.S1, ScenarioId.S2], seeds=[101], until=30_000)
+    runs = sweep(
+        [
+            _config(label="S1/101", scenario=ScenarioId.S1, until=30_000),
+            _config(label="S2/101", scenario=ScenarioId.S2, until=30_000),
+        ]
+    )
     path = tmp_path / "summary.csv"
 
     export_summary_csv(runs, path)
@@ -140,7 +127,7 @@ def test_export_summary_csv_writes_one_row_per_run(tmp_path: Path) -> None:
 
 
 def test_export_summary_json_round_trips(tmp_path: Path) -> None:
-    runs = sweep_scenarios([ScenarioId.S1], seeds=[101], until=30_000)
+    runs = sweep([_config(label="S1/101", until=30_000)])
     path = tmp_path / "summary.json"
 
     export_summary_json(runs, path)
@@ -201,6 +188,20 @@ def test_the_named_seeder_reaches_the_behaviour_and_the_field_provider() -> None
     assert agent.fields.field_for(TreatSeeder.name, (0, 0), 0) is None
 
 
+def test_a_spec_with_regroup_assembles_the_behaviour_and_its_seeder() -> None:
+    spec = BrainSpec(
+        behaviors=("treat-infestation", "regroup"),
+        seeders=("treat", "regroup"),
+        params={"rally-point": (5, 5), "regroup-silence": TimeUnit.MINUTE},
+    )
+    agent = build_agent(spec, 1, build_scenario(ScenarioId.S1).field, Random(0))
+
+    assert isinstance(agent.behaviors[1], Regroup)
+    # The rally point reaches the seeder, so the REGROUP field leads there with no peer known.
+    field = agent.fields.field_for(RegroupSeeder.name, (0, 0), 0)
+    assert field is not None
+
+
 def test_build_run_leaves_the_pest_dynamics_the_run_random_source() -> None:
     config = _config()
     ctx, _ = build_run(config)
@@ -250,4 +251,31 @@ def test_an_unregistered_seeder_is_refused() -> None:
 
 def test_a_summary_needs_at_least_one_sample() -> None:
     with pytest.raises(ValueError):
-        RunSummary.from_series("x", "S1", 1, [])
+        RunSummary.from_run(_config(), [])
+
+
+def test_a_summary_row_records_how_the_run_was_set_up() -> None:
+    config = _config(scenario=ScenarioId.S2, until=30_000)
+
+    row = run_experiment(config).to_row()
+
+    assert row["horizon_ms"] == 30_000
+    assert row["metrics_period_ms"] == 30_000
+    assert row["robots"] == len(config.scenario.robots)
+    assert row["brain"] == "behaviors=treat-infestation seeders=treat navigator=potential-field"
+    assert row["brains_by_body"] == ""
+    assert row["failure_probability"] == 0.0
+
+
+def test_the_metadata_names_a_robustness_condition_and_a_brain_per_body() -> None:
+    case = RobustnessCase(
+        label="offline", failures=FailureSpec(probability=0.25, mode=FailureMode.OFFLINE)
+    )
+
+    faulty = RunMetadata.from_config(robustness_case_config(_config(), case))
+    pests = RunMetadata.from_config(build_named_experiment("pests", 1))
+
+    assert (faulty.failure_probability, faulty.failure_mode) == (0.25, "OFFLINE")
+    assert pests.bodies == "KILLER=3 SCOUT=5"
+    assert pests.brains_by_body.startswith("KILLER: behaviors=treat-infestation+explore")
+    assert pests.robots_know_terrain

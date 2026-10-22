@@ -3,6 +3,9 @@
 Run from the repository root with:
     uv run python examples/metrics_sweep_demo.py
 
+Sweep any scenario of the catalogue, presets and hand-built experiments alike:
+    uv run python examples/metrics_sweep_demo.py --scenarios S2 explore pests --hours 1
+
 Write the exports to a directory instead of only printing them:
     uv run python examples/metrics_sweep_demo.py --out runs/sweep
 
@@ -13,22 +16,21 @@ Write PNG frames of the first run of the sweep, one per metric tick:
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 from pathlib import Path
 
-from swarm_field.contracts import ScenarioId
+from swarm_field.contracts import TimeUnit
+from swarm_field.experiments import build_named_experiment, scenario_names, sweep_scenarios
 from swarm_field.runner import (
     RunSummary,
-    build_experiment,
     export_summary_csv,
     export_summary_json,
     run_experiment,
-    sweep_scenarios,
 )
-from swarm_field.simulation import MetricsConfig
 from swarm_field.visualization import FrameWriter, MatplotlibRenderer
 
-HOUR = 3_600_000
-SWEEP_SCENARIOS = (ScenarioId.S1, ScenarioId.S2, ScenarioId.S3)
+HOUR = TimeUnit.HOUR
+DEFAULT_SCENARIOS = ("S1", "S2", "S3")
 
 
 def parse_args() -> argparse.Namespace:
@@ -38,6 +40,13 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="directory to write the summary table and each run's series to",
+    )
+    parser.add_argument(
+        "--scenarios",
+        nargs="+",
+        choices=scenario_names(),
+        default=list(DEFAULT_SCENARIOS),
+        help=f"scenarios to sweep, by name (default: {' '.join(DEFAULT_SCENARIOS)})",
     )
     parser.add_argument("--seed", type=int, default=101, help="first seed of the sweep")
     parser.add_argument(
@@ -85,10 +94,10 @@ def main() -> None:
     args = parse_args()
     until = int(args.hours * HOUR)
     runs = sweep_scenarios(
-        SWEEP_SCENARIOS,
+        args.scenarios,
         seeds=[args.seed, args.seed + 1],
         until=until,
-        metrics=MetricsConfig(period=HOUR),
+        sample_period=HOUR,
     )
 
     print_summary_table(runs)
@@ -104,14 +113,8 @@ def main() -> None:
     if args.render:
         # The sweep already ran this configuration, and a run is a function of its seed, so
         # re-running it with a renderer draws the run the table's first row describes.
-        scenario = SWEEP_SCENARIOS[0]
-        config = build_experiment(
-            f"{scenario.name}/{args.seed}",
-            scenario,
-            args.seed,
-            until=until,
-            metrics=MetricsConfig(period=HOUR),
-        )
+        config = build_named_experiment(args.scenarios[0], args.seed, until)
+        config = replace(config, metrics=replace(config.metrics, period=HOUR))
         writer = FrameWriter(
             MatplotlibRenderer(show_targets=False), args.render_out, runs[0].label.replace("/", "_")
         )
