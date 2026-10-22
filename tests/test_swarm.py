@@ -23,6 +23,7 @@ from swarm_field.contracts import (
     Terrain,
     TerrainObservation,
     Time,
+    TimeUnit,
     Treat,
 )
 from swarm_field.swarm import (
@@ -38,6 +39,8 @@ from swarm_field.swarm import (
     Intent,
     MemoryView,
     Navigator,
+    Regroup,
+    RegroupSeeder,
     TreatInfestation,
     TreatSeeder,
 )
@@ -337,6 +340,92 @@ def test_only_the_winners_field_is_built_and_it_is_not_rebuilt() -> None:
 
     assert winner.seeds_asked == 1
     assert loser.seeds_asked == 0
+
+
+_SILENCE_TIMEOUT = 2 * TimeUnit.MINUTE
+
+
+def _peer_at(peer: int, cell: CellId) -> PeerObservation:
+    return PeerObservation(
+        cell=cell, confidence=1.0, observed_at=0, source=peer, peer=peer, body=BodyType.KILLER
+    )
+
+
+def _regrouping_agent(peers: list[PeerObservation], rally_point: CellId | None) -> ComposedAgent:
+    """An agent that knows of ``peers`` and was last in contact at time 0."""
+    seeder = RegroupSeeder(rally_point=rally_point)
+    agent = _agent([Regroup(seeder.name, _SILENCE_TIMEOUT, rally_point)], seeders=[seeder])
+    agent.decide(_perception_at(0, (0, 0), sensed=list(peers)))
+    return agent
+
+
+def _perception_at(
+    time: Time,
+    position: CellId,
+    sensed: list[Observation] | None = None,
+    inbox: list[Message] | None = None,
+) -> Perception:
+    """A killer at ``position`` that senses its own cell, as in the simulation, and ``sensed``."""
+    own_cell = InfestationObservation(
+        cell=position, confidence=1.0, observed_at=time, source=1, severity=0.0, pest=None
+    )
+    return Perception(
+        time=time,
+        self_state=RobotSelfState(
+            robot_id=1,
+            position=position,
+            battery=1.0,
+            body=BodyType.KILLER,
+            speed_mps=2.0,
+            consumable=1.0,
+            health=1.0,
+        ),
+        sensed=[own_cell, *(sensed or [])],
+        inbox=inbox or [],
+    )
+
+
+def test_regroup_does_not_bid_before_the_silence_timeout() -> None:
+    agent = _regrouping_agent([_peer_at(2, (5, 0))], rally_point=None)
+
+    decision = agent.decide(_perception_at(_SILENCE_TIMEOUT - 1, (0, 0)))
+
+    assert decision.action == Idle()
+    assert agent.inspect().current_goal is None
+
+
+def test_regroup_heads_for_a_peers_last_known_cell_after_a_long_silence() -> None:
+    agent = _regrouping_agent([_peer_at(2, (5, 0))], rally_point=None)
+
+    decision = agent.decide(_perception_at(_SILENCE_TIMEOUT, (0, 0)))
+
+    assert decision.action == Move((1, 0))
+    assert agent.inspect().current_goal == Regroup.name
+    status = decision.outbox[0].payload
+    assert isinstance(status, PeerObservation)
+    assert status.target == (5, 0)
+
+
+def test_a_received_message_ends_the_silence() -> None:
+    agent = _regrouping_agent([_peer_at(2, (5, 0))], rally_point=None)
+    hello = Message(sender=2, sent_at=_SILENCE_TIMEOUT, kind=MessageKind.HELLO, payload=None)
+
+    heard = agent.decide(_perception_at(_SILENCE_TIMEOUT, (0, 0), inbox=[hello]))
+    soon_after = agent.decide(_perception_at(_SILENCE_TIMEOUT + 5_000, (0, 0)))
+
+    assert heard.action == Idle()
+    assert soon_after.action == Idle()
+
+
+def test_regroup_moves_on_from_an_empty_peer_cell_to_the_rally_point() -> None:
+    agent = _regrouping_agent([_peer_at(2, (5, 0))], rally_point=(5, 5))
+
+    on_peer_cell = agent.decide(_perception_at(_SILENCE_TIMEOUT, (5, 0)))
+    at_rally_point = agent.decide(_perception_at(_SILENCE_TIMEOUT + 5_000, (5, 5)))
+
+    assert on_peer_cell.action == Move((5, 1))
+    assert at_rally_point.action == Idle()
+    assert agent.inspect().current_goal == Regroup.name
 
 
 def test_the_agent_broadcasts_its_cell_and_the_winners_target_and_objective() -> None:
