@@ -1,5 +1,6 @@
 """Composable robot behaviours for the high-level cell model."""
 
+import logging
 import math
 from dataclasses import dataclass, field
 from typing import Protocol
@@ -17,12 +18,20 @@ from swarm_field.contracts import (
     ReplaceBattery,
     RobotSelfState,
     Time,
+    TimeUnit,
     Treat,
 )
 from swarm_field.swarm.capabilities import CapabilitySet, capabilities_for
 from swarm_field.swarm.explore import ExploreConfig, ExploreSeeder, revisit_worths
 from swarm_field.swarm.memory import MemoryView
-from swarm_field.swarm.seeder import BatteryRequestSeeder, TreatSeeder
+from swarm_field.swarm.seeder import (
+    BatteryRequestSeeder,
+    RegroupSeeder,
+    TreatSeeder,
+    unsearched_peer_locations,
+)
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -149,6 +158,48 @@ class TreatInfestation:
         # The more pests are left per killer already known, the more this robot is needed.
         score = 1 / (1 + math.exp(-(num_pests - num_killers)))
         return (ActionCandidate(FollowField(self._seeder), score, self.name, None, _TREAT),)
+
+
+_REGROUP_SCORE = 0.85
+"""The score of walking back to the swarm after a long silence.
+
+Below the arbiter's override threshold, so regrouping goes through the ordinary arbitration
+and never outbids an override such as ``ReturnToDock`` saving a robot whose battery runs out.
+"""
+
+
+class Regroup:
+    """Returns a robot to the swarm once it has received no message for ``silence_timeout``.
+
+    It follows the field of the REGROUP seeder (``RegroupSeeder``) to where the peers were last
+    known to be; a location the robot has observed since without finding the peer no longer
+    counts (``unsearched_peer_locations``), and the rally point is where it finally waits. The
+    first message received ends the search. With no location left and no rally point it does
+    not bid, since there is nowhere to go.
+    """
+
+    name: str = "regroup"
+
+    def __init__(
+        self,
+        seeder: str = RegroupSeeder.name,
+        silence_timeout: Time = 2 * TimeUnit.MINUTE,
+        rally_point: CellId | None = None,
+    ) -> None:
+        self._seeder: str = seeder
+        self._silence_timeout: Time = silence_timeout
+        self._rally_point: CellId | None = rally_point
+        self._last_contact: Time | None = None
+
+    def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
+        if ctx.inbox or self._last_contact is None:
+            self._last_contact = ctx.time
+            return ()
+        if ctx.time - self._last_contact < self._silence_timeout:
+            return ()
+        if self._rally_point is None and not unsearched_peer_locations(ctx.memory):
+            return ()
+        return (ActionCandidate(FollowField(self._seeder), _REGROUP_SCORE, self.name, None),)
 
 
 class ExploreBehaviour:

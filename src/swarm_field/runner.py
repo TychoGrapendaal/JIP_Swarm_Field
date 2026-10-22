@@ -24,6 +24,7 @@ from typing import Any, TypeVar
 
 from swarm_field.contracts import (
     BodyType,
+    CellId,
     FailureMode,
     FailureSpec,
     FieldGeometry,
@@ -67,6 +68,8 @@ from swarm_field.swarm import (
     FieldProvider,
     FieldSeeder,
     Navigator,
+    Regroup,
+    RegroupSeeder,
     TreatInfestation,
     TreatSeeder,
     UtilityArbiter,
@@ -140,6 +143,22 @@ def _build_explore_seeder(params: dict[str, Any], rng: Random) -> ExploreSeeder:
     """Build the EXPLORE seeder from the ``ExploreConfig`` under ``"explore"``, if given."""
     config: ExploreConfig | None = params.get("explore")
     return ExploreSeeder(config)
+
+
+@BEHAVIORS.register("regroup")
+def _build_regroup(params: dict[str, Any], rng: Random) -> Regroup:
+    """Build the regroup behaviour, with the silence timeout under ``"regroup-silence"`` and the
+    rally point under ``"rally-point"``, if given."""
+    silence: Time = params.get("regroup-silence", 2 * TimeUnit.MINUTE)
+    rally_point: CellId | None = params.get("rally-point")
+    return Regroup(RegroupSeeder.name, silence, rally_point)
+
+
+@SEEDERS.register("regroup")
+def _build_regroup_seeder(params: dict[str, Any], rng: Random) -> RegroupSeeder:
+    """Build the REGROUP seeder, with the rally point under ``"rally-point"``, if given."""
+    rally_point: CellId | None = params.get("rally-point")
+    return RegroupSeeder(rally_point=rally_point)
 
 
 @dataclass(frozen=True)
