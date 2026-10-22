@@ -10,8 +10,8 @@ the relays. Dots labelled with a hop value are the beacons the killer hears, ora
 pull it. Orange arrows are the pull of each of those, the thick red arrow is their sum, the
 direction the killer walks. With ``--obstacle-repulsion``, a killer that runs into a wall places
 an obstacle beacon on it (purple dots), and the purple arrow is their summed push. With
-``--escape``, a killer that stays within one cell against a wall for 30 decisions places a
-beacon on that wall, harder than the push still on it. With ``--show-broadcasts``, blue arrows
+``--escape``, a killer that circles in place for ten minutes places an ever stronger beacon on
+the place it circles around. With ``--show-broadcasts``, blue arrows
 show a hop value being passed on: from the beacon a robot took its value from, to the robot, at
 the moment its value changes.
 
@@ -75,7 +75,7 @@ def parse_args() -> argparse.Namespace:
         help="push of the obstacle beacons a killer places at walls; 0 for none",
     )
     parser.add_argument(
-        "--escape", action="store_true", help="a killer stuck against a wall pushes itself off"
+        "--escape", action="store_true", help="a killer circling in place pushes itself out"
     )
     parser.add_argument("--show-broadcasts", action="store_true", help="draw passed-on values")
     parser.add_argument("--video-seconds", type=float, default=45.0)

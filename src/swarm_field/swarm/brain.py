@@ -43,7 +43,7 @@ from swarm_field.swarm.behavior import (
 )
 from swarm_field.swarm.escape import StuckEscape
 from swarm_field.swarm.guidance import Heading
-from swarm_field.swarm.hop_field import obstacle_strength, sensed_wall_ahead
+from swarm_field.swarm.hop_field import cell_ahead, obstacle_strength
 from swarm_field.swarm.memory import AgentMemory
 from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.provider import FieldProvider
@@ -114,6 +114,7 @@ class ComposedAgent:
         self._current_goal: str | None = None
         self._current_target: CellId | None = None
         self._current_objective: AgentObjective | None = None
+        self._heading: Heading | None = None
 
     def decide(self, perception: Perception) -> Decision:
         received = self._facts_received(perception.inbox)
@@ -141,21 +142,22 @@ class ComposedAgent:
             candidates.extend(behavior.propose(ctx))
 
         choice = self.arbiter.choose(candidates, perception.time)
-        if choice is None:
-            self._current_goal = None
-            self._current_target = None
-            self._current_objective = None
-            return Decision(action=Idle(), outbox=self._messages_to_send(perception))
-
-        best = choice.candidate
-        self._current_goal = best.source
-        self._current_objective = best.objective
-        action, field_target = self._action_for(
-            best.action, perception.self_state.position, perception.time
-        )
-        self._current_target = best.target
-        if field_target is not None:
-            self._current_target = field_target
+        self._current_goal = None
+        self._current_target = None
+        self._current_objective = None
+        self._heading = None
+        action: Action = Idle()
+        if choice is not None:
+            best = choice.candidate
+            self._current_goal = best.source
+            self._current_objective = best.objective
+            action, field_target = self._action_for(
+                best.action, perception.self_state.position, perception.time
+            )
+            self._current_target = best.target
+            if field_target is not None:
+                self._current_target = field_target
+        self._place_obstacle_beacons(perception.self_state.position, perception.time)
         return Decision(action=action, outbox=self._messages_to_send(perception))
 
     def inspect(self) -> AgentInspection:
@@ -171,7 +173,7 @@ class ComposedAgent:
 
         For a ``FollowField`` this builds the seeder's field and the navigator steps along it;
         the target is the one the field leads to, or ``None`` for any other intent. A heading
-        may leave obstacle beacons behind (``_place_obstacle_beacons``).
+        is remembered in ``_heading`` for ``_place_obstacle_beacons``.
         """
         if not isinstance(intent, FollowField):
             return intent, None
@@ -180,31 +182,51 @@ class ComposedAgent:
             logger.warning("Field %s has nothing to guide the robot to; idling", intent.seeder)
             return Idle(), None
         if isinstance(field, Heading):
-            self._place_obstacle_beacons(field, robot, now)
+            self._heading = field
         return self.navigator.step_towards(field, robot)
 
-    def _place_obstacle_beacons(self, heading: Heading, robot: CellId, now: Time) -> None:
-        """Mark the wall the heading runs into, and escape when the robot is stuck against it.
+    def _place_obstacle_beacons(self, robot: CellId, now: Time) -> None:
+        """Mark the wall this decision's heading runs into, and escape when the robot circles.
 
-        Whether there is a wall ahead comes from ``surroundings``, this decision's sensing. The wall
-        gets a beacon with ``BeaconConfig.obstacle_repulsion``; a robot stuck against it gets
-        an escape beacon from its ``StuckEscape``, boosted from the push already on the wall. A
-        beacon is placed only if it pushes harder than that push, so a wall never weakens.
+        Whether the cell ahead is a wall comes from ``surroundings``, this decision's sensing.
+        The wall gets a beacon with ``BeaconConfig.obstacle_repulsion``; a robot that circles in
+        place gets an escape beacon from its ``StuckEscape``. A decision without a heading starts
+        the escape's window over.
         """
         if self.beacons is None:
             return
-        wall = sensed_wall_ahead(robot, heading.offset, self.surroundings)
-        wall_push = 0.0
-        strength = 0.0
-        if wall is not None:
-            wall_push = self._obstacle_push_on(wall, now, self.beacons)
-            strength = self.beacons.obstacle_repulsion
+        if self._heading is None:
+            if self._escape is not None:
+                self._escape.forget()
+            return
+        config = self.beacons
+        ahead = cell_ahead(robot, self._heading.offset)
+        if config.obstacle_repulsion > 0 and self.surroundings.blocks(ahead):
+            self._place_stronger_beacon(ahead, now, config.obstacle_repulsion, config)
         if self._escape is not None:
-            escape = self._escape.check(robot, wall, wall_push)
+            escape = self._escape.check(
+                robot, ahead, lambda cell: self._recent_obstacle_beacon_on(cell, now, config)
+            )
             if escape is not None:
-                strength = max(strength, escape.strength)
-        if wall is not None and strength > wall_push:
-            self.memory.place_obstacle_beacon(wall, now, strength)
+                self._place_stronger_beacon(escape.cell, now, escape.strength, config)
+
+    def _place_stronger_beacon(
+        self, cell: CellId, now: Time, strength: float, config: BeaconConfig
+    ) -> None:
+        """Place an obstacle beacon on ``cell``, unless the push already there is as strong."""
+        if strength > self._obstacle_push_on(cell, now, config):
+            self.memory.place_obstacle_beacon(cell, now, strength)
+
+    def _recent_obstacle_beacon_on(self, cell: CellId, now: Time, config: BeaconConfig) -> float:
+        """The strength of the obstacle beacon placed on ``cell`` within ``obstacle_decay``, or 0.
+
+        An escape boosts from it: the escape window is about as long as the decay, so boosting
+        from the decayed push would never grow.
+        """
+        heard = self.memory.obstacle_beacon_at(cell)
+        if heard is None or now - heard.sent_at > config.obstacle_decay:
+            return 0.0
+        return heard.beacon.value
 
     def _obstacle_push_on(self, cell: CellId, now: Time, config: BeaconConfig) -> float:
         """The push of the obstacle beacon on ``cell`` at ``now``, or 0 without one."""

@@ -61,13 +61,21 @@ $$\text{Push}(\text{obstacle}) = \text{ObstacleRepulsion} \cdot e^{-\text{Age}(\
 
 The pushes are added to $\text{Pull}(\text{robot})$, each along $\text{UnitVector}(\text{obstacle} \to \text{robot})$, before the direction is taken.
 
-### Escaping a wall (optional)
+### Escaping when stuck (optional)
 
-With `BeaconConfig.escape`, a killer that has stayed within one cell over its last `stuck_decisions` decisions while its direction points into a wall places an obstacle beacon on that wall cell. Staying within one cell covers standing still and shuttling between two neighbouring cells. The window is 30 decisions by default, because a move is under way for several decisions and a ground killer's diagonal move alone takes 10. The beacon pushes `escape_boost` times as hard as the push still on that wall, and at least `escape_strength`:
+A killer can be caught where pulls cancel: between pests that pull it equally hard, or where the pull runs into a wall. It then shuttles between two cells or paces in place. With `BeaconConfig.escape`, the killer measures its progress over its last `stuck_decisions` decisions on a heading:
 
-$$\text{EscapePush}(\text{wall}) = \max\big(\text{EscapeStrength},\ \text{EscapeBoost} \cdot \text{Push}(\text{wall})\big)$$
+$$\text{Progress} = \frac{\lVert c_{\text{last}} - c_{\text{first}} \rVert}{\sum_k \lVert c_{k+1} - c_k \rVert}$$
 
-$\text{Push}(\text{wall})$ is the decayed push of the obstacle beacon already on the wall cell, or 0. So each time the killer gets stuck against the same wall the push grows, whichever cell the killer stands in, until it breaks the equilibrium between the pull and the wall. A beacon never replaces a stronger push on its cell, so a plain obstacle beacon does not undo an escape. Whether the cell ahead is a wall comes only from what the robot senses around itself at that decision.
+Here $c_k$ is the killer's cell at the $k$-th of those decisions. Progress is 1 for a straight walk, near 0 for a shuttle, and 0 for standing still. A decision that follows no heading, such as a treatment, starts the window over. The window is 40 decisions (10 min) by default, because a move is under way for several decisions, and a ground killer's diagonal move alone takes 10.
+
+When Progress is below `min_progress` (0.3), the killer places an obstacle beacon on the centre of the cells it was in, the place it circles around. Its push points from that centre to the killer, so it always says "leave this place". If the centre is the killer's own cell, as for a standstill, the beacon goes on the cell ahead along the heading instead, which is the wall when there is one. The beacon pushes
+
+$$\text{EscapePush}(\text{cell}) = \max\big(\text{EscapeStrength},\ \text{EscapeBoost} \cdot \text{Placed}(\text{cell})\big)$$
+
+$\text{Placed}(\text{cell})$ is the strength the killer placed on that cell less than `obstacle_decay` ago, or 0. So escapes from the same place grow while they keep failing, and start over once the old one is forgotten. A beacon never replaces a stronger push on its cell, so a plain obstacle beacon does not undo an escape. Whether the cell ahead is a wall comes only from what the robot senses around itself at that decision.
+
+On `RELAYED_KILLERS` with `hop repel`, the escape cuts the infested cells from 8.04 ± 0.53 to 7.09 ± 0.54 (paired −0.95 ± 0.39, 12 seeds, 3 h, 15 pests/h). It does not free a killer standing between several pests. There the unit pulls sum to zero at a single point between the pests, their geometric median, and that point pulls the killer back after every push.
 
 ### Names in the formulas and in the code
 
@@ -84,6 +92,8 @@ $\text{Push}(\text{wall})$ is the decayed push of the obstacle beacon already on
 | ObstacleRepulsion | `obstacle_repulsion` | 0 (off) |
 | ObstacleRange | `obstacle_range_cells` | 3 cells |
 | ObstacleDecayTime | `obstacle_decay` | 10 min |
+| `stuck_decisions` | `escape.stuck_decisions` | 40 (escape off in `hop repel`) |
+| `min_progress` | `escape.min_progress` | 0.3 (escape off in `hop repel`) |
 | EscapeStrength | `escape.escape_strength` | 1 (escape off in `hop repel`) |
 | EscapeBoost | `escape.escape_boost` | 2 (escape off in `hop repel`) |
 
