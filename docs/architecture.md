@@ -76,7 +76,7 @@ def run_experiment(config: ExperimentConfig) -> RunSummary:
 
 Every random draw a run makes happens inside `build_run`, in a fixed order, so a run is a function of its seed and configuration. The context's `rng` is then left to the pest dynamics; the metrics collector holds no random source of its own, so recording metrics cannot change the world a run produces.
 
-The runner is also the natural home for the batch / sweep logic that runs many configurations for benchmarking: `sweep_scenarios` runs the cross product of scenarios and seeds, and `robustness_sweep` runs one scenario under each fault condition from a shared seed, so a condition and its baseline see identical pest dynamics.
+The runner is also the natural home for the batch / sweep logic that runs many configurations for benchmarking: `sweep` runs a list of configurations, and `robustness_sweep` runs one configuration under each fault condition from its shared seed, so a condition and its baseline see identical pest dynamics. Which configuration to run comes from the scenario catalogue in `experiments`, one layer above the runner: it names every scenario, the presets and the hand-built experiments alike, turns a name and a seed into an `ExperimentConfig`, and its `sweep_scenarios` runs the cross product of names and seeds.
 
 `run_experiment`, `sweep` and `robustness_sweep` each take an optional `Renderer`. Handing one in makes the run draw its world on every metric tick, so a sweep can be watched without a second driver. Because a render only reads ground truth, a run with a renderer measures exactly what the same run without one would — `test_a_run_with_a_renderer_measures_exactly_the_same_as_one_without` pins that. One renderer shared across a sweep sees all the conditions and cannot tell them apart, so to attribute frames to a condition, rebuild that one condition with `robustness_case_config` and pass the renderer to a single `run_experiment`: a run is a function of its seed, so the drawn run is the tabled one.
 
@@ -375,3 +375,14 @@ flowchart LR
 | Swap the renderer | the C adapter | A, B, contracts |
 
 The recurring shape is the same on both sides of the system: a dumb orchestrator (`ComposedAgent` / `SimulationLoop`) running assembled single‑purpose parts — behaviours for the brain, event handlers for the simulation. That symmetry is intentional — it is the same extensibility mechanism applied to the algorithm and to the environment.
+
+
+## Implemented body capability model
+
+The initial body-specific capability gate is implemented in `src/swarm_field/swarm/capabilities.py`,
+`src/swarm_field/swarm/brain.py`, and `src/swarm_field/swarm/assembly.py`. `ComposedAgent` filters
+candidates before score selection, maps `FollowField` to the `Move` capability, and validates the
+resolved concrete action before returning it. The factory `build_agent(robot_id, body, field,
+docks=...)` assembles the default behaviours and flying/ground field provider per body. The profile
+values, sensing rules, battery service semantics, and simplifications are documented in
+[`body-capabilities.md`](body-capabilities.md).

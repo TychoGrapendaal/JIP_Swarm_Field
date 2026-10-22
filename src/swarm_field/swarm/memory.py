@@ -18,6 +18,7 @@ from numpy.typing import NDArray
 
 from swarm_field.contracts import (
     CellId,
+    CropObservation,
     FieldGeometry,
     InfestationObservation,
     Observation,
@@ -78,7 +79,7 @@ class MemoryView(Protocol):
 class AgentMemory:
     """One robot's facts about the field and its peers, merged from its own sensing and peers.
 
-    Terrain, infestation and peer facts are stored; crop facts, anonymous peer sightings and
+    Crop, terrain, infestation and named peer facts are stored. Anonymous peer sightings and
     sightings of the robot itself are ignored.
     """
 
@@ -90,6 +91,7 @@ class AgentMemory:
         self._decay: DecayConfig = DecayConfig()
         if decay is not None:
             self._decay = decay
+        self._crop: dict[CellId, CropObservation] = {}
         self._terrain: dict[CellId, TerrainObservation] = {}
         self._infestation: dict[CellId, InfestationObservation] = {}
         self._peers: dict[RobotId, PeerObservation] = {}
@@ -116,6 +118,8 @@ class AgentMemory:
         """
         for fact in facts:
             match fact:
+                case CropObservation():
+                    _keep_newest(self._crop, fact.cell, fact)
                 case TerrainObservation():
                     _keep_newest(self._terrain, fact.cell, fact)
                     if self._is_inside(fact.cell):
@@ -133,7 +137,12 @@ class AgentMemory:
 
     def records(self) -> Iterator[Observation]:
         """Every stored fact, e.g. to share with a peer."""
-        return chain(self._terrain.values(), self._infestation.values(), self._peers.values())
+        return chain(
+            self._crop.values(),
+            self._terrain.values(),
+            self._infestation.values(),
+            self._peers.values(),
+        )
 
     def snapshot(self) -> tuple[Observation, ...]:
         """All stored facts, for ``AgentInspection.belief``."""
