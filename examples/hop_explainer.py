@@ -8,12 +8,11 @@ hears plus the hop to it. The single killer knows of a pest only through these b
 Red cells are the pests in ground truth. The big red dot is the killer, the small grey dots are
 the relays. Dots labelled with a hop value are the beacons the killer hears, orange where they
 pull it. Orange arrows are the pull of each of those, the thick red arrow is their sum, the
-direction the killer walks. With ``--obstacle-repulsion``, a killer that runs into a wall places
-an obstacle beacon on it (purple dots), and the purple arrow is their summed push. With
-``--escape``, a killer that circles in place for ten minutes places an ever stronger beacon on
-the place it circles around. With ``--show-broadcasts``, blue arrows
-show a hop value being passed on: from the beacon a robot took its value from, to the robot, at
-the moment its value changes.
+direction the killer walks. With ``--escape``, a killer that circles in place for ten minutes
+places an ever stronger escape beacon on the place it circles around (purple dots), and the
+purple arrow is their summed push. With ``--show-broadcasts``, blue arrows show a hop value
+being passed on: from the beacon a robot took its value from, to the robot, at the moment its
+value changes.
 
 Run from the repository root with:
     uv run python examples/hop_explainer.py
@@ -76,12 +75,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--radio", type=float, default=100.0, help="radio range in metres")
     parser.add_argument("--pests-per-hour", type=float, default=6.0)
     parser.add_argument("--cap", type=float, default=8.0, help="the highest hop value relayed")
-    parser.add_argument(
-        "--obstacle-repulsion",
-        type=float,
-        default=0.0,
-        help="push of the obstacle beacons a killer places at walls; 0 for none",
-    )
     parser.add_argument(
         "--escape", action="store_true", help="a killer circling in place pushes itself out"
     )
@@ -195,7 +188,7 @@ class HopExplainer:
                 "red cells       pests",
                 "orange arrows   pull of each beacon",
                 "red arrow       summed pull",
-                "purple dots     obstacle beacons, with push",
+                "purple dots     escape beacons, with push",
                 "purple arrow    their push",
             ]
         )
@@ -323,7 +316,6 @@ def main() -> None:
     config = BeaconConfig(
         hop_cells=args.radio / PestScenario().cell_size,
         max_value=args.cap,
-        obstacle_repulsion=args.obstacle_repulsion,
         escape=escape,
     )
     scenario = PestScenario(

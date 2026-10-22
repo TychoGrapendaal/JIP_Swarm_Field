@@ -51,17 +51,9 @@ With `DistancePower` = 0 every beacon pulls equally hard from any distance. A ro
 
 $\text{Sign}$ is $+1$ for a beacon sent by a relay or a source. For a beacon sent by another killer it is $-\text{KillerRepulsion}$: a killer closer to the pest pushes instead of pulls, so two killers do not walk to the same pest. Dividing by the length keeps only the direction, which is why a sum and an average point the same way.
 
-`HopField` hands the direction to the `Steerer` as a `Heading` towards the strongest attracting beacon's cell, and the steerer walks around obstacles on the way. A hop killer keeps no map: the steerer and the wall checks below use only the terrain the robot senses around itself at the current decision (`SensedSurroundings`). With `BrainSpec.keeps_map` off, as in every hop arm, its memory stores no terrain or pest facts at all and it has no quadtree. `TreatByBeacon` bids to treat with the strength of that same strongest beacon, so a killer commits only when something pulls it.
+`HopField` hands the direction to the `Steerer` as a `Heading` towards the strongest attracting beacon's cell, and the steerer walks around obstacles on the way. It follows a wall to its end, and is reset only when it stalls, however often the strongest beacon changes on the way. A hop killer keeps no map: the steerer uses only the terrain the robot senses around itself at the current decision (`SensedSurroundings`). With `BrainSpec.keeps_map` off, as in every hop arm, its memory stores no terrain or pest facts at all and it has no quadtree. `TreatByBeacon` bids to treat with the strength of that same strongest beacon, so a killer commits only when something pulls it.
 
 **Worked example.** A killer with own hop number 2.0 hears three beacons: a relay at hop 1.2 to the east, a relay at hop 1.5 to the north, and a relay at hop 2.4 to the west. The west one is not downhill. The east one pulls with $0.5^{1.2} = 0.44$, the north one with $0.5^{1.5} = 0.35$. The killer walks north-east, a little more towards the east than the north.
-
-### Obstacle beacons (optional)
-
-With `obstacle_repulsion` above 0, a robot whose direction runs it into a cell it senses it cannot enter places an **obstacle beacon** on that cell. Obstacle beacons stay with the robot that placed them (`PlacedBeacon` in `BeaconMemory`); they are never broadcast. Each pushes the robot away from its cell, within `obstacle_range_cells`:
-
-$$\text{Push}(\text{obstacle}) = \text{ObstacleRepulsion} \cdot e^{-\text{Age}(\text{obstacle}) / \text{ObstacleDecayTime}} \cdot \Big(1 - \frac{\text{Distance}(\text{robot}, \text{obstacle})}{\text{ObstacleRange}}\Big)$$
-
-The pushes are added to $\text{Pull}(\text{robot})$, each along $\text{UnitVector}(\text{obstacle} \to \text{robot})$, before the direction is taken.
 
 ### Escaping when stuck (optional)
 
@@ -71,11 +63,17 @@ $$\text{Progress} = \frac{\lVert c_{\text{last}} - c_{\text{first}} \rVert}{\sum
 
 Here $c_k$ is the killer's cell at the $k$-th of those decisions. Progress is 1 for a straight walk, near 0 for a shuttle, and 0 for standing still. A decision that follows no heading, such as a treatment, starts the window over. The window is 40 decisions (10 min) by default, because a move is under way for several decisions, and a ground killer's diagonal move alone takes 10.
 
-When Progress is below `min_progress` (0.3), the killer places an obstacle beacon on the centre of the cells it was in, the place it circles around. Its push points from that centre to the killer, so it always says "leave this place". If the centre is the killer's own cell, as for a standstill, the beacon goes on the cell ahead along the heading instead, which is the wall when there is one. The beacon pushes `escape_strength` and fades with `escape_decay`. If the killer is stuck again within one cell of its last escape beacon while that beacon is younger than its decay time, the beacon is placed again on its own cell, with `escape_boost` times its strength and `escape_boost` times its decay time:
+When Progress is below `min_progress` (0.3), the killer places an **escape beacon** on the centre of the cells it was in, the place it circles around. Its push points from that centre to the killer, so it always says "leave this place". If the centre is the killer's own cell, as for a standstill, the beacon goes on the cell ahead along the heading instead, which is the wall when there is one. The beacon pushes `escape_strength` and fades with `escape_decay`. If the killer is stuck again within one cell of its last escape beacon while that beacon is younger than its decay time, the beacon is placed again on its own cell, with `escape_boost` times its strength and `escape_boost` times its decay time:
 
 $$\text{EscapePush}_{k+1} = \text{EscapeBoost} \cdot \text{EscapePush}_k, \qquad \text{EscapeDecayTime}_{k+1} = \text{EscapeBoost} \cdot \text{EscapeDecayTime}_k$$
 
-So while the killer keeps circling in the same area, the beacon grows and does not fade. Elsewhere, or once the last one is older than its decay time, the escape starts over. A beacon never replaces a stronger push on its cell, so a plain obstacle beacon does not undo an escape. Whether the cell ahead is a wall comes only from what the robot senses around itself at that decision.
+So while the killer keeps circling in the same area, the beacon grows and does not fade. Elsewhere, or once the last one is older than its decay time, the escape starts over. A beacon never replaces a stronger push on its cell.
+
+Escape beacons stay with the robot that placed them (`PlacedBeacon` in `BeaconMemory`); they are never broadcast. Each pushes the robot away from its cell, within `obstacle_range_cells`:
+
+$$\text{Push}(\text{beacon}) = \text{EscapePush} \cdot e^{-\text{Age}(\text{beacon}) / \text{EscapeDecayTime}} \cdot \Big(1 - \frac{\text{Distance}(\text{robot}, \text{beacon})}{\text{ObstacleRange}}\Big)$$
+
+The pushes are added to $\text{Pull}(\text{robot})$, each along $\text{UnitVector}(\text{beacon} \to \text{robot})$, before the direction is taken.
 
 The escape cannot free a killer held at the geometric median of several pests by unit pulls: every push only moves it off a stable point for a while. A `DistancePower` above 0 removes that trap.
 
@@ -92,9 +90,7 @@ The escape cannot free a killer held at the geometric median of several pests by
 | DecayTime | `decay` | 1 min |
 | KillerRepulsion | `killer_repulsion` | 2 |
 | DistancePower | `distance_power` | 0 (0.5 in `hop tuned`) |
-| ObstacleRepulsion | `obstacle_repulsion` | 0 (off) |
 | ObstacleRange | `obstacle_range_cells` | 3 cells |
-| ObstacleDecayTime | `obstacle_decay` | 10 min |
 | `stuck_decisions` | `escape.stuck_decisions` | 40 (escape off in `hop repel`) |
 | `min_progress` | `escape.min_progress` | 0.3 (escape off in `hop repel`) |
 | EscapeStrength | `escape.escape_strength` | 1 (escape off in `hop repel`) |
@@ -167,6 +163,8 @@ These runs predate the `BeaconMemory` that forgets stale beacons and keeps the r
 **A killer on a relay shuttled back to a higher neighbour.** A killer standing on a relay's cell has its own hop number one minimum hop above that relay. A neighbouring relay just above the relay, but below the killer's own number, was therefore downhill and pulled the killer back, and from there the relay was downhill again. This happened wherever the next link of the chain was at the edge of the radio range, so that a killer passing the relay did not hear it. Killers shuttled in 39 % of their ten-minute windows on a heading. A robot on a beacon's cell now compares with that beacon's value.
 
 **Unit pulls hold a killer between pests.** With pulls of equal size from any distance, a killer surrounded by several pests of about the same strength settles at their geometric median, a stable point, and shuttles there. On the river this kept a killer from treating anything for 40 minutes. A distance weight makes that point unstable.
+
+**Resetting the steerer turned killers back along a wall.** The steerer follows a wall with its right hand and commits to that side. It was reset whenever the strongest beacon's cell changed, which happens often, and a reset steerer may pick the other side and walk back. On the river with 4 killers, 258 detours were cut short and 12 % of the killers' ten-minute windows on a heading made less than 0.3 progress. Resetting only on a stall left no detour cut short and cut those windows to 8 %, with as many pests treated (184 against 183). A plain obstacle beacon on every wall the heading ran into, an earlier option, was always placed while the steerer was already following that wall: it fought the steerer, treated slightly fewer pests (180), and was removed.
 
 **Cleared pests leave ghosts.** When a pest is cleared its source falls silent, but relays keep feeding each other values that rise one hop per round and never vanish (count-to-infinity). The cap removes them once they rise past it. While other pests exist, their live gradients win the minimum, so ghosts cost about two cells of travel per treatment.
 

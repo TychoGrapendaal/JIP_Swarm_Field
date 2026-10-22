@@ -244,7 +244,7 @@ flowchart TB
     OUT --> D
 ```
 
-In the code, communication is not a separate `CommsStrategy` part yet: `ComposedAgent` encodes and decodes its messages itself. Every decision it broadcasts a `STATUS` message with its cell and target. It adds a `KNOWLEDGE` message with the memory facts its `KnowledgeSharing` selects, which may be none. A robot with a `BeaconConfig` has a `BeaconLink`, which hears the `BEACON` messages, places the beacons that push the robot off walls and out of places it circles in, and adds a `BEACON` message with the robot's TREAT hop value from `treat_beacon`. The brain calls it at three points of a decision and knows nothing else of beacons. Received beacons are kept in the link's `BeaconMemory`, apart from the facts, so they are never gossiped on. `BrainSpec.sharing` and `BrainSpec.beacons` set both per robot.
+In the code, communication is not a separate `CommsStrategy` part yet: `ComposedAgent` encodes and decodes its messages itself. Every decision it broadcasts a `STATUS` message with its cell and target. It adds a `KNOWLEDGE` message with the memory facts its `KnowledgeSharing` selects, which may be none. A robot with a `BeaconConfig` has a `BeaconLink`, which hears the `BEACON` messages, places the beacons that push the robot out of places it circles in, and adds a `BEACON` message with the robot's TREAT hop value from `treat_beacon`. The brain calls it at three points of a decision and knows nothing else of beacons. Received beacons are kept in the link's `BeaconMemory`, apart from the facts, so they are never gossiped on. `BrainSpec.sharing` and `BrainSpec.beacons` set both per robot.
 
 ### A.4 Assembly (data‑driven)
 

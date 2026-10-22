@@ -2,9 +2,9 @@
 
 A robot of the hop method remembers only beacons (``BeaconMemory``), never a map. Every hop rule
 reads them through ``BeaconView``. A ``BeaconLink`` per robot connects the method to the brain:
-it hears and sends beacons, and places the beacons that push the robot off a wall or out of a
-place it circles in. ``HopField`` is the method's objective field and ``TreatByBeacon`` its
-behaviour. The model is described in ``docs/research/hop-field.md``.
+it hears and sends beacons, and places the beacons that push the robot out of a place it
+circles in. ``HopField`` is the method's objective field and ``TreatByBeacon`` its behaviour.
+The model is described in ``docs/research/hop-field.md``.
 """
 
 from swarm_field.swarm.hop.behavior import TreatByBeacon

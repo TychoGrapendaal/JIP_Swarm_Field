@@ -79,12 +79,9 @@ class BeaconLink:
                 self.memory.note_body(message.sender, message.payload.body)
 
     def after_step(self, heading: Heading | None, robot: CellId, now: Time) -> None:
-        """Mark the wall the decision's heading runs into, and escape when the robot circles.
+        """Escape when the robot circles in place: place the beacon its ``StuckEscape`` hands out.
 
-        Whether the cell ahead is a wall comes from ``surroundings``, this decision's sensing.
-        The wall gets a beacon with ``BeaconConfig.obstacle_repulsion``; a robot that circles in
-        place gets an escape beacon from its ``StuckEscape``. A decision without a heading starts
-        the escape's window over.
+        A decision without a heading starts the escape's window over.
 
         Args:
             heading: The heading the robot followed at this decision, or ``None``.
@@ -95,13 +92,8 @@ class BeaconLink:
             if self._escape is not None:
                 self._escape.forget()
             return
-        ahead = cell_ahead(robot, heading.offset)
-        if self.config.obstacle_repulsion > 0 and self.surroundings.blocks(ahead):
-            self._place_stronger(
-                ahead, now, self.config.obstacle_repulsion, self.config.obstacle_decay
-            )
         if self._escape is not None:
-            escape = self._escape.check(robot, ahead, now)
+            escape = self._escape.check(robot, cell_ahead(robot, heading.offset), now)
             if escape is not None:
                 self._place_stronger(escape.cell, now, escape.strength, escape.decay)
 

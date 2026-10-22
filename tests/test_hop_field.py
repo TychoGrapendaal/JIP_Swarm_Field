@@ -26,6 +26,7 @@ from swarm_field.swarm import (
     BeaconMemory,
     ComposedAgent,
     DecisionContext,
+    EscapeConfig,
     FollowField,
     Heading,
     HopField,
@@ -37,6 +38,8 @@ from swarm_field.swarm.hop import cell_ahead
 
 _FIELD = FieldGeometry(width=10, height=10, cell_size=10.0, row_sp=0.0, in_row_sp=0.0, headland=0.0)
 _CONFIG = BeaconConfig()
+_ESCAPE = EscapeConfig(stuck_decisions=1)
+"""An escape that counts a robot stuck after a single decision without progress."""
 _MAP = AgentMemory(1, _FIELD)
 """The shared memory the hop field and behaviour are handed, empty: hop rules read beacons."""
 
@@ -230,11 +233,11 @@ def test_the_cell_ahead_is_the_neighbour_along_the_offset() -> None:
     assert cell_ahead((5, 5), (-0.1, -4.0)) == (5, 4)
 
 
-def test_an_obstacle_beacon_turns_the_heading_away_from_it() -> None:
+def test_a_placed_beacon_turns_the_heading_away_from_it() -> None:
     memory = _memory_hearing((1.0, (5, 0)))
-    memory.place((1, 1), 0, 1.0, BeaconConfig().obstacle_decay)
+    memory.place((1, 1), 0, 1.0, _ESCAPE.escape_decay)
 
-    heading = _heading(BeaconConfig(obstacle_repulsion=1.0), memory, (0, 0))
+    heading = _heading(_CONFIG, memory, (0, 0))
 
     assert heading is not None
     assert heading.offset[0] > 0
@@ -260,25 +263,24 @@ def _beacons_of(killer: ComposedAgent) -> BeaconMemory:
     return killer.beacon_link.memory
 
 
-def test_a_wall_beacon_does_not_weaken_an_escape_beacon_on_the_same_wall() -> None:
-    config = BeaconConfig(obstacle_repulsion=1.0)
-    killer = _hop_killer(config)
-    _beacons_of(killer).place((1, 0), 0, 4.0, config.obstacle_decay)
+def test_a_killer_stuck_against_a_wall_places_an_escape_beacon_on_it() -> None:
+    killer = _hop_killer(BeaconConfig(escape=_ESCAPE))
+
+    _killer_facing_a_wall(killer)
+
+    placed = [beacon.cell for beacon in _beacons_of(killer).placed_beacons()]
+    assert placed == [(1, 0)]
+
+
+def test_an_escape_does_not_weaken_a_stronger_beacon_on_its_cell() -> None:
+    killer = _hop_killer(BeaconConfig(escape=_ESCAPE))
+    _beacons_of(killer).place((1, 0), 0, 4.0, _ESCAPE.escape_decay)
 
     _killer_facing_a_wall(killer)
 
     kept = _beacons_of(killer).placed_beacon_at((1, 0))
     assert kept is not None
     assert kept.strength == 4.0
-
-
-def test_a_heading_into_a_wall_leaves_an_obstacle_beacon_on_it() -> None:
-    killer = _hop_killer(BeaconConfig(obstacle_repulsion=1.0))
-
-    _killer_facing_a_wall(killer)
-
-    placed = [beacon.cell for beacon in _beacons_of(killer).placed_beacons()]
-    assert placed == [(1, 0)]
 
 
 def test_beacon_memory_forgets_stale_beacons_old_sightings_and_faded_pushes() -> None:

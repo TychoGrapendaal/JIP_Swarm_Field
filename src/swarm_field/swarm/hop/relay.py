@@ -38,11 +38,8 @@ class BeaconConfig:
             distance in cells, at least one, to this power. 0 pulls equally from any distance,
             which holds a robot between several beacons at their geometric median; 1 makes such
             a point unstable, so the robot falls towards one of them.
-        obstacle_repulsion: How hard an obstacle beacon pushes at its own cell; 0 for no
-            obstacle beacons at all.
-        obstacle_range_cells: How far an obstacle beacon pushes; its push falls linearly to
-            nothing at this distance.
-        obstacle_decay: The decay time of an obstacle beacon's push with its age.
+        obstacle_range_cells: How far a beacon the robot placed to escape pushes; its push falls
+            linearly to nothing at this distance.
         escape: When a robot counts as stuck and how it escapes, or ``None`` for no escape.
     """
 
@@ -55,9 +52,7 @@ class BeaconConfig:
     max_value: float | None = None
     killer_repulsion: float = 0.0
     distance_power: float = 0.0
-    obstacle_repulsion: float = 0.0
     obstacle_range_cells: float = 3.0
-    obstacle_decay: Time = 10 * TimeUnit.MINUTE
     escape: EscapeConfig | None = None
 
 
