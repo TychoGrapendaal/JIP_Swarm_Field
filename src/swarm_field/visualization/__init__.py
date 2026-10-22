@@ -15,13 +15,14 @@ from swarm_field.visualization.matplotlib_renderer import (
     save_frames,
 )
 from swarm_field.visualization.renderer import TextRenderer
-from swarm_field.visualization.viewer import Arrow, Marker, SimulationViewer
+from swarm_field.visualization.viewer import Arrow, Marker, Polyline, SimulationViewer
 
 __all__ = [
     "Arrow",
     "FrameWriter",
     "Marker",
     "MatplotlibRenderer",
+    "Polyline",
     "Renderer",
     "RobotStyle",
     "SimulationViewer",

@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from swarm_field.contracts import BodyType, CellState, WorldSnapshot
+from swarm_field.contracts import BodyType, CellState, RobotId, RobotPublicState, WorldSnapshot
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
@@ -133,8 +133,16 @@ class MatplotlibRenderer:
         if body_styles is not None:
             self.body_styles.update(body_styles)
 
-    def render(self, snapshot: WorldSnapshot) -> None:
-        """Redraw the axes from ``snapshot``."""
+    def render(
+        self,
+        snapshot: WorldSnapshot,
+        positions: Mapping[RobotId, tuple[float, float]] | None = None,
+    ) -> None:
+        """Redraw the axes from ``snapshot``.
+
+        ``positions`` places robots at points of the field, in cells, instead of their cells'
+        centres, e.g. so that a moving robot glides; a robot missing from it sits on its cell.
+        """
         field = snapshot.field
         self.axes.clear()
         self.axes.imshow(
@@ -143,7 +151,7 @@ class MatplotlibRenderer:
             interpolation="none",
             extent=(0, field.width, 0, field.height),
         )
-        self._draw_robots(snapshot)
+        self._draw_robots(snapshot, positions or {})
         self.axes.set_aspect("equal")
         self.axes.set_xlim(0, field.width)
         self.axes.set_ylim(0, field.height)
@@ -166,7 +174,9 @@ class MatplotlibRenderer:
             f"coverage={sample.coverage:.3f} active={sample.active_robots}"
         )
 
-    def _draw_robots(self, snapshot: WorldSnapshot) -> None:
+    def _draw_robots(
+        self, snapshot: WorldSnapshot, positions: Mapping[RobotId, tuple[float, float]]
+    ) -> None:
         """Scatter live robots by body type, failed ones hollow, and link each to its target."""
         for body in BodyType:
             style = self.body_styles[body]
@@ -180,9 +190,10 @@ class MatplotlibRenderer:
             ):
                 if not group:
                     continue
+                points = [_robot_point(robot, positions) for robot in group]
                 self.axes.scatter(
-                    [robot.position[0] + 0.5 for robot in group],
-                    [robot.position[1] + 0.5 for robot in group],
+                    [point[0] for point in points],
+                    [point[1] for point in points],
                     s=style.size,
                     color=color,
                     facecolors=color if filled else "none",
@@ -210,6 +221,16 @@ class MatplotlibRenderer:
                         )
         if snapshot.robots:
             self.axes.legend(loc="upper right", markerscale=1.5)
+
+
+def _robot_point(
+    robot: RobotPublicState, positions: Mapping[RobotId, tuple[float, float]]
+) -> tuple[float, float]:
+    """Where a robot is drawn: its given position, else its cell's centre."""
+    point = positions.get(robot.robot_id)
+    if point is None:
+        return (robot.position[0] + 0.5, robot.position[1] + 0.5)
+    return point
 
 
 class FrameWriter:

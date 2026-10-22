@@ -38,7 +38,7 @@ from swarm_field.swarm.behavior import (
     FollowField,
     Intent,
 )
-from swarm_field.swarm.guidance import Heading
+from swarm_field.swarm.guidance import Guidance, Heading
 from swarm_field.swarm.hop.link import BeaconLink
 from swarm_field.swarm.memory import AgentMemory
 from swarm_field.swarm.navigator import Navigator
@@ -101,6 +101,7 @@ class ComposedAgent:
         self._current_target: CellId | None = None
         self._current_objective: AgentObjective | None = None
         self._heading: Heading | None = None
+        self._guidance: Guidance | None = None
 
     def decide(self, perception: Perception) -> Decision:
         received = self._facts_received(perception.inbox)
@@ -131,6 +132,7 @@ class ComposedAgent:
         self._current_target = None
         self._current_objective = None
         self._heading = None
+        self._guidance = None
         action: Action = Idle()
         if choice is not None:
             best = choice.candidate
@@ -147,6 +149,11 @@ class ComposedAgent:
                 self._heading, perception.self_state.position, perception.time
             )
         return Decision(action=action, outbox=self._messages_to_send(perception))
+
+    @property
+    def guidance(self) -> Guidance | None:
+        """The field's guidance the robot followed at its last decision, or ``None``."""
+        return self._guidance
 
     def inspect(self) -> AgentInspection:
         return AgentInspection(
@@ -169,6 +176,7 @@ class ComposedAgent:
         if field is None:
             logger.warning("Field %s has nothing to guide the robot to; idling", intent.seeder)
             return Idle(), None
+        self._guidance = field
         if isinstance(field, Heading):
             self._heading = field
         return self.navigator.step_towards(field, robot)

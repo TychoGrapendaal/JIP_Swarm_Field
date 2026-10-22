@@ -5,8 +5,10 @@
 viewer knows nothing of the simulation or the algorithm:
 
 - an overlay: one value from 0 to 1 per cell, e.g. how stale each cell is;
+- robot positions: where each robot is drawn, e.g. gliding between cells;
 - trails: the last cells each robot stood on;
 - goals: a dashed line from each robot to the cell it is heading for;
+- lines: any lines through points of the field, e.g. a planned route;
 - arrows: any arrows between points of the field, e.g. the pull on a robot;
 - markers: labelled dots at points of the field, e.g. what a robot knows;
 - a text panel: lines describing the run, e.g. its metrics.
@@ -44,6 +46,10 @@ GoalSource = Callable[[], Mapping[RobotId, CellId]]
 """The cell each robot is heading for."""
 PanelSource = Callable[[WorldSnapshot], Sequence[str]]
 """The lines of the text panel."""
+TitleSource = Callable[[WorldSnapshot], str]
+"""The title of a frame, e.g. with its time."""
+PositionSource = Callable[[WorldSnapshot], Mapping[RobotId, tuple[float, float]]]
+"""Where each robot is drawn, in cells, e.g. between two cells while it moves."""
 
 
 @dataclass(frozen=True)
@@ -90,10 +96,32 @@ MarkerSource = Callable[[WorldSnapshot], Sequence[Marker]]
 """The markers to draw on a frame."""
 
 
+@dataclass(frozen=True)
+class Polyline:
+    """A line through points of the field, in cells, e.g. a planned route.
+
+    Attributes:
+        points: The points it passes through, in order.
+        color: Its colour.
+        width: Its line width in points.
+        style: Its matplotlib line style, e.g. ``"--"`` for dashed.
+    """
+
+    points: tuple[tuple[float, float], ...]
+    color: str
+    width: float = 1.0
+    style: str = "-"
+
+
+PolylineSource = Callable[[WorldSnapshot], Sequence[Polyline]]
+"""The lines to draw on a frame."""
+
+
 class SimulationViewer:
     """Draws frames of a running simulation, with optional overlay, trails, goals and panel.
 
-    A ``title`` is written above the renderer's own title, e.g. to name an experiment in a video.
+    A ``title`` is written above the renderer's own title, e.g. to name an experiment in a video;
+    it can change per frame.
 
     Attributes:
         renderer: Draws the snapshot itself; its figure and axes are the viewer's.
@@ -113,7 +141,9 @@ class SimulationViewer:
         arrows: ArrowSource | None = None,
         markers: MarkerSource | None = None,
         body_styles: Mapping[BodyType, RobotStyle] | None = None,
-        title: str = "",
+        title: str | TitleSource = "",
+        positions: PositionSource | None = None,
+        lines: PolylineSource | None = None,
     ) -> None:
         self.renderer: MatplotlibRenderer = MatplotlibRenderer(
             figsize, show_targets=False, body_styles=body_styles
@@ -127,7 +157,9 @@ class SimulationViewer:
         self._panel: PanelSource | None = panel
         self._arrows: ArrowSource | None = arrows
         self._markers: MarkerSource | None = markers
-        self._title: str = title
+        self._title: str | TitleSource = title
+        self._positions: PositionSource | None = positions
+        self._lines: PolylineSource | None = lines
         self._trails: dict[RobotId, deque[CellId]] = {}
         self.renderer.figure.subplots_adjust(right=0.68)
         self._panel_text: Text = self.renderer.figure.text(
@@ -137,7 +169,10 @@ class SimulationViewer:
     def draw(self, time: Time) -> None:
         """Draw the frame of ``time``."""
         snapshot = self._source(time)
-        self.renderer.render(snapshot)
+        positions = None
+        if self._positions is not None:
+            positions = self._positions(snapshot)
+        self.renderer.render(snapshot, positions)
         axes = self.renderer.axes
         field = snapshot.field
         if self._overlay is not None:
@@ -157,10 +192,14 @@ class SimulationViewer:
                 axes.set_title(f"{axes.get_title()}\noverlay: {self._overlay_label}")
         self._draw_trails(snapshot)
         self._draw_goals(snapshot)
+        self._draw_lines(snapshot)
         self._draw_markers(snapshot)
         self._draw_arrows(snapshot)
-        if self._title:
-            axes.set_title(f"{self._title}\n{axes.get_title()}")
+        title = self._title
+        if not isinstance(title, str):
+            title = title(snapshot)
+        if title:
+            axes.set_title(f"{title}\n{axes.get_title()}")
         if self._panel is not None:
             self._panel_text.set_text("\n".join(self._panel(snapshot)))
 
@@ -188,6 +227,8 @@ class SimulationViewer:
 
     def _draw_trails(self, snapshot: WorldSnapshot) -> None:
         """Remember each robot's cell and draw its last ``trail_length`` cells."""
+        if self.trail_length == 0:
+            return
         for robot in snapshot.robots:
             trail = self._trails.setdefault(robot.robot_id, deque(maxlen=self.trail_length))
             if not trail or trail[-1] != robot.position:
@@ -215,6 +256,20 @@ class SimulationViewer:
                 linewidth=0.8,
             )
             self.renderer.axes.scatter([goal[0] + 0.5], [goal[1] + 0.5], marker="x", color=color)
+
+    def _draw_lines(self, snapshot: WorldSnapshot) -> None:
+        """Draw the lines of the frame, under the markers and arrows."""
+        if self._lines is None:
+            return
+        for line in self._lines(snapshot):
+            self.renderer.axes.plot(
+                [point[0] for point in line.points],
+                [point[1] for point in line.points],
+                color=line.color,
+                linewidth=line.width,
+                linestyle=line.style,
+                zorder=2.2,
+            )
 
     def _draw_markers(self, snapshot: WorldSnapshot) -> None:
         """Draw the markers of the frame, above the robots, each with its label."""
