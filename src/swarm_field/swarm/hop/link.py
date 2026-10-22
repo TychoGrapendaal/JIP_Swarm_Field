@@ -1,15 +1,16 @@
 """A robot's link to the beacon network: what it hears, what it places, and what it sends.
 
 ``ComposedAgent`` holds one ``BeaconLink`` per hop robot and calls it at three points of a
-decision: ``perceive`` with the perception, ``after_step`` with the heading the robot followed,
-and ``beacon_message`` for the outbox. Everything the hop method adds to a brain lives here, so
-the brain itself knows nothing of beacons.
+decision: ``perceive`` with the perception, ``after_step`` with the heading the robot followed
+and the action it took, and ``beacon_message`` for the outbox. Everything the hop method adds
+to a brain lives here, so the brain itself knows nothing of beacons.
 """
 
 import logging
 from typing import cast
 
 from swarm_field.contracts import (
+    Action,
     Beacon,
     CellId,
     FieldGeometry,
@@ -20,6 +21,7 @@ from swarm_field.contracts import (
     Perception,
     RobotId,
     Time,
+    Treat,
 )
 from swarm_field.swarm.guidance import Heading
 from swarm_field.swarm.hop.escape import StuckEscape, cell_ahead
@@ -54,6 +56,8 @@ class BeaconLink:
         self.memory: BeaconMemory = BeaconMemory()
         self.surroundings: SensedSurroundings = SensedSurroundings(field.width, field.height)
         self._robot_id: RobotId = robot_id
+        self._cell_size: float = field.cell_size
+        self._speed_mps: float = 0.0
         self._escape: StuckEscape | None = None
         if config.escape is not None:
             self._escape = StuckEscape(config.escape)
@@ -65,6 +69,7 @@ class BeaconLink:
         sightings older than ``source_for``, and placed beacons that faded.
         """
         now = perception.time
+        self._speed_mps = perception.self_state.speed_mps
         self.memory.forget(now - self.config.fresh_for, now - self.config.source_for, now)
         self.surroundings.sense(perception.sensed)
         for fact in perception.sensed:
@@ -78,24 +83,29 @@ class BeaconLink:
             ):
                 self.memory.note_body(message.sender, message.payload.body)
 
-    def after_step(self, heading: Heading | None, robot: CellId, now: Time) -> None:
+    def after_step(self, heading: Heading | None, action: Action, robot: CellId, now: Time) -> None:
         """Escape when the robot circles in place: place the beacon its ``StuckEscape`` hands out.
 
-        A decision without a heading starts the escape's window over.
+        A treatment starts the escape's record over: the robot stands still on purpose.
 
         Args:
             heading: The heading the robot followed at this decision, or ``None``.
+            action: The action the robot took at this decision.
             robot: The robot's cell.
             now: The time of the decision.
         """
-        if heading is None:
-            if self._escape is not None:
-                self._escape.forget()
+        if self._escape is None:
             return
-        if self._escape is not None:
-            escape = self._escape.check(robot, cell_ahead(robot, heading.offset), now)
-            if escape is not None:
-                self._place_stronger(escape.cell, now, escape.strength, escape.decay)
+        if isinstance(action, Treat):
+            self._escape.forget()
+            return
+        ahead: CellId | None = None
+        if heading is not None:
+            ahead = cell_ahead(robot, heading.offset)
+        speed = self._speed_mps / self._cell_size
+        escape = self._escape.check(robot, ahead, now, speed)
+        if escape is not None:
+            self._place_stronger(escape.cell, now, escape.strength, escape.decay)
 
     def beacon_message(self, perception: Perception) -> Message | None:
         """The robot's TREAT beacon as a message, or ``None`` if it has no beacon."""

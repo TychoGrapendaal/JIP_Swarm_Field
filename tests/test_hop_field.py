@@ -38,8 +38,8 @@ from swarm_field.swarm.hop import cell_ahead
 
 _FIELD = FieldGeometry(width=10, height=10, cell_size=10.0, row_sp=0.0, in_row_sp=0.0, headland=0.0)
 _CONFIG = BeaconConfig()
-_ESCAPE = EscapeConfig(stuck_decisions=1)
-"""An escape that counts a robot stuck after a single decision without progress."""
+_ESCAPE = EscapeConfig(window=0)
+"""An escape that judges a robot stuck at a single decision without progress."""
 _MAP = AgentMemory(1, _FIELD)
 """The shared memory the hop field and behaviour are handed, empty: hop rules read beacons."""
 

@@ -146,7 +146,7 @@ class ComposedAgent:
                 self._current_target = field_target
         if self.beacon_link is not None:
             self.beacon_link.after_step(
-                self._heading, perception.self_state.position, perception.time
+                self._heading, action, perception.self_state.position, perception.time
             )
         return Decision(action=action, outbox=self._messages_to_send(perception))
 

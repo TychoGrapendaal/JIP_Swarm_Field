@@ -57,11 +57,18 @@ $\text{Sign}$ is $+1$ for a beacon sent by a relay or a source. For a beacon sen
 
 ### Escaping when stuck (optional)
 
-A killer can be caught where pulls cancel: between pests that pull it equally hard, or where the pull runs into a wall. It then shuttles between two cells or paces in place. With `BeaconConfig.escape`, the killer measures its progress over its last `stuck_decisions` decisions on a heading:
+A killer can be caught where pulls cancel: between pests that pull it equally hard, or where the pull runs into a wall. It then shuttles between two cells or paces in place, and on the way it may lose its heading for a few decisions, for example when it steps out of range of the beacon that pulled it. With `BeaconConfig.escape`, the killer compares how far it got over the last `window` with how far its top speed would have taken it:
 
-$$\text{Progress} = \frac{\lVert c_{\text{last}} - c_{\text{first}} \rVert}{\sum_k \lVert c_{k+1} - c_k \rVert}$$
+$$\text{Progress} = \frac{\lVert c_{\text{now}} - c_{\text{first}} \rVert \cdot \text{CellSize}}{\text{TopSpeed} \cdot (t_{\text{now}} - t_{\text{first}})}$$
 
-Here $c_k$ is the killer's cell at the $k$-th of those decisions. Progress is 1 for a straight walk, near 0 for a shuttle, and 0 for standing still. A decision that follows no heading, such as a treatment, starts the window over. The window is 40 decisions (10 min) by default, because a move is under way for several decisions, and a ground killer's diagonal move alone takes 10.
+| Symbol | Meaning |
+| --- | --- |
+| $c_{\text{now}}$ | the killer's cell at the current decision |
+| $c_{\text{first}}, t_{\text{first}}$ | its cell and the time at the oldest decision of the window |
+| CellSize | the side of a cell in metres (10 m) |
+| TopSpeed | the killer's top speed, from its own state (0.1 m/s for a ground killer) |
+
+Progress is near 1 for a straight walk at full speed, near 0 for a shuttle, and 0 for standing still. The window is a time, 10 minutes by default, in which a ground killer can walk 6 cells. It must span several moves, because a moving killer reports the cell it left until it arrives, and one cell takes it 100 s. The killer judges itself only at a decision on a heading, and only once its record spans the whole window, but it records its cell at every decision: a killer that loses its heading while it circles is still circling. A treatment starts the record over, since the killer stands still on purpose. A heading after more than a window without one also starts it over, so a killer that waited for work is not stuck at its first step.
 
 When Progress is below `min_progress` (0.3), the killer places an **escape beacon** on the centre of the cells it was in, the place it circles around. Its push points from that centre to the killer, so it always says "leave this place". If the centre is the killer's own cell, as for a standstill, the beacon goes on the cell ahead along the heading instead, which is the wall when there is one. The beacon pushes `escape_strength` and fades with `escape_decay`. If the killer is stuck again within one cell of its last escape beacon while that beacon is younger than its decay time, the beacon is placed again on its own cell, with `escape_boost` times its strength and `escape_boost` times its decay time:
 
@@ -91,7 +98,7 @@ The escape cannot free a killer held at the geometric median of several pests by
 | KillerRepulsion | `killer_repulsion` | 2 |
 | DistancePower | `distance_power` | 0 (0.5 in `hop tuned`) |
 | ObstacleRange | `obstacle_range_cells` | 3 cells |
-| `stuck_decisions` | `escape.stuck_decisions` | 40 (escape off in `hop repel`) |
+| `window` | `escape.window` | 10 min (escape off in `hop repel`) |
 | `min_progress` | `escape.min_progress` | 0.3 (escape off in `hop repel`) |
 | EscapeStrength | `escape.escape_strength` | 1 (escape off in `hop repel`) |
 | EscapeDecayTime | `escape.escape_decay` | 10 min (escape off in `hop repel`) |
@@ -121,6 +128,8 @@ The main outcome is `infested`: the infested cells averaged over the run after a
 - **The distance weight and the escape add to `hop repel`.** Paired against `hop repel`, `hop tuned` leaves 0.48 ± 0.46 fewer infested cells at 15/h and 1.05 ± 0.52 fewer at 30/h, where more pests stand close together.
 
 These runs predate the `BeaconMemory` that forgets stale beacons and keeps the robot's own sightings apart from its peers' reports. Rerun at 15/h, 78 of the 80 hop runs give identical results with it, and the other two differ by 0.02 infested cells.
+
+They also predate the escape's time window and speed-aware progress (see the escape section). Rerun at 15/h on the same 20 seeds with it, `hop tuned` leaves 6.57 ± 0.51 infested cells against 6.60 ± 0.61, and the other arms are unchanged. On the two obstacle fields of `tests/benchmark_obstacles.py`, 8 paired seeds each, it leaves +0.50 ± 0.93 infested cells on the small field and +1.38 ± 1.24 on the large one, both within their standard error.
 
 ### Shuttles, the distance weight and the escape
 
@@ -161,6 +170,8 @@ These runs predate the `BeaconMemory` that forgets stale beacons and keeps the r
 **Two robots on one cell hold a value forever.** With metric hops and no minimum hop, a killer standing on a relay's cell takes the relay's value at no cost and broadcasts it, and the relay hears it back at no cost. The pair keeps a value that never rises, long after its pest was cleared, and killers sat motionless on such cells 83 % of the time. The minimum hop of one cell breaks the loop. Expiring beacons by the source's send time also fixed it; an inhibitor wave sent by the treating killer helped but did not fix it.
 
 **A killer on a relay shuttled back to a higher neighbour.** A killer standing on a relay's cell has its own hop number one minimum hop above that relay. A neighbouring relay just above the relay, but below the killer's own number, was therefore downhill and pulled the killer back, and from there the relay was downhill again. This happened wherever the next link of the chain was at the edge of the radio range, so that a killer passing the relay did not hear it. Killers shuttled in 39 % of their ten-minute windows on a heading. A robot on a beacon's cell now compares with that beacon's value.
+
+**The escape never fired on a killer that kept losing its heading.** The escape first measured progress over its last 40 decisions on a heading, as the distance between the first and last cell over the distance walked, and every decision without a heading started that window over. On the large obstacle field a single killer shuttled between two cells on a river bank for 77 minutes: on one cell a relay across the river pulled it into the river, the steerer slid it one cell along the bank, out of that relay's range, and the relay on its old cell pulled it back. Three or four decisions in each 15-decision cycle had no heading, so the window never held more than about 12 decisions and no escape beacon was placed. The score also ignored speed: a killer that stepped one cell and then stood still for nine minutes scored a perfect 1. The window is now a time, the score divides by the distance the killer's top speed allows, and only a treatment, or a long wait without any heading, starts it over.
 
 **Unit pulls hold a killer between pests.** With pulls of equal size from any distance, a killer surrounded by several pests of about the same strength settles at their geometric median, a stable point, and shuttles there. On the river this kept a killer from treating anything for 40 minutes. A distance weight makes that point unstable.
 
