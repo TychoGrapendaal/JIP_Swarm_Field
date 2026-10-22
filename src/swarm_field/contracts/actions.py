@@ -36,8 +36,19 @@ class Charge:
 
 
 @dataclass(frozen=True)
+class ReplaceBattery:
+    """Replace a co-located robot's depleted battery with a charged spare.
+
+    The simulation validates that the acting robot is a battery-support body, both robots share
+    a cell, the recipient can accept a replacement, and the support robot has a spare available.
+    """
+
+    robot_id: int
+
+
+@dataclass(frozen=True)
 class Idle:
     """Do nothing until the next decision point."""
 
 
-Action = Move | Treat | Charge | Idle
+Action = Move | Treat | Charge | ReplaceBattery | Idle

@@ -181,9 +181,11 @@ def test_energy_per_area_normalises_by_the_field_area() -> None:
     world.apply_action(1, Move(to=(1, 0)), time=0)
     taken = collector.sample(world, now=0, messages_sent=0)
 
-    # 16 cells of 10 m each is 1600 m^2; the move cost 0.01 for the decision and 10 m of travel.
-    assert world.energy_spent() == pytest.approx(0.01 + 0.0)
-    assert taken.energy_per_area == pytest.approx(world.energy_spent() / 1600)
+    # 16 cells of 10 m each is 1600 m^2. The move costs 0.01 for the
+    # decision plus 10 seconds of operation against the scout's 1800 s endurance.
+    expected_spend = 0.01 + 10 / 1800
+    assert world.energy_spent() == pytest.approx(expected_spend)
+    assert taken.energy_per_area == pytest.approx(expected_spend / 1600)
 
 
 def test_metric_sample_event_records_a_series_on_its_own_cadence() -> None:

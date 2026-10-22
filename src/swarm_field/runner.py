@@ -24,6 +24,7 @@ from typing import Any, TypeVar
 
 from swarm_field.contracts import (
     BodyType,
+    CellId,
     FailureMode,
     FailureSpec,
     FieldGeometry,
@@ -62,11 +63,13 @@ from swarm_field.swarm import (
     Behavior,
     ComposedAgent,
     ExploreConfig,
+    ExploreField,
     ExploreSeeder,
     FieldProvider,
     FieldSeeder,
-    FollowSeederField,
     Navigator,
+    Regroup,
+    RegroupSeeder,
     TreatInfestation,
     TreatSeeder,
     UtilityArbiter,
@@ -130,9 +133,9 @@ def _build_treat_seeder(params: dict[str, Any], rng: Random) -> TreatSeeder:
 
 
 @BEHAVIORS.register("explore")
-def _build_explore(params: dict[str, Any], rng: Random) -> FollowSeederField:
-    """Build the mock explore behaviour: an even bid to follow the EXPLORE seeder's field."""
-    return FollowSeederField(ExploreSeeder.name)
+def _build_explore(params: dict[str, Any], rng: Random) -> ExploreField:
+    """Build the memory-scored exploration behaviour for the EXPLORE seeder."""
+    return ExploreField(ExploreSeeder.name)
 
 
 @SEEDERS.register("explore")
@@ -140,6 +143,22 @@ def _build_explore_seeder(params: dict[str, Any], rng: Random) -> ExploreSeeder:
     """Build the EXPLORE seeder from the ``ExploreConfig`` under ``"explore"``, if given."""
     config: ExploreConfig | None = params.get("explore")
     return ExploreSeeder(config)
+
+
+@BEHAVIORS.register("regroup")
+def _build_regroup(params: dict[str, Any], rng: Random) -> Regroup:
+    """Build the regroup behaviour, with the silence timeout under ``"regroup-silence"`` and the
+    rally point under ``"rally-point"``, if given."""
+    silence: Time = params.get("regroup-silence", 2 * TimeUnit.MINUTE)
+    rally_point: CellId | None = params.get("rally-point")
+    return Regroup(RegroupSeeder.name, silence, rally_point)
+
+
+@SEEDERS.register("regroup")
+def _build_regroup_seeder(params: dict[str, Any], rng: Random) -> RegroupSeeder:
+    """Build the REGROUP seeder, with the rally point under ``"rally-point"``, if given."""
+    rally_point: CellId | None = params.get("rally-point")
+    return RegroupSeeder(rally_point=rally_point)
 
 
 @dataclass(frozen=True)

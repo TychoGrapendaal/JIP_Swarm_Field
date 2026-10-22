@@ -10,14 +10,20 @@ from swarm_field.contracts import BodyType, InjectInfestation, TimeUnit
 from swarm_field.experiments import LiveRun, PestScenario
 from tests.baselines import grid_sweep_brain
 
-_PEST = (4, 4)
-"""A cell a few cells from where the scouts start, on the bottom row."""
+_PEST = (2, 1)
+"""A cell next to where the scouts start, so it is sensed at once whatever route they explore."""
 
 
 def test_the_killers_clear_a_pest_the_scouts_find() -> None:
-    scenario = replace(PestScenario.smoke(seed=0), pests_per_hour=0.0, until=10 * TimeUnit.MINUTE)
+    # Treating takes an hour per unit of severity, so the pest does not grow and starts small.
+    scenario = replace(
+        PestScenario.smoke(seed=0),
+        pests_per_hour=0.0,
+        growth_rate=0.0,
+        until=15 * TimeUnit.MINUTE,
+    )
     run = LiveRun.from_config(scenario.into_experiment("smoke-test"))
-    run.apply_command(InjectInfestation(cell=_PEST, severity=0.5))
+    run.apply_command(InjectInfestation(cell=_PEST, severity=0.1))
 
     run.advance_to(run.horizon)
 
