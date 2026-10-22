@@ -2,7 +2,7 @@
 
 from swarm_field.contracts import CellId, Time, TimeUnit
 from swarm_field.swarm import EscapeConfig
-from swarm_field.swarm.escape import EscapeBeacon, StuckEscape
+from swarm_field.swarm.hop import EscapeBeacon, StuckEscape
 
 _DECAY = EscapeConfig().escape_decay
 

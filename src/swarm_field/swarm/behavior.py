@@ -12,16 +12,13 @@ from swarm_field.contracts import (
     CellId,
     Charge,
     Idle,
-    InfestationObservation,
     Message,
     Observation,
     RobotSelfState,
     Time,
     Treat,
 )
-from swarm_field.swarm.beacon import BeaconConfig
 from swarm_field.swarm.explore import ExploreConfig, ExploreSeeder, revisit_worths
-from swarm_field.swarm.hop_field import HopField, hop_pull
 from swarm_field.swarm.memory import MemoryView
 from swarm_field.swarm.seeder import TreatSeeder
 
@@ -113,7 +110,7 @@ class Behavior(Protocol):
 
 _TREAT = AgentObjective.TREAT
 
-_TREAT_SCORE = 0.99
+TREAT_SCORE = 0.99
 """The score of treating the pest the robot stands on.
 
 Just below 1, so that the battery behaviour can still outbid it to save the robot from dying.
@@ -133,7 +130,7 @@ class TreatInfestation:
         here = ctx.memory.infestation_at(position)
         if here is not None and here.severity > 0:
             treat = Treat(position)
-            return (ActionCandidate(treat, _TREAT_SCORE, self.name, position, _TREAT),)
+            return (ActionCandidate(treat, TREAT_SCORE, self.name, position, _TREAT),)
 
         num_pests = 0
         for pest in ctx.memory.infestations():
@@ -148,36 +145,6 @@ class TreatInfestation:
         # The more pests are left per killer already known, the more this robot is needed.
         score = 1 / (1 + math.exp(-(num_pests - num_killers)))
         return (ActionCandidate(FollowField(self._seeder), score, self.name, None, _TREAT),)
-
-
-class TreatByBeacon:
-    """The pest-response behaviour on hop beacons: follow the hop field and treat on arrival.
-
-    It knows of a pest only through the beacons the robot heard and its own sensing, never
-    through remembered pest cells. Its bid is the strength of the strongest attracting beacon
-    of the ``hop_pull`` the hop field follows, so it never commits to a field with nothing to
-    guide to, also when killers' beacons push.
-    """
-
-    name: str = "treat-hop"
-
-    def __init__(self, config: BeaconConfig, field: str = HopField.name) -> None:
-        self._config: BeaconConfig = config
-        self._field: str = field
-
-    def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
-        position = ctx.self_state.position
-        for fact in ctx.sensed:
-            if not isinstance(fact, InfestationObservation):
-                continue
-            if fact.cell == position and fact.severity > 0:
-                treat = Treat(position)
-                return (ActionCandidate(treat, _TREAT_SCORE, self.name, position, _TREAT),)
-
-        pull = hop_pull(ctx.memory, position, ctx.time, self._config)
-        if pull is None:
-            return ()
-        return (ActionCandidate(FollowField(self._field), pull.strength, self.name, None, _TREAT),)
 
 
 class ExploreBehaviour:

@@ -11,9 +11,12 @@ lasts longer, so it does not fade while the robot circles, and the robot eventua
 from collections import deque
 from dataclasses import dataclass
 from itertools import pairwise
-from math import dist, floor
+from math import copysign, dist, floor, hypot, radians, sin
 
-from swarm_field.contracts import CellId, Time, TimeUnit
+from swarm_field.contracts import CellId, Time, TimeUnit, Vector2
+
+_SIN_22_5 = sin(radians(22.5))
+"""Half the angle between two of the eight directions, as the sine that separates them."""
 
 
 @dataclass(frozen=True)
@@ -131,3 +134,20 @@ class StuckEscape:
 def _within_one_cell(a: CellId, b: CellId) -> bool:
     """Whether two cells are the same or neighbours, diagonals included."""
     return abs(a[0] - b[0]) <= 1 and abs(a[1] - b[1]) <= 1
+
+
+def cell_ahead(robot: CellId, offset: Vector2) -> CellId:
+    """The neighbouring cell the robot would step into along ``offset``, of the eight around it.
+
+    A component counts as a step when it is more than ``sin(22.5°)`` of the offset's length,
+    so the eight directions each cover an equal angle.
+    """
+    length = hypot(offset[0], offset[1])
+    step_x = 0
+    step_y = 0
+    if length > 0:
+        if abs(offset[0]) / length > _SIN_22_5:
+            step_x = int(copysign(1, offset[0]))
+        if abs(offset[1]) / length > _SIN_22_5:
+            step_y = int(copysign(1, offset[1]))
+    return (robot[0] + step_x, robot[1] + step_y)

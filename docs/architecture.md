@@ -190,7 +190,7 @@ class CapabilitySet:
     def can(self, action_type: type[Action]) -> bool: ...
 ```
 
-**The guidance port.** An `ObjectiveField` turns the robot's memory into `Guidance` for one objective. Two adapters exist. `SeededObjectiveField` wraps a `FieldSeeder` and returns a `SeededField`, the Dijkstra potential field the `Navigator` plans along. `HopField` reads the hop beacons the robot heard and returns a `Heading`, which the `Navigator` hands straight to its `Steerer`. A brain picks one field per objective by name: a behaviour proposes `FollowField(name)`, and the runner registers that name in `SEEDERS` (a seeder, wrapped by the provider) or in `FIELDS` (any other objective field). Behaviours still never read a field: `TreatByBeacon` bids from the beacons in the robot's memory, not from the `HopField`. The hop field is described in [`research/hop-field.md`](research/hop-field.md).
+**The guidance port.** An `ObjectiveField` turns the robot's memory into `Guidance` for one objective. Two adapters exist. `SeededObjectiveField` wraps a `FieldSeeder` and returns a `SeededField`, the Dijkstra potential field the `Navigator` plans along. `HopField` reads the hop beacons the robot heard and returns a `Heading`, which the `Navigator` hands straight to its `Steerer`. A brain picks one field per objective by name: a behaviour proposes `FollowField(name)`, and the runner registers that name in `SEEDERS` (a seeder, wrapped by the provider) or in `FIELDS` (any other objective field). Behaviours still never read a field: `TreatByBeacon` bids from the robot's beacons, not from the `HopField`. Everything of the hop method lives in the package `swarm/hop/`. Its parts read the robot's beacons through a `BeaconView` of its own `BeaconMemory`, which has no terrain, pest cells or quadtree, so the type checker keeps them off the map. A `BeaconLink` per hop robot connects the method to the brain. The hop field is described in [`research/hop-field.md`](research/hop-field.md).
 
 ### A.3 The orchestrator
 
@@ -244,7 +244,7 @@ flowchart TB
     OUT --> D
 ```
 
-In the code, communication is not a separate `CommsStrategy` part yet: `ComposedAgent` encodes and decodes its messages itself. Every decision it broadcasts a `STATUS` message with its cell and target. It adds a `KNOWLEDGE` message with the memory facts its `KnowledgeSharing` selects, which may be none. With a `BeaconConfig` it also broadcasts a `BEACON` message with its TREAT hop value from `treat_beacon`. Received beacons are kept in memory apart from the facts, so they are never gossiped on. `BrainSpec.sharing` and `BrainSpec.beacons` set both per robot.
+In the code, communication is not a separate `CommsStrategy` part yet: `ComposedAgent` encodes and decodes its messages itself. Every decision it broadcasts a `STATUS` message with its cell and target. It adds a `KNOWLEDGE` message with the memory facts its `KnowledgeSharing` selects, which may be none. A robot with a `BeaconConfig` has a `BeaconLink`, which hears the `BEACON` messages, places the beacons that push the robot off walls and out of places it circles in, and adds a `BEACON` message with the robot's TREAT hop value from `treat_beacon`. The brain calls it at three points of a decision and knows nothing else of beacons. Received beacons are kept in the link's `BeaconMemory`, apart from the facts, so they are never gossiped on. `BrainSpec.sharing` and `BrainSpec.beacons` set both per robot.
 
 ### A.4 Assembly (data‑driven)
 

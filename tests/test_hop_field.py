@@ -1,5 +1,7 @@
 """Tests for the hop field and the pest response on hop beacons."""
 
+from random import Random
+
 from swarm_field.contracts import (
     Beacon,
     BeaconKind,
@@ -11,38 +13,43 @@ from swarm_field.contracts import (
     MessageKind,
     Move,
     Observation,
-    PeerObservation,
     Perception,
     RobotSelfState,
     Terrain,
     TerrainObservation,
     Treat,
 )
+from swarm_field.runner import BrainSpec, build_agent
 from swarm_field.swarm import (
     AgentMemory,
     BeaconConfig,
+    BeaconMemory,
     ComposedAgent,
     DecisionContext,
-    FieldProvider,
     FollowField,
+    Heading,
     HopField,
     KnowledgeSharing,
-    Navigator,
     TreatByBeacon,
-    UtilityArbiter,
     treat_beacon,
 )
-from swarm_field.swarm.hop_field import cell_ahead
+from swarm_field.swarm.hop import cell_ahead
 
 _FIELD = FieldGeometry(width=10, height=10, cell_size=10.0, row_sp=0.0, in_row_sp=0.0, headland=0.0)
 _CONFIG = BeaconConfig()
+_MAP = AgentMemory(1, _FIELD)
+"""The shared memory the hop field and the source rule are handed, empty: hop rules read beacons."""
 
 
-def _memory_hearing(*beacons: tuple[float, CellId]) -> AgentMemory:
-    memory = AgentMemory(1, _FIELD)
+def _memory_hearing(*beacons: tuple[float, CellId]) -> BeaconMemory:
+    memory = BeaconMemory()
     for sender, (value, cell) in enumerate(beacons, start=2):
-        memory.hear_beacons(sender, 0, [Beacon(BeaconKind.TREAT, value, cell)])
+        memory.hear(sender, 0, [Beacon(BeaconKind.TREAT, value, cell)])
     return memory
+
+
+def _heading(config: BeaconConfig, beacons: BeaconMemory, robot: CellId) -> Heading | None:
+    return HopField(config, beacons).guidance_for(_MAP, robot, 0)
 
 
 def _self_state(position: CellId) -> RobotSelfState:
@@ -60,7 +67,7 @@ def _self_state(position: CellId) -> RobotSelfState:
 def test_only_the_lowest_beacons_pull_the_robot() -> None:
     memory = _memory_hearing((1.0, (5, 0)), (2.0, (0, 5)), (3.0, (0, 0)), (3.0, (2, 2)))
 
-    heading = HopField(_CONFIG).guidance_for(memory, (0, 0), 0)
+    heading = _heading(_CONFIG, memory, (0, 0))
 
     assert heading is not None
     assert heading.offset == (5.0, 0.0)
@@ -70,7 +77,7 @@ def test_only_the_lowest_beacons_pull_the_robot() -> None:
 def test_beacons_at_the_same_value_pull_together() -> None:
     memory = _memory_hearing((1.0, (4, 0)), (1.0, (0, 4)))
 
-    heading = HopField(_CONFIG).guidance_for(memory, (0, 0), 0)
+    heading = _heading(_CONFIG, memory, (0, 0))
 
     assert heading is not None
     assert heading.offset[0] > 0
@@ -80,23 +87,23 @@ def test_beacons_at_the_same_value_pull_together() -> None:
 def test_a_robot_on_a_relay_is_not_pulled_back_to_a_higher_neighbour() -> None:
     memory = _memory_hearing((1.5, (3, 1)), (1.7, (3, 2)))
 
-    assert HopField(BeaconConfig(hop_cells=2.0)).guidance_for(memory, (3, 1), 0) is None
+    assert _heading(BeaconConfig(hop_cells=2.0), memory, (3, 1)) is None
 
 
 def test_between_two_equal_beacons_a_distance_weighted_pull_leads_to_the_nearer_one() -> None:
     memory = _memory_hearing((0.0, (0, 0)), (0.0, (10, 0)))
 
-    unit = HopField(_CONFIG).guidance_for(memory, (4, 0), 0)
-    weighted = HopField(BeaconConfig(distance_power=1.0)).guidance_for(memory, (4, 0), 0)
+    unit = _heading(_CONFIG, memory, (4, 0))
+    weighted = _heading(BeaconConfig(distance_power=1.0), memory, (4, 0))
 
     assert unit is None
     assert weighted is not None
     assert weighted.offset[0] < 0
 
 
-def _bids(memory: AgentMemory, position: CellId, sensed: list[Observation]) -> list[object]:
-    ctx = DecisionContext(time=0, self_state=_self_state(position), sensed=sensed, memory=memory)
-    return [candidate.action for candidate in TreatByBeacon(_CONFIG).propose(ctx)]
+def _bids(memory: BeaconMemory, position: CellId, sensed: list[Observation]) -> list[object]:
+    ctx = DecisionContext(time=0, self_state=_self_state(position), sensed=sensed, memory=_MAP)
+    return [candidate.action for candidate in TreatByBeacon(_CONFIG, memory).propose(ctx)]
 
 
 def test_a_robot_on_a_pest_treats_it_and_bids_on_beacons_otherwise() -> None:
@@ -107,7 +114,7 @@ def test_a_robot_on_a_pest_treats_it_and_bids_on_beacons_otherwise() -> None:
 
     assert _bids(memory, (3, 3), [pest]) == [Treat((3, 3))]
     assert _bids(memory, (0, 0), []) == [FollowField(HopField.name)]
-    assert _bids(AgentMemory(1, _FIELD), (0, 0), []) == []
+    assert _bids(BeaconMemory(), (0, 0), []) == []
 
 
 def test_a_robot_does_not_bid_on_a_beacon_on_its_own_cell() -> None:
@@ -116,19 +123,18 @@ def test_a_robot_does_not_bid_on_a_beacon_on_its_own_cell() -> None:
     assert _bids(cleared_pest, (3, 3), []) == []
 
 
-def test_a_hop_killer_steps_towards_the_beacon_it_hears() -> None:
-    memory = AgentMemory(1, _FIELD)
-    fields = FieldProvider(memory, flies=False, fields=[HopField(_CONFIG)])
-    killer = ComposedAgent(
-        robot_id=1,
-        behaviors=[TreatByBeacon(_CONFIG)],
-        memory=memory,
-        fields=fields,
-        navigator=Navigator(fields.quadtree),
-        arbiter=UtilityArbiter(),
+def _hop_killer(config: BeaconConfig) -> ComposedAgent:
+    spec = BrainSpec(
+        behaviors=(TreatByBeacon.name,),
+        seeders=(HopField.name,),
         sharing=KnowledgeSharing.NOTHING,
-        beacons=_CONFIG,
+        beacons=config,
     )
+    return build_agent(spec, 1, _FIELD, Random(0))
+
+
+def test_a_hop_killer_steps_towards_the_beacon_it_hears() -> None:
+    killer = _hop_killer(_CONFIG)
     beacon = Message(
         sender=2,
         sent_at=0,
@@ -148,7 +154,7 @@ def test_with_metric_hops_a_small_gamma_follows_the_lowest_beacon() -> None:
     memory = _memory_hearing((1.0, (0, 4)), (2.0, (4, 0)))
     near_literal = BeaconConfig(gamma=0.01, hop_cells=2.0)
 
-    heading = HopField(near_literal).guidance_for(memory, (0, 0), 0)
+    heading = _heading(near_literal, memory, (0, 0))
 
     assert heading is not None
     assert heading.target == (0, 4)
@@ -159,7 +165,7 @@ def test_with_metric_hops_a_small_gamma_follows_the_lowest_beacon() -> None:
 def test_with_metric_hops_a_robot_on_a_relay_follows_the_relays_downhill_beacons() -> None:
     memory = _memory_hearing((2.0, (0, 0)), (1.5, (3, 0)))
 
-    heading = HopField(BeaconConfig(hop_cells=2.0)).guidance_for(memory, (0, 0), 0)
+    heading = _heading(BeaconConfig(hop_cells=2.0), memory, (0, 0))
 
     assert heading is not None
     assert heading.target == (3, 0)
@@ -168,8 +174,8 @@ def test_with_metric_hops_a_robot_on_a_relay_follows_the_relays_downhill_beacons
 def test_two_robots_on_one_cell_do_not_hold_each_others_value() -> None:
     memory = _memory_hearing((3.0, (0, 0)))
 
-    heading = HopField(BeaconConfig(hop_cells=2.0)).guidance_for(memory, (0, 0), 0)
-    beacon = treat_beacon(memory, 1, (0, 0), 0, BeaconConfig(hop_cells=2.0))
+    heading = _heading(BeaconConfig(hop_cells=2.0), memory, (0, 0))
+    beacon = treat_beacon(memory, _MAP, 1, (0, 0), 0, BeaconConfig(hop_cells=2.0))
 
     assert heading is None
     assert beacon == Beacon(BeaconKind.TREAT, 3.5, (0, 0))
@@ -178,26 +184,23 @@ def test_two_robots_on_one_cell_do_not_hold_each_others_value() -> None:
 def test_beacons_above_the_cap_are_ignored_and_not_relayed() -> None:
     capped = BeaconConfig(max_value=4.0)
 
-    assert treat_beacon(_memory_hearing((4.5, (1, 0))), 1, (0, 0), 0, capped) is None
-    assert treat_beacon(_memory_hearing((3.5, (1, 0))), 1, (0, 0), 0, capped) is None
-    assert treat_beacon(_memory_hearing((3.0, (1, 0))), 1, (0, 0), 0, capped) == Beacon(
+    assert treat_beacon(_memory_hearing((4.5, (1, 0))), _MAP, 1, (0, 0), 0, capped) is None
+    assert treat_beacon(_memory_hearing((3.5, (1, 0))), _MAP, 1, (0, 0), 0, capped) is None
+    assert treat_beacon(_memory_hearing((3.0, (1, 0))), _MAP, 1, (0, 0), 0, capped) == Beacon(
         BeaconKind.TREAT, 4.0, (0, 0)
     )
 
 
-def _memory_with_a_killer_east() -> AgentMemory:
+def _memory_with_a_killer_east() -> BeaconMemory:
     memory = _memory_hearing((1.0, (0, 4)), (1.0, (4, 0)))
-    killer = PeerObservation(
-        cell=(4, 0), confidence=1.0, observed_at=0, source=3, peer=3, body=BodyType.KILLER
-    )
-    memory.merge([killer])
+    memory.note_body(3, BodyType.KILLER)
     return memory
 
 
 def test_a_killer_ahead_counters_the_pull_of_its_level() -> None:
     config = BeaconConfig(killer_repulsion=1.0)
 
-    heading = HopField(config).guidance_for(_memory_with_a_killer_east(), (0, 0), 0)
+    heading = _heading(config, _memory_with_a_killer_east(), (0, 0))
 
     assert heading is not None
     assert heading.target == (0, 4)
@@ -205,7 +208,7 @@ def test_a_killer_ahead_counters_the_pull_of_its_level() -> None:
 
 
 def test_without_repulsion_a_killers_beacon_pulls_like_any_other() -> None:
-    heading = HopField(_CONFIG).guidance_for(_memory_with_a_killer_east(), (0, 0), 0)
+    heading = _heading(_CONFIG, _memory_with_a_killer_east(), (0, 0))
 
     assert heading is not None
     assert heading.offset[0] == heading.offset[1]
@@ -213,14 +216,11 @@ def test_without_repulsion_a_killers_beacon_pulls_like_any_other() -> None:
 
 def test_a_robot_does_not_bid_when_only_a_killer_is_downhill() -> None:
     memory = _memory_hearing((1.0, (4, 0)))
-    killer = PeerObservation(
-        cell=(4, 0), confidence=1.0, observed_at=0, source=2, peer=2, body=BodyType.KILLER
-    )
-    memory.merge([killer])
-    ctx = DecisionContext(time=0, self_state=_self_state((0, 0)), sensed=[], memory=memory)
+    memory.note_body(2, BodyType.KILLER)
+    ctx = DecisionContext(time=0, self_state=_self_state((0, 0)), sensed=[], memory=_MAP)
 
-    assert TreatByBeacon(BeaconConfig(killer_repulsion=1.0)).propose(ctx) == ()
-    assert TreatByBeacon(_CONFIG).propose(ctx) != ()
+    assert TreatByBeacon(BeaconConfig(killer_repulsion=1.0), memory).propose(ctx) == ()
+    assert TreatByBeacon(_CONFIG, memory).propose(ctx) != ()
 
 
 def test_the_cell_ahead_is_the_neighbour_along_the_offset() -> None:
@@ -231,30 +231,19 @@ def test_the_cell_ahead_is_the_neighbour_along_the_offset() -> None:
 
 def test_an_obstacle_beacon_turns_the_heading_away_from_it() -> None:
     memory = _memory_hearing((1.0, (5, 0)))
-    memory.place_obstacle_beacon((1, 1), 0, 1.0)
+    memory.place((1, 1), 0, 1.0, BeaconConfig().obstacle_decay)
 
-    heading = HopField(BeaconConfig(obstacle_repulsion=1.0)).guidance_for(memory, (0, 0), 0)
+    heading = _heading(BeaconConfig(obstacle_repulsion=1.0), memory, (0, 0))
 
     assert heading is not None
     assert heading.offset[0] > 0
     assert heading.offset[1] < 0
 
 
-def _killer_facing_a_wall(config: BeaconConfig, memory: AgentMemory) -> None:
+def _killer_facing_a_wall(killer: ComposedAgent) -> None:
     """One decision of a killer at (0, 0), pulled east into a wall on (1, 0)."""
     wall = TerrainObservation(
         cell=(1, 0), confidence=1.0, observed_at=0, source=1, terrain=Terrain.OBSTACLE
-    )
-    fields = FieldProvider(memory, flies=False, fields=[HopField(config)])
-    killer = ComposedAgent(
-        robot_id=1,
-        behaviors=[TreatByBeacon(config)],
-        memory=memory,
-        fields=fields,
-        navigator=Navigator(fields.quadtree),
-        arbiter=UtilityArbiter(),
-        sharing=KnowledgeSharing.NOTHING,
-        beacons=config,
     )
     beacon = Message(
         sender=2,
@@ -265,21 +254,27 @@ def _killer_facing_a_wall(config: BeaconConfig, memory: AgentMemory) -> None:
     killer.decide(Perception(time=0, self_state=_self_state((0, 0)), sensed=[wall], inbox=[beacon]))
 
 
+def _beacons_of(killer: ComposedAgent) -> BeaconMemory:
+    assert killer.beacon_link is not None
+    return killer.beacon_link.memory
+
+
 def test_a_wall_beacon_does_not_weaken_an_escape_beacon_on_the_same_wall() -> None:
-    memory = AgentMemory(1, _FIELD)
-    memory.place_obstacle_beacon((1, 0), 0, 4.0)
+    config = BeaconConfig(obstacle_repulsion=1.0)
+    killer = _hop_killer(config)
+    _beacons_of(killer).place((1, 0), 0, 4.0, config.obstacle_decay)
 
-    _killer_facing_a_wall(BeaconConfig(obstacle_repulsion=1.0), memory)
+    _killer_facing_a_wall(killer)
 
-    kept = memory.obstacle_beacon_at((1, 0))
+    kept = _beacons_of(killer).placed_beacon_at((1, 0))
     assert kept is not None
-    assert kept.beacon.value == 4.0
+    assert kept.strength == 4.0
 
 
 def test_a_heading_into_a_wall_leaves_an_obstacle_beacon_on_it() -> None:
-    memory = AgentMemory(1, _FIELD)
+    killer = _hop_killer(BeaconConfig(obstacle_repulsion=1.0))
 
-    _killer_facing_a_wall(BeaconConfig(obstacle_repulsion=1.0), memory)
+    _killer_facing_a_wall(killer)
 
-    placed = [heard.beacon.cell for heard in memory.beacons(BeaconKind.OBSTACLE)]
+    placed = [beacon.cell for beacon in _beacons_of(killer).placed_beacons()]
     assert placed == [(1, 0)]

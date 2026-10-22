@@ -1,5 +1,7 @@
 """Tests for hop beacons: sources, relaying and freshness."""
 
+from random import Random
+
 from swarm_field.contracts import (
     Beacon,
     BeaconKind,
@@ -15,32 +17,17 @@ from swarm_field.contracts import (
     Time,
     TimeUnit,
 )
-from swarm_field.swarm import (
-    AgentMemory,
-    BeaconConfig,
-    ComposedAgent,
-    FieldProvider,
-    KnowledgeSharing,
-    Navigator,
-    UtilityArbiter,
-)
+from swarm_field.runner import BrainSpec, build_agent
+from swarm_field.swarm import BeaconConfig, ComposedAgent, KnowledgeSharing
 
 _FIELD = FieldGeometry(width=10, height=10, cell_size=10.0, row_sp=0.0, in_row_sp=0.0, headland=0.0)
 
 
 def _relay(robot_id: int) -> ComposedAgent:
-    memory = AgentMemory(robot_id, _FIELD)
-    fields = FieldProvider(memory, flies=False, seeders=[])
-    return ComposedAgent(
-        robot_id=robot_id,
-        behaviors=[],
-        memory=memory,
-        fields=fields,
-        navigator=Navigator(fields.quadtree),
-        arbiter=UtilityArbiter(),
-        sharing=KnowledgeSharing.NOTHING,
-        beacons=BeaconConfig(),
+    spec = BrainSpec(
+        behaviors=(), seeders=(), sharing=KnowledgeSharing.NOTHING, beacons=BeaconConfig()
     )
+    return build_agent(spec, robot_id, _FIELD, Random(0))
 
 
 def _perception(

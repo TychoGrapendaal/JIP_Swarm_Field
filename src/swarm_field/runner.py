@@ -60,6 +60,8 @@ from swarm_field.swarm import (
     AgentMemory,
     ArbiterConfig,
     BeaconConfig,
+    BeaconLink,
+    BeaconView,
     Behavior,
     ComposedAgent,
     ExploreConfig,
@@ -71,7 +73,6 @@ from swarm_field.swarm import (
     KnowledgeSharing,
     Navigator,
     ObjectiveField,
-    SensedSurroundings,
     TreatByBeacon,
     TreatInfestation,
     TreatSeeder,
@@ -140,25 +141,29 @@ def _build_treat_by_beacon(params: dict[str, Any], rng: Random) -> TreatByBeacon
     seeders: tuple[str, ...] = tuple(params.get("seeders", (HopField.name,)))
     if not seeders:
         raise ValueError(f"{TreatByBeacon.name} needs a field to follow")
-    return TreatByBeacon(_beacon_config(params, TreatByBeacon.name), seeders[0])
+    config, beacons = _beacon_parts(params, TreatByBeacon.name)
+    return TreatByBeacon(config, beacons, seeders[0])
 
 
 @FIELDS.register(HopField.name)
 def _build_hop_field(params: dict[str, Any], rng: Random) -> HopField:
-    """Build the hop field of the TREAT beacons."""
-    return HopField(_beacon_config(params, f"the {HopField.name} field"))
+    """Build the hop field of the TREAT beacons, over the robot's own beacons."""
+    config, beacons = _beacon_parts(params, f"the {HopField.name} field")
+    return HopField(config, beacons)
 
 
-def _beacon_config(params: dict[str, Any], part: str) -> BeaconConfig:
-    """The spec's ``BeaconConfig``.
+def _beacon_parts(params: dict[str, Any], part: str) -> tuple[BeaconConfig, BeaconView]:
+    """The spec's ``BeaconConfig``, and the robot's beacons from its ``BeaconLink``.
 
     Raises:
-        ValueError: If the spec has none, so its robots keep and broadcast no beacons.
+        ValueError: If the spec has no ``BeaconConfig``, so its robots keep and broadcast no
+            beacons.
     """
     config: BeaconConfig | None = params.get("beacons")
-    if config is None:
+    beacons: BeaconView | None = params.get("beacon_view")
+    if config is None or beacons is None:
         raise ValueError(f"{part} needs BrainSpec.beacons")
-    return config
+    return config, beacons
 
 
 @SEEDERS.register("treat")
@@ -605,18 +610,20 @@ def build_agent(
     The robot's ``BodyType`` is not a parameter: ``ComposedAgent`` has no capability gate to
     apply it in, so a body gets its own brain through ``ExperimentConfig.brains_by_body``
     instead (architecture §A.3). The robot's memory starts with ``terrain``. A brain with
-    beacons steers from what it senses around itself at each decision only, not from a map.
+    beacons gets a ``BeaconLink``, whose beacons its hop parts read, and steers headings from
+    what it senses around itself at each decision only, not from a map.
     """
     memory = AgentMemory(robot_id, field)
     memory.merge(terrain)
-    behaviors: list[Behavior] = [
-        BEHAVIORS.build(name, _params_for(spec), rng) for name in spec.behaviors
-    ]
-    fields = build_field_provider(spec, memory, rng)
-    surroundings = SensedSurroundings(field.width, field.height)
-    navigator = Navigator(fields.quadtree)
+    link: BeaconLink | None = None
     if spec.beacons is not None:
-        navigator = Navigator(fields.quadtree, sensing=surroundings)
+        link = BeaconLink(robot_id, spec.beacons, field, memory)
+    params = _params_for(spec, link)
+    behaviors: list[Behavior] = [BEHAVIORS.build(name, params, rng) for name in spec.behaviors]
+    fields = build_field_provider(spec, memory, rng, link)
+    navigator = Navigator(fields.quadtree)
+    if link is not None:
+        navigator = Navigator(fields.quadtree, heading_sensing=link.surroundings)
     return ComposedAgent(
         robot_id=robot_id,
         behaviors=behaviors,
@@ -625,8 +632,7 @@ def build_agent(
         navigator=navigator,
         arbiter=UtilityArbiter(spec.arbiter),
         sharing=spec.sharing,
-        beacons=spec.beacons,
-        surroundings=surroundings,
+        beacon_link=link,
     )
 
 
@@ -643,16 +649,27 @@ def terrain_map(world: WorldState) -> list[TerrainObservation]:
     return facts
 
 
-def _params_for(spec: BrainSpec) -> dict[str, Any]:
-    """The spec's shared parameters, with the seeders the spec names folded in.
+def _params_for(spec: BrainSpec, link: BeaconLink | None = None) -> dict[str, Any]:
+    """The spec's shared parameters, with the seeders, beacons and robot's beacon view folded in.
 
     The seeders and beacons are fields of their own rather than parameters so that swapping one
-    does not mean restating it, and so that the spec gives each in one place.
+    does not mean restating it, and so that the spec gives each in one place. The beacon view is
+    the robot's own, for the hop parts built for that robot.
     """
-    return {**spec.params, "seeders": spec.seeders, "beacons": spec.beacons}
+    beacon_view: BeaconView | None = None
+    if link is not None:
+        beacon_view = link.memory
+    return {
+        **spec.params,
+        "seeders": spec.seeders,
+        "beacons": spec.beacons,
+        "beacon_view": beacon_view,
+    }
 
 
-def build_field_provider(spec: BrainSpec, memory: AgentMemory, rng: Random) -> FieldProvider:
+def build_field_provider(
+    spec: BrainSpec, memory: AgentMemory, rng: Random, link: BeaconLink | None = None
+) -> FieldProvider:
     """Build the objective fields of the navigator named by a spec: its seeders and its fields.
 
     A name is looked up in ``FIELDS`` first, then in ``SEEDERS``.
@@ -666,7 +683,7 @@ def build_field_provider(spec: BrainSpec, memory: AgentMemory, rng: Random) -> F
     """
     if spec.navigator != "potential-field":
         raise ValueError(f"unknown navigator: {spec.navigator}")
-    params = _params_for(spec)
+    params = _params_for(spec, link)
     seeders: list[FieldSeeder] = []
     fields: list[ObjectiveField] = []
     for name in spec.seeders:

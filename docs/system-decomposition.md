@@ -463,7 +463,7 @@ flowchart LR
 - **Consumes:** `inbox` from Perception + knowledge from A.2. **Provides:** `outbox` messages; merged updates back into A.2.
 - **NOT its concern:** *who* receives a message (B.3 owns range / delivery); rendering.
 - **Open decisions (team):** map‑merge (share specific points) vs. vicinity‑vector (share aggregated attraction / repulsion) — mind map A.3 / A.4. **This choice lives entirely inside the opaque `Message.payload` and does not affect any other module.**
-- **Status:** `ComposedAgent` broadcasts its `STATUS` every decision. It adds a `KNOWLEDGE` message with the facts its `KnowledgeSharing` selects. With a `BeaconConfig` it also broadcasts a `BEACON` message with its TREAT hop value. The beacons form a hop gradient towards a pest, which the `HopField` follows, see [`research/hop-field.md`](./research/hop-field.md).
+- **Status:** `ComposedAgent` broadcasts its `STATUS` every decision. It adds a `KNOWLEDGE` message with the facts its `KnowledgeSharing` selects. With a `BeaconConfig` its `BeaconLink` also broadcasts a `BEACON` message with its TREAT hop value. The beacons form a hop gradient towards a pest, which the `HopField` follows, see [`research/hop-field.md`](./research/hop-field.md).
 
 ---
 

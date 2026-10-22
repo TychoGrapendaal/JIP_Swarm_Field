@@ -33,12 +33,10 @@ class MessageKind(Enum):
 class BeaconKind(Enum):
     """What a beacon marks.
 
-    ``TREAT`` beacons guide killers to a pest, and robots relay them. ``OBSTACLE`` beacons mark
-    a cell a robot ran into; they push instead of pull and stay with the robot that placed them.
+    ``TREAT`` beacons guide killers to a pest, and robots relay them.
     """
 
     TREAT = auto()
-    OBSTACLE = auto()
 
 
 @dataclass(frozen=True)

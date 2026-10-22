@@ -42,13 +42,21 @@ from swarm_field.contracts import (
 from swarm_field.experiments import LiveRun, PestScenario
 from swarm_field.swarm import (
     BeaconConfig,
+    BeaconMemory,
+    BeaconView,
+    ComposedAgent,
     EscapeConfig,
     KnowledgeSharing,
-    MemoryView,
     treat_beacon,
 )
-from swarm_field.swarm.beacon import beacon_strength, downhill_beacons, fresh_beacons, own_value
-from swarm_field.swarm.hop_field import hop_pull, obstacle_push
+from swarm_field.swarm.hop import (
+    beacon_strength,
+    downhill_beacons,
+    fresh_beacons,
+    hop_pull,
+    obstacle_push,
+    own_value,
+)
 from swarm_field.visualization import Arrow, Marker, RobotStyle, SimulationViewer
 
 OBSTACLE_SHOWN_DECAYS = 3.0
@@ -127,7 +135,7 @@ class HopExplainer:
         for robot in snapshot.robots:
             if robot.body is not BodyType.KILLER:
                 continue
-            memory = agents[robot.robot_id].memory
+            memory = _beacons_of(agents[robot.robot_id])
             now = snapshot.time
             pulling: set[CellId] = set()
             for heard in downhill_beacons(memory, robot.position, now, self._config):
@@ -139,13 +147,13 @@ class HopExplainer:
                     color = "darkorange"
                 position = (cell[0] + 0.5, cell[1] + 0.5)
                 found.append(Marker(position, color, size=45.0, label=f"{heard.beacon.value:.1f}"))
-            for heard in memory.beacons(BeaconKind.OBSTACLE):
-                cell = heard.beacon.cell
-                age = (now - heard.sent_at) / self._config.obstacle_decay
+            for placed in memory.placed_beacons():
+                cell = placed.cell
+                age = (now - placed.placed_at) / placed.decay
                 if age > OBSTACLE_SHOWN_DECAYS:
                     continue
                 position = (cell[0] + 0.5, cell[1] + 0.5)
-                label = f"{heard.beacon.value:g}"
+                label = f"{placed.strength:g}"
                 found.append(Marker(position, "mediumorchid", size=35.0, label=label))
         return found
 
@@ -163,7 +171,7 @@ class HopExplainer:
                 continue
             agent = agents[robot.robot_id]
             now = snapshot.time
-            heard = fresh_beacons(agent.memory, BeaconKind.TREAT, now, self._config)
+            heard = fresh_beacons(_beacons_of(agent), BeaconKind.TREAT, now, self._config)
             value = "-"
             if heard:
                 value = f"{own_value(heard, robot.position, self._config):.2f}"
@@ -206,7 +214,7 @@ class HopExplainer:
 
     def _pull_arrows(self, killer: RobotId, position: CellId, now: Time) -> list[Arrow]:
         """The killer's summed pull, and on top one arrow per beacon pulling it, by strength."""
-        memory = self._run.agents()[killer].memory
+        memory = _beacons_of(self._run.agents()[killer])
         pull = hop_pull(memory, position, now, self._config)
         if pull is None:
             return []
@@ -240,9 +248,12 @@ class HopExplainer:
         """Arrows from where each robot's new hop value came from, fading over a few frames."""
         agents = self._run.agents()
         for robot in snapshot.robots:
-            memory = agents[robot.robot_id].memory
+            agent = agents[robot.robot_id]
+            memory = _beacons_of(agent)
             now = snapshot.time
-            beacon = treat_beacon(memory, robot.robot_id, robot.position, now, self._config)
+            beacon = treat_beacon(
+                memory, agent.memory, robot.robot_id, robot.position, now, self._config
+            )
             if beacon is None:
                 self._values.pop(robot.robot_id, None)
                 continue
@@ -268,8 +279,15 @@ class HopExplainer:
         return drawn
 
 
+def _beacons_of(agent: ComposedAgent) -> BeaconMemory:
+    """A robot's beacons; every robot of the explainer relays them."""
+    if agent.beacon_link is None:
+        raise ValueError(f"robot {agent.robot_id} keeps no beacons")
+    return agent.beacon_link.memory
+
+
 def _value_origin(
-    memory: MemoryView, position: CellId, now: Time, config: BeaconConfig
+    memory: BeaconView, position: CellId, now: Time, config: BeaconConfig
 ) -> CellId | None:
     """The cell of the beacon a robot's own value comes from: the lowest value plus hop."""
     origin: CellId | None = None

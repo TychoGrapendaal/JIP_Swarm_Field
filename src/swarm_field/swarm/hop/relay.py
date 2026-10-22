@@ -1,17 +1,19 @@
-"""Hop beacons: the value a robot broadcasts so that its peers can find an objective.
+"""Relaying hop beacons: the value a robot broadcasts so that its peers can find an objective.
 
 A robot that saw a pest itself is the TREAT source: it beacons 0 on the pest's cell. Every
 other robot relays its ``own_value`` on its own cell: the lowest fresh beacon it heard plus the
 hop to it, which costs 1 or, with metric hops, the distance in radio ranges. The values form a
-hop gradient that falls towards the pest.
+hop gradient that falls towards the pest. How the gradient pulls a robot is in
+``swarm_field.swarm.hop.pull``.
 """
 
 from dataclasses import dataclass
-from math import exp, hypot
+from math import hypot
 
 from swarm_field.contracts import Beacon, BeaconKind, CellId, RobotId, Time, TimeUnit
-from swarm_field.swarm.escape import EscapeConfig
-from swarm_field.swarm.memory import HeardBeacon, MemoryView
+from swarm_field.swarm.hop.escape import EscapeConfig
+from swarm_field.swarm.hop.memory import BeaconView, HeardBeacon
+from swarm_field.swarm.memory import MemoryView
 
 
 @dataclass(frozen=True)
@@ -61,22 +63,17 @@ class BeaconConfig:
 
 
 def fresh_beacons(
-    memory: MemoryView, kind: BeaconKind, now: Time, config: BeaconConfig
+    beacons: BeaconView, kind: BeaconKind, now: Time, config: BeaconConfig
 ) -> list[HeardBeacon]:
     """The beacons of ``kind`` heard within ``fresh_for``, up to ``max_value``."""
     fresh: list[HeardBeacon] = []
-    for heard in memory.beacons(kind):
+    for heard in beacons.beacons(kind):
         if now - heard.sent_at > config.fresh_for:
             continue
         if config.max_value is not None and heard.beacon.value > config.max_value:
             continue
         fresh.append(heard)
     return fresh
-
-
-def beacon_strength(heard: HeardBeacon, now: Time, config: BeaconConfig) -> float:
-    """How strongly a beacon attracts: ``gamma`` per hop, decaying with the beacon's age."""
-    return config.gamma**heard.beacon.value * exp(-(now - heard.sent_at) / config.decay)
 
 
 def own_value(fresh: list[HeardBeacon], position: CellId, config: BeaconConfig) -> float:
@@ -95,48 +92,30 @@ def own_value(fresh: list[HeardBeacon], position: CellId, config: BeaconConfig) 
     return min(values)
 
 
-def downhill_beacons(
-    memory: MemoryView, position: CellId, now: Time, config: BeaconConfig
-) -> list[HeardBeacon]:
-    """The fresh TREAT beacons that pull the robot: below its own value and off its cell.
-
-    A beacon on the robot's own cell pulls in no direction, so it is left out. A robot standing
-    on a beacon's cell is as close to the pest as that beacon, so only beacons below it pull:
-    its own value, which adds at least one hop, would let a neighbour just above that beacon
-    pull it back, and the robot would shuttle between the two cells.
-    """
-    fresh = fresh_beacons(memory, BeaconKind.TREAT, now, config)
-    if not fresh:
-        return []
-    here = own_value(fresh, position, config)
-    for heard in fresh:
-        if heard.beacon.cell == position:
-            here = min(here, heard.beacon.value)
-    downhill: list[HeardBeacon] = []
-    for heard in fresh:
-        if heard.beacon.value < here and heard.beacon.cell != position:
-            downhill.append(heard)
-    return downhill
-
-
 def treat_beacon(
-    memory: MemoryView, robot: RobotId, position: CellId, now: Time, config: BeaconConfig
+    beacons: BeaconView,
+    sightings: MemoryView,
+    robot: RobotId,
+    position: CellId,
+    now: Time,
+    config: BeaconConfig,
 ) -> Beacon | None:
     """The robot's TREAT beacon, or ``None`` if it neither saw a pest nor heard a fresh beacon.
 
     A robot that saw several pests within ``source_for`` beacons the one it saw last. A relay
-    whose value would be above ``max_value`` beacons nothing.
+    whose value would be above ``max_value`` beacons nothing. The robot's own pest sightings
+    are read from ``sightings``.
     """
     sighting_cell: CellId | None = None
     sighting_time: Time = now - config.source_for
-    for pest in memory.infestations():
+    for pest in sightings.infestations():
         if pest.source == robot and pest.severity > 0 and pest.observed_at >= sighting_time:
             sighting_cell = pest.cell
             sighting_time = pest.observed_at
     if sighting_cell is not None:
         return Beacon(BeaconKind.TREAT, 0.0, sighting_cell)
 
-    fresh = fresh_beacons(memory, BeaconKind.TREAT, now, config)
+    fresh = fresh_beacons(beacons, BeaconKind.TREAT, now, config)
     if not fresh:
         return None
     value = own_value(fresh, position, config)

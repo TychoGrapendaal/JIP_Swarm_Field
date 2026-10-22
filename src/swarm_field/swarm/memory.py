@@ -5,8 +5,6 @@ identity (the cell for terrain and infestation, the peer's id for peers) and kee
 recently observed one. Confidence decays with age, but is computed when read, so nothing in
 memory changes as time passes. Memory also keeps two arrays over the field, for seeders that read
 every cell at once: when each cell was last observed, and whether it is worth monitoring.
-Apart from the facts, it keeps the newest beacon heard from each sender per kind, and the
-obstacle beacons the robot placed itself.
 """
 
 from collections.abc import Iterable, Iterator
@@ -19,8 +17,6 @@ import numpy as np
 from numpy.typing import NDArray
 
 from swarm_field.contracts import (
-    Beacon,
-    BeaconKind,
     CellId,
     FieldGeometry,
     InfestationObservation,
@@ -61,24 +57,6 @@ class DecayConfig:
                 return None
 
 
-@dataclass(frozen=True)
-class HeardBeacon:
-    """A beacon as the robot heard it.
-
-    Attributes:
-        sender: Who sent it: a robot, or a mock pest source.
-        sent_at: When it was sent.
-        beacon: The hop value and where it holds.
-        decay: For an obstacle beacon the robot placed, the decay time of its push, or ``None``
-            for ``BeaconConfig.obstacle_decay``.
-    """
-
-    sender: RobotId
-    sent_at: Time
-    beacon: Beacon
-    decay: Time | None = None
-
-
 class MemoryView(Protocol):
     """The read-only queries on memory that behaviours and field seeders are typed against."""
 
@@ -89,8 +67,6 @@ class MemoryView(Protocol):
     def infestations(self) -> Iterator[InfestationObservation]: ...
 
     def peers(self) -> Iterator[PeerObservation]: ...
-
-    def beacons(self, kind: BeaconKind) -> Iterator[HeardBeacon]: ...
 
     def confidence(self, fact: Observation, now: Time) -> float: ...
 
@@ -117,8 +93,6 @@ class AgentMemory:
         self._terrain: dict[CellId, TerrainObservation] = {}
         self._infestation: dict[CellId, InfestationObservation] = {}
         self._peers: dict[RobotId, PeerObservation] = {}
-        self._beacons: dict[tuple[RobotId, BeaconKind], HeardBeacon] = {}
-        self._obstacle_beacons: dict[CellId, HeardBeacon] = {}
         self._last_seen: NDArray[np.float64] = np.full((field.width, field.height), -np.inf)
         self._monitorable: NDArray[np.bool_] = np.ones((field.width, field.height), dtype=np.bool_)
 
@@ -156,33 +130,6 @@ class AgentMemory:
                 case _:
                     pass
 
-    def hear_beacons(self, sender: RobotId, sent_at: Time, beacons: Iterable[Beacon]) -> None:
-        """Keep the newest beacon per sender and kind.
-
-        Beacons are not facts: they never enter ``records``, so they are never gossiped.
-        """
-        for beacon in beacons:
-            key = (sender, beacon.kind)
-            stored = self._beacons.get(key)
-            if stored is None or sent_at > stored.sent_at:
-                self._beacons[key] = HeardBeacon(sender, sent_at, beacon)
-
-    def place_obstacle_beacon(
-        self, cell: CellId, now: Time, strength: float, decay: Time | None = None
-    ) -> None:
-        """Place an obstacle beacon on ``cell`` at ``now``, pushing with ``strength``.
-
-        Obstacle beacons are the robot's own: one per cell, the newest kept, never shared. The
-        beacon's value is its push strength, which fades with ``decay``, or with
-        ``BeaconConfig.obstacle_decay`` without one.
-        """
-        beacon = Beacon(BeaconKind.OBSTACLE, strength, cell)
-        self._obstacle_beacons[cell] = HeardBeacon(self._robot_id, now, beacon, decay)
-
-    def obstacle_beacon_at(self, cell: CellId) -> HeardBeacon | None:
-        """The obstacle beacon the robot placed on ``cell``, if any."""
-        return self._obstacle_beacons.get(cell)
-
     def records(self) -> Iterator[Observation]:
         """Every stored fact, e.g. to share with a peer."""
         return chain(self._terrain.values(), self._infestation.values(), self._peers.values())
@@ -212,18 +159,6 @@ class AgentMemory:
 
     def peers(self) -> Iterator[PeerObservation]:
         return iter(self._peers.values())
-
-    def beacons(self, kind: BeaconKind) -> Iterator[HeardBeacon]:
-        """The newest beacon heard from each sender of ``kind``, however old.
-
-        Obstacle beacons are the ones the robot placed itself, one per cell.
-        """
-        if kind is BeaconKind.OBSTACLE:
-            yield from self._obstacle_beacons.values()
-            return
-        for heard in self._beacons.values():
-            if heard.beacon.kind is kind:
-                yield heard
 
     def confidence(self, fact: Observation, now: Time) -> float:
         """How far a fact can be trusted at ``now``: its initial confidence, decayed by age."""

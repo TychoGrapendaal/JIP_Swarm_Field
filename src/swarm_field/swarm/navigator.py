@@ -32,13 +32,19 @@ class Navigator:
         self,
         quadtree: Quadtree,
         steering: SteeringConfig | None = None,
-        sensing: Sensing | None = None,
+        heading_sensing: Sensing | None = None,
     ) -> None:
+        """Steer over ``quadtree``, and steer headings by ``heading_sensing`` if given.
+
+        A heading is a direction rather than a route, so a robot of the hop method steers it by
+        what it senses around itself, without a map; without ``heading_sensing`` headings are
+        steered over the quadtree like a stalled field.
+        """
         self._config: SteeringConfig = steering if steering is not None else SteeringConfig()
-        steerer_sensing: Sensing = QuadtreeSensing(quadtree)
-        if sensing is not None:
-            steerer_sensing = sensing
-        self._steerer: Steerer = Steerer(steerer_sensing, self._config)
+        self._steerer: Steerer = Steerer(QuadtreeSensing(quadtree), self._config)
+        self._heading_steerer: Steerer = self._steerer
+        if heading_sensing is not None:
+            self._heading_steerer = Steerer(heading_sensing, self._config)
         self._followed: SeededField | None = None
         self._heading_target: CellId | None = None
         self._best_value: float | None = None
@@ -68,10 +74,10 @@ class Navigator:
         if isinstance(guidance, Heading):
             self._followed = None
             self._forget_plan()
-            if guidance.target != self._heading_target or self._steerer.is_stalled:
+            if guidance.target != self._heading_target or self._heading_steerer.is_stalled:
                 self._heading_target = guidance.target
-                self._steerer.reset()
-            return self._steerer.steer(guidance.offset, robot), guidance.target
+                self._heading_steerer.reset()
+            return self._heading_steerer.steer(guidance.offset, robot), guidance.target
         self._heading_target = None
         seeded = guidance
         if seeded is not self._followed:

@@ -6,19 +6,18 @@ provider's quadtree in sync with new terrain facts, gathers the scored candidate
 behaviors, lets its arbiter pick one and turns its intent into one action: the navigator steps
 along the field a ``FollowField`` names, and any other intent passes through. It broadcasts its
 status (its cell, and the winner's target and objective) and, depending on its
-``KnowledgeSharing``, its memory, and merges what its peers broadcast. Capability gating is added
+``KnowledgeSharing``, its memory, and merges what its peers broadcast. A robot of the hop method
+also has a ``BeaconLink``, which hears, places and sends its beacons. Capability gating is added
 once it is built.
 """
 
 import logging
 from enum import Enum, auto
-from typing import cast
 
 from swarm_field.contracts import (
     Action,
     AgentInspection,
     AgentObjective,
-    Beacon,
     CellId,
     Decision,
     Idle,
@@ -32,7 +31,6 @@ from swarm_field.contracts import (
     Time,
 )
 from swarm_field.swarm.arbiter import Arbiter
-from swarm_field.swarm.beacon import BeaconConfig, treat_beacon
 from swarm_field.swarm.behavior import (
     ActionCandidate,
     Behavior,
@@ -40,13 +38,11 @@ from swarm_field.swarm.behavior import (
     FollowField,
     Intent,
 )
-from swarm_field.swarm.escape import StuckEscape
 from swarm_field.swarm.guidance import Heading
-from swarm_field.swarm.hop_field import cell_ahead, obstacle_strength
+from swarm_field.swarm.hop.link import BeaconLink
 from swarm_field.swarm.memory import AgentMemory
 from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.provider import FieldProvider
-from swarm_field.swarm.steering import SensedSurroundings
 
 logger = logging.getLogger(__name__)
 
@@ -78,10 +74,8 @@ class ComposedAgent:
         arbiter: Picks the candidate the robot acts on and holds the robot to its choice. Every
             robot needs its own, since an arbiter remembers its robot's commitment.
         sharing: Which memory facts the robot broadcasts to its peers.
-        surroundings: What the robot sensed around itself at its last decision, and nothing
-            older; a navigator built on the same object steers without a map.
-        beacons: How beacons are kept, relayed and weighed, or ``None`` for a robot
-            that neither keeps nor broadcasts beacons.
+        beacon_link: The robot's beacons, for a robot of the hop method, or ``None`` for a
+            robot that neither keeps nor broadcasts beacons.
     """
 
     def __init__(
@@ -93,8 +87,7 @@ class ComposedAgent:
         navigator: Navigator,
         arbiter: Arbiter,
         sharing: KnowledgeSharing = KnowledgeSharing.EVERYTHING,
-        beacons: BeaconConfig | None = None,
-        surroundings: SensedSurroundings | None = None,
+        beacon_link: BeaconLink | None = None,
     ) -> None:
         self.robot_id: RobotId = robot_id
         self.behaviors: list[Behavior] = behaviors
@@ -103,13 +96,7 @@ class ComposedAgent:
         self.navigator: Navigator = navigator
         self.arbiter: Arbiter = arbiter
         self.sharing: KnowledgeSharing = sharing
-        self.beacons: BeaconConfig | None = beacons
-        self.surroundings: SensedSurroundings = SensedSurroundings(memory.width, memory.height)
-        if surroundings is not None:
-            self.surroundings = surroundings
-        self._escape: StuckEscape | None = None
-        if beacons is not None and beacons.escape is not None:
-            self._escape = StuckEscape(beacons.escape)
+        self.beacon_link: BeaconLink | None = beacon_link
         self._current_goal: str | None = None
         self._current_target: CellId | None = None
         self._current_objective: AgentObjective | None = None
@@ -119,9 +106,8 @@ class ComposedAgent:
         received = self._facts_received(perception.inbox)
         self.memory.ingest(perception)
         self.memory.merge(received)
-        self.surroundings.sense(perception.sensed)
-        if self.beacons is not None:
-            self._hear_beacons(perception.inbox)
+        if self.beacon_link is not None:
+            self.beacon_link.perceive(perception)
         terrain_cells = [
             fact.cell
             for fact in [*perception.sensed, *received]
@@ -156,7 +142,10 @@ class ComposedAgent:
             self._current_target = best.target
             if field_target is not None:
                 self._current_target = field_target
-        self._place_obstacle_beacons(perception.self_state.position, perception.time)
+        if self.beacon_link is not None:
+            self.beacon_link.after_step(
+                self._heading, perception.self_state.position, perception.time
+            )
         return Decision(action=action, outbox=self._messages_to_send(perception))
 
     def inspect(self) -> AgentInspection:
@@ -172,7 +161,7 @@ class ComposedAgent:
 
         For a ``FollowField`` this builds the seeder's field and the navigator steps along it;
         the target is the one the field leads to, or ``None`` for any other intent. A heading
-        is remembered in ``_heading`` for ``_place_obstacle_beacons``.
+        is remembered in ``_heading`` for the ``BeaconLink``.
         """
         if not isinstance(intent, FollowField):
             return intent, None
@@ -183,48 +172,6 @@ class ComposedAgent:
         if isinstance(field, Heading):
             self._heading = field
         return self.navigator.step_towards(field, robot)
-
-    def _place_obstacle_beacons(self, robot: CellId, now: Time) -> None:
-        """Mark the wall this decision's heading runs into, and escape when the robot circles.
-
-        Whether the cell ahead is a wall comes from ``surroundings``, this decision's sensing.
-        The wall gets a beacon with ``BeaconConfig.obstacle_repulsion``; a robot that circles in
-        place gets an escape beacon from its ``StuckEscape``. A decision without a heading starts
-        the escape's window over.
-        """
-        if self.beacons is None:
-            return
-        if self._heading is None:
-            if self._escape is not None:
-                self._escape.forget()
-            return
-        config = self.beacons
-        ahead = cell_ahead(robot, self._heading.offset)
-        if config.obstacle_repulsion > 0 and self.surroundings.blocks(ahead):
-            self._place_stronger_beacon(ahead, now, config.obstacle_repulsion, None, config)
-        if self._escape is not None:
-            escape = self._escape.check(robot, ahead, now)
-            if escape is not None:
-                self._place_stronger_beacon(escape.cell, now, escape.strength, escape.decay, config)
-
-    def _place_stronger_beacon(
-        self,
-        cell: CellId,
-        now: Time,
-        strength: float,
-        decay: Time | None,
-        config: BeaconConfig,
-    ) -> None:
-        """Place an obstacle beacon on ``cell``, unless the push already there is as strong."""
-        if strength > self._obstacle_push_on(cell, now, config):
-            self.memory.place_obstacle_beacon(cell, now, strength, decay)
-
-    def _obstacle_push_on(self, cell: CellId, now: Time, config: BeaconConfig) -> float:
-        """The push of the obstacle beacon on ``cell`` at ``now``, or 0 without one."""
-        heard = self.memory.obstacle_beacon_at(cell)
-        if heard is None:
-            return 0.0
-        return obstacle_strength(heard, now, config)
 
     def _facts_received(self, inbox: list[Message]) -> list[Observation]:
         """The facts carried by the received messages: memory snapshots and status reports."""
@@ -247,33 +194,14 @@ class ComposedAgent:
                 facts.append(message.payload)
         return facts
 
-    def _hear_beacons(self, inbox: list[Message]) -> None:
-        """Store the beacons of every received beacon message."""
-        for message in inbox:
-            if message.kind is not MessageKind.BEACON:
-                continue
-            beacons: list[Beacon] = []
-            if isinstance(message.payload, tuple):
-                for item in cast(tuple[object, ...], message.payload):
-                    if isinstance(item, Beacon):
-                        beacons.append(item)
-            if not beacons:
-                logger.warning(
-                    "Skipping a beacon message from %s with payload %r",
-                    message.sender,
-                    message.payload,
-                )
-                continue
-            self.memory.hear_beacons(message.sender, message.sent_at, beacons)
-
     def _messages_to_send(self, perception: Perception) -> list[Message]:
         """The messages to broadcast at this decision point: the robot's status and its memory.
 
         The status tells peers where the robot is, which target it is heading for (the target
         of the winner's field, or else the winning candidate's ``target``) and for which
         objective, so that they can avoid the same region. The memory message carries the facts
-        ``sharing`` selects, and is left out at ``KnowledgeSharing.NOTHING``. With ``beacons``
-        the robot also broadcasts its TREAT beacon, if it has one.
+        ``sharing`` selects, and is left out at ``KnowledgeSharing.NOTHING``. With a
+        ``beacon_link`` the robot also broadcasts its TREAT beacon, if it has one.
         """
         status = PeerObservation(
             cell=perception.self_state.position,
@@ -295,9 +223,10 @@ class ComposedAgent:
         knowledge = self._knowledge_message(perception.time)
         if knowledge is not None:
             messages.append(knowledge)
-        beacon = self._beacon_message(perception)
-        if beacon is not None:
-            messages.append(beacon)
+        if self.beacon_link is not None:
+            beacon = self.beacon_link.beacon_message(perception)
+            if beacon is not None:
+                messages.append(beacon)
         return messages
 
     def _knowledge_message(self, now: Time) -> Message | None:
@@ -310,23 +239,3 @@ class ComposedAgent:
             case KnowledgeSharing.NOTHING:
                 return None
         return Message(sender=self.robot_id, sent_at=now, kind=MessageKind.KNOWLEDGE, payload=facts)
-
-    def _beacon_message(self, perception: Perception) -> Message | None:
-        """The robot's TREAT beacon, or ``None`` without ``beacons`` or without a beacon."""
-        if self.beacons is None:
-            return None
-        beacon = treat_beacon(
-            self.memory,
-            self.robot_id,
-            perception.self_state.position,
-            perception.time,
-            self.beacons,
-        )
-        if beacon is None:
-            return None
-        return Message(
-            sender=self.robot_id,
-            sent_at=perception.time,
-            kind=MessageKind.BEACON,
-            payload=(beacon,),
-        )

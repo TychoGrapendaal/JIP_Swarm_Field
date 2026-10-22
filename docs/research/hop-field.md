@@ -1,6 +1,6 @@
 # Research note — a hop-based potential field for pest response
 
-Status: describes the hop field implemented in `src/swarm_field/swarm/beacon.py`, `src/swarm_field/swarm/hop_field.py` and `TreatByBeacon` in `src/swarm_field/swarm/behavior.py` (#70). It is the second adapter of the objective-field port in `src/swarm_field/swarm/guidance.py`, next to the seeded Dijkstra field. The results below are produced by `tests/benchmark_pests.py` and are reproducible from the seeds given.
+Status: describes the hop method implemented in the package `src/swarm_field/swarm/hop/` (#70): relaying in `relay.py`, the pull in `pull.py`, `HopField` in `field.py`, `TreatByBeacon` in `behavior.py`, the escape in `escape.py`, the beacons a robot remembers in `memory.py`, and `BeaconLink`, which connects them to the brain, in `link.py`. It is the second adapter of the objective-field port in `src/swarm_field/swarm/guidance.py`, next to the seeded Dijkstra field. The results below are produced by `tests/benchmark_pests.py` and are reproducible from the seeds given.
 
 ## The question
 
@@ -57,7 +57,7 @@ $\text{Sign}$ is $+1$ for a beacon sent by a relay or a source. For a beacon sen
 
 ### Obstacle beacons (optional)
 
-With `obstacle_repulsion` above 0, a robot whose direction runs it into a cell it senses it cannot enter places an **obstacle beacon** on that cell. Obstacle beacons stay with the robot that placed them; they are never broadcast. Each pushes the robot away from its cell, within `obstacle_range_cells`:
+With `obstacle_repulsion` above 0, a robot whose direction runs it into a cell it senses it cannot enter places an **obstacle beacon** on that cell. Obstacle beacons stay with the robot that placed them (`PlacedBeacon` in `BeaconMemory`); they are never broadcast. Each pushes the robot away from its cell, within `obstacle_range_cells`:
 
 $$\text{Push}(\text{obstacle}) = \text{ObstacleRepulsion} \cdot e^{-\text{Age}(\text{obstacle}) / \text{ObstacleDecayTime}} \cdot \Big(1 - \frac{\text{Distance}(\text{robot}, \text{obstacle})}{\text{ObstacleRange}}\Big)$$
 
