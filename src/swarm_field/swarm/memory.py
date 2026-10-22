@@ -174,6 +174,10 @@ class AgentMemory:
         beacon = Beacon(BeaconKind.OBSTACLE, strength, cell)
         self._obstacle_beacons[cell] = HeardBeacon(self._robot_id, now, beacon)
 
+    def obstacle_beacon_at(self, cell: CellId) -> HeardBeacon | None:
+        """The obstacle beacon the robot placed on ``cell``, if any."""
+        return self._obstacle_beacons.get(cell)
+
     def records(self) -> Iterator[Observation]:
         """Every stored fact, e.g. to share with a peer."""
         return chain(self._terrain.values(), self._infestation.values(), self._peers.values())

@@ -63,7 +63,11 @@ The pushes are added to $\text{Pull}(\text{robot})$, each along $\text{UnitVecto
 
 ### Escaping a wall (optional)
 
-With `BeaconConfig.escape`, a killer that has stayed in the same cell for `stuck_decisions` decisions while its direction points into a wall places an obstacle beacon on that wall cell. Each further time it is stuck in that cell, the next beacon pushes `escape_boost` times harder, so the push eventually breaks the equilibrium between the pull and the wall. Leaving the cell starts the count over. Whether the cell ahead is a wall comes only from what the robot senses around itself at that decision.
+With `BeaconConfig.escape`, a killer that has stayed within one cell over its last `stuck_decisions` decisions while its direction points into a wall places an obstacle beacon on that wall cell. Staying within one cell covers standing still and shuttling between two neighbouring cells. The window is 30 decisions by default, because a move is under way for several decisions and a ground killer's diagonal move alone takes 10. The beacon pushes `escape_boost` times as hard as the push still on that wall, and at least `escape_strength`:
+
+$$\text{EscapePush}(\text{wall}) = \max\big(\text{EscapeStrength},\ \text{EscapeBoost} \cdot \text{Push}(\text{wall})\big)$$
+
+$\text{Push}(\text{wall})$ is the decayed push of the obstacle beacon already on the wall cell, or 0. So each time the killer gets stuck against the same wall the push grows, whichever cell the killer stands in, until it breaks the equilibrium between the pull and the wall. A beacon never replaces a stronger push on its cell, so a plain obstacle beacon does not undo an escape. Whether the cell ahead is a wall comes only from what the robot senses around itself at that decision.
 
 ### Names in the formulas and in the code
 
@@ -80,6 +84,8 @@ With `BeaconConfig.escape`, a killer that has stayed in the same cell for `stuck
 | ObstacleRepulsion | `obstacle_repulsion` | 0 (off) |
 | ObstacleRange | `obstacle_range_cells` | 3 cells |
 | ObstacleDecayTime | `obstacle_decay` | 10 min |
+| EscapeStrength | `escape.escape_strength` | 1 (escape off in `hop repel`) |
+| EscapeBoost | `escape.escape_boost` | 2 (escape off in `hop repel`) |
 
 The supervisor's literal rule, "go to the robot with the next lower hop number", is the case of integer hops and no killer repulsion: only beacons at the lowest hop number are downhill, and they pull equally apart from their age.
 

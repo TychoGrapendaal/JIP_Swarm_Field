@@ -43,7 +43,7 @@ from swarm_field.swarm.behavior import (
 )
 from swarm_field.swarm.escape import StuckEscape
 from swarm_field.swarm.guidance import Heading
-from swarm_field.swarm.hop_field import sensed_wall_ahead
+from swarm_field.swarm.hop_field import obstacle_strength, sensed_wall_ahead
 from swarm_field.swarm.memory import AgentMemory
 from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.provider import FieldProvider
@@ -188,17 +188,30 @@ class ComposedAgent:
 
         Whether there is a wall ahead comes from ``surroundings``, this decision's sensing. The wall
         gets a beacon with ``BeaconConfig.obstacle_repulsion``; a robot stuck against it gets
-        an escape beacon from its ``StuckEscape``.
+        an escape beacon from its ``StuckEscape``, boosted from the push already on the wall. A
+        beacon is placed only if it pushes harder than that push, so a wall never weakens.
         """
         if self.beacons is None:
             return
         wall = sensed_wall_ahead(robot, heading.offset, self.surroundings)
-        if wall is not None and self.beacons.obstacle_repulsion > 0:
-            self.memory.place_obstacle_beacon(wall, now, self.beacons.obstacle_repulsion)
+        wall_push = 0.0
+        strength = 0.0
+        if wall is not None:
+            wall_push = self._obstacle_push_on(wall, now, self.beacons)
+            strength = self.beacons.obstacle_repulsion
         if self._escape is not None:
-            escape = self._escape.check(robot, wall)
+            escape = self._escape.check(robot, wall, wall_push)
             if escape is not None:
-                self.memory.place_obstacle_beacon(escape.cell, now, escape.strength)
+                strength = max(strength, escape.strength)
+        if wall is not None and strength > wall_push:
+            self.memory.place_obstacle_beacon(wall, now, strength)
+
+    def _obstacle_push_on(self, cell: CellId, now: Time, config: BeaconConfig) -> float:
+        """The push of the obstacle beacon on ``cell`` at ``now``, or 0 without one."""
+        heard = self.memory.obstacle_beacon_at(cell)
+        if heard is None:
+            return 0.0
+        return obstacle_strength(heard, now, config)
 
     def _facts_received(self, inbox: list[Message]) -> list[Observation]:
         """The facts carried by the received messages: memory snapshots and status reports."""

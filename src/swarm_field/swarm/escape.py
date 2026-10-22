@@ -1,12 +1,13 @@
 """Escaping by trial and error: a robot stuck against a wall pushes itself off it.
 
 A robot following a heading can settle where the pull towards its objective and a wall in the
-way cancel out. ``StuckEscape`` notices that the robot has stayed in the same cell for a while
-with a wall ahead of it, and places a repelling beacon on that wall. If the robot is still in
-the same cell the next time, the next beacon pushes harder, so the robot eventually breaks out
-of the equilibrium.
+way cancel out. ``StuckEscape`` notices that the robot has stayed within one cell for a while
+with a wall ahead of it, and places a repelling beacon on that wall. If the robot gets stuck
+against the same wall again, the next beacon pushes harder than the one still there, so the
+robot eventually breaks out of the equilibrium.
 """
 
+from collections import deque
 from dataclasses import dataclass
 
 from swarm_field.contracts import CellId
@@ -17,15 +18,15 @@ class EscapeConfig:
     """When a robot counts as stuck, and how hard its escape beacons push.
 
     Attributes:
-        stuck_decisions: How many decisions in a row the robot must stay in the same cell to
-            count as stuck. A killer needs several decisions to cross one cell, so this must be
-            more than that.
-        escape_strength: The push of the first escape beacon.
-        escape_boost: How much harder each further escape beacon pushes, while the robot stays
-            in the same cell.
+        stuck_decisions: Over how many decisions on a heading the robot must stay within one
+            cell to count as stuck. A move is under way for several decisions, during which
+            the robot reports the cell it left, so this must be more than two diagonal moves:
+            a ground killer needs 10 decisions for one.
+        escape_strength: The push of an escape beacon on a wall that pushes no more than that.
+        escape_boost: How much harder an escape beacon pushes than the push still on its wall.
     """
 
-    stuck_decisions: int = 10
+    stuck_decisions: int = 30
     escape_strength: float = 1.0
     escape_boost: float = 2.0
 
@@ -44,34 +45,39 @@ class EscapeBeacon:
 
 
 class StuckEscape:
-    """Counts how long one robot stays in its cell, and hands out ever stronger escape beacons."""
+    """Remembers where one robot was at its last decisions, and hands out escape beacons."""
 
     def __init__(self, config: EscapeConfig) -> None:
         self._config: EscapeConfig = config
-        self._cell: CellId | None = None
-        self._decisions: int = 0
-        self._escapes: int = 0
+        self._recent: deque[CellId] = deque(maxlen=config.stuck_decisions)
 
-    def check(self, robot: CellId, wall_ahead: CellId | None) -> EscapeBeacon | None:
+    def check(
+        self, robot: CellId, wall_ahead: CellId | None, wall_push: float
+    ) -> EscapeBeacon | None:
         """The escape beacon to place at this decision, or ``None``.
 
-        A beacon is placed when the robot has stayed in ``robot`` for ``stuck_decisions``
-        decisions and has a wall ahead of it. Leaving the cell starts the count and the boost
-        over.
+        A beacon is placed when the robot stayed within one cell over the last
+        ``stuck_decisions`` decisions and has a wall ahead of it. It pushes ``escape_boost``
+        times the push still on that wall, and at least ``escape_strength``. After a beacon the
+        count starts over.
 
         Args:
             robot: The robot's cell.
             wall_ahead: The cell ahead of the robot along its heading, if the robot senses that
                 it cannot enter it.
+            wall_push: The push of the obstacle beacon already on ``wall_ahead``, or 0.
         """
-        if robot != self._cell:
-            self._cell = robot
-            self._decisions = 0
-            self._escapes = 0
-        self._decisions += 1
-        if self._decisions < self._config.stuck_decisions or wall_ahead is None:
+        self._recent.append(robot)
+        if wall_ahead is None or not self._is_stuck():
             return None
-        strength = self._config.escape_strength * self._config.escape_boost**self._escapes
-        self._escapes += 1
-        self._decisions = 0
+        self._recent.clear()
+        strength = max(self._config.escape_strength, wall_push * self._config.escape_boost)
         return EscapeBeacon(wall_ahead, strength)
+
+    def _is_stuck(self) -> bool:
+        """Whether the window is full and its cells fit in a block of two by two cells."""
+        if len(self._recent) < self._config.stuck_decisions:
+            return False
+        xs = [cell[0] for cell in self._recent]
+        ys = [cell[1] for cell in self._recent]
+        return max(xs) - min(xs) <= 1 and max(ys) - min(ys) <= 1

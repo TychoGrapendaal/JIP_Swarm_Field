@@ -10,10 +10,10 @@ the relays. Dots labelled with a hop value are the beacons the killer hears, ora
 pull it. Orange arrows are the pull of each of those, the thick red arrow is their sum, the
 direction the killer walks. With ``--obstacle-repulsion``, a killer that runs into a wall places
 an obstacle beacon on it (purple dots), and the purple arrow is their summed push. With
-``--escape``, a killer that stays in one cell against a wall for ten decisions places an ever
-stronger one on that wall. With
-``--show-broadcasts``, blue arrows show a hop value being passed on: from the beacon a robot took
-its value from, to the robot, at the moment its value changes.
+``--escape``, a killer that stays within one cell against a wall for 30 decisions places a
+beacon on that wall, harder than the push still on it. With ``--show-broadcasts``, blue arrows
+show a hop value being passed on: from the beacon a robot took its value from, to the robot, at
+the moment its value changes.
 
 Run from the repository root with:
     uv run python examples/hop_explainer.py

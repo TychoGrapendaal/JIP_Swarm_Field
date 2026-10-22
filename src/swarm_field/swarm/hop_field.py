@@ -114,11 +114,15 @@ def obstacle_push(memory: MemoryView, robot: CellId, now: Time, config: BeaconCo
         if distance == 0 or distance >= config.obstacle_range_cells:
             continue
         falloff = 1 - distance / config.obstacle_range_cells
-        age = now - heard.sent_at
-        push = heard.beacon.value * exp(-age / config.obstacle_decay) * falloff
+        push = obstacle_strength(heard, now, config) * falloff
         push_x -= push * dx / distance
         push_y -= push * dy / distance
     return (push_x, push_y)
+
+
+def obstacle_strength(heard: HeardBeacon, now: Time, config: BeaconConfig) -> float:
+    """How hard an obstacle beacon pushes at its own cell: its value, decaying with its age."""
+    return heard.beacon.value * exp(-(now - heard.sent_at) / config.obstacle_decay)
 
 
 def sensed_wall_ahead(

@@ -223,9 +223,8 @@ def test_an_obstacle_beacon_turns_the_heading_away_from_it() -> None:
     assert heading.offset[1] < 0
 
 
-def test_a_heading_into_a_wall_leaves_an_obstacle_beacon_on_it() -> None:
-    config = BeaconConfig(obstacle_repulsion=1.0)
-    memory = AgentMemory(1, _FIELD)
+def _killer_facing_a_wall(config: BeaconConfig, memory: AgentMemory) -> None:
+    """One decision of a killer at (0, 0), pulled east into a wall on (1, 0)."""
     wall = TerrainObservation(
         cell=(1, 0), confidence=1.0, observed_at=0, source=1, terrain=Terrain.OBSTACLE
     )
@@ -246,8 +245,24 @@ def test_a_heading_into_a_wall_leaves_an_obstacle_beacon_on_it() -> None:
         kind=MessageKind.BEACON,
         payload=(Beacon(BeaconKind.TREAT, 0.0, (5, 0)),),
     )
-
     killer.decide(Perception(time=0, self_state=_self_state((0, 0)), sensed=[wall], inbox=[beacon]))
+
+
+def test_a_wall_beacon_does_not_weaken_an_escape_beacon_on_the_same_wall() -> None:
+    memory = AgentMemory(1, _FIELD)
+    memory.place_obstacle_beacon((1, 0), 0, 4.0)
+
+    _killer_facing_a_wall(BeaconConfig(obstacle_repulsion=1.0), memory)
+
+    kept = memory.obstacle_beacon_at((1, 0))
+    assert kept is not None
+    assert kept.beacon.value == 4.0
+
+
+def test_a_heading_into_a_wall_leaves_an_obstacle_beacon_on_it() -> None:
+    memory = AgentMemory(1, _FIELD)
+
+    _killer_facing_a_wall(BeaconConfig(obstacle_repulsion=1.0), memory)
 
     placed = [heard.beacon.cell for heard in memory.beacons(BeaconKind.OBSTACLE)]
     assert placed == [(1, 0)]
