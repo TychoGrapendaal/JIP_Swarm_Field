@@ -9,7 +9,6 @@ knowledge snapshot and merges the status and knowledge received from peers.
 
 import logging
 from dataclasses import replace
-from typing import cast
 
 from swarm_field.contracts import (
     Action,
@@ -21,12 +20,9 @@ from swarm_field.contracts import (
     Message,
     MessageKind,
     Move,
-    Observation,
-    ObservationBase,
     PeerObservation,
     Perception,
     RobotId,
-    TerrainObservation,
     Time,
 )
 from swarm_field.swarm.arbiter import Arbiter, UtilityArbiter
@@ -41,6 +37,7 @@ from swarm_field.swarm.capabilities import CapabilitySet, capabilities_for
 from swarm_field.swarm.memory import AgentMemory
 from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.provider import FieldProvider
+from swarm_field.swarm.sharing import KnowledgeExchange, SharingConfig
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +54,7 @@ class ComposedAgent:
         navigator: Moves the robot along the winning candidate's field.
         arbiter: Picks the candidate the robot acts on and holds the robot to its choice. Every
             robot needs its own, since an arbiter remembers its robot's commitment.
+        exchange: Merges what the robot hears into its memory, and picks what it shares.
     """
 
     def __init__(
@@ -68,6 +66,7 @@ class ComposedAgent:
         navigator: Navigator,
         arbiter: Arbiter | None = None,
         capabilities: CapabilitySet | None = None,
+        sharing: SharingConfig | None = None,
     ) -> None:
         self.robot_id: RobotId = robot_id
         self.behaviors: list[Behavior] = behaviors
@@ -76,20 +75,16 @@ class ComposedAgent:
         self.navigator: Navigator = navigator
         self.capabilities: CapabilitySet | None = capabilities
         self.arbiter: Arbiter = arbiter if arbiter is not None else UtilityArbiter()
+        self.exchange: KnowledgeExchange = KnowledgeExchange(memory, sharing)
         self._current_goal: str | None = None
         self._current_target: CellId | None = None
         self._current_objective: AgentObjective | None = None
 
     def decide(self, perception: Perception) -> Decision:
-        received = self._facts_received(perception.inbox)
+        version = self.memory.version
         self.memory.ingest(perception)
-        self.memory.merge(received)
-        terrain_cells = [
-            fact.cell
-            for fact in [*perception.sensed, *received]
-            if isinstance(fact, TerrainObservation)
-        ]
-        self.fields.update_terrain(terrain_cells)
+        self.exchange.receive(perception.inbox)
+        self.fields.update_terrain(self.memory.terrain_stored_after(version))
 
         # Ground-truth body identity in the perception is authoritative. This also keeps
         # manually assembled agents safe if they were passed the wrong capability profile.
@@ -191,33 +186,13 @@ class ComposedAgent:
             return Idle(), None
         return self.navigator.step_towards(field, robot)
 
-    def _facts_received(self, inbox: list[Message]) -> list[Observation]:
-        """The facts carried by the received messages: memory snapshots and status reports."""
-        facts: list[Observation] = []
-        for message in inbox:
-            if message.kind is MessageKind.KNOWLEDGE:
-                if not isinstance(message.payload, (tuple, list)):
-                    continue
-                for fact in message.payload:
-                    if isinstance(fact, ObservationBase):
-                        facts.append(cast(Observation, fact))
-            elif message.kind is MessageKind.STATUS:
-                if not isinstance(message.payload, PeerObservation):
-                    logger.warning(
-                        "Skipping a status message from %s with payload %r",
-                        message.sender,
-                        message.payload,
-                    )
-                    continue
-                facts.append(message.payload)
-        return facts
-
     def _messages_to_send(self, perception: Perception) -> list[Message]:
-        """The messages to broadcast at this decision point: the robot's status and its memory.
+        """The messages to broadcast at this decision point: the robot's status and knowledge.
 
         The status tells peers where the robot is, which target it is heading for (the target
         of the winner's field, or else the winning candidate's ``target``) and for which
-        objective, so that they can avoid the same region.
+        objective, so that they can avoid the same region. The knowledge is what the exchange
+        shares of the robot's memory, if anything.
         """
         status = PeerObservation(
             cell=perception.self_state.position,
@@ -236,10 +211,15 @@ class ComposedAgent:
             kind=MessageKind.STATUS,
             payload=status,
         )
-        memory_message = Message(
-            sender=self.robot_id,
-            sent_at=perception.time,
-            kind=MessageKind.KNOWLEDGE,
-            payload=tuple(self.memory.records()),
-        )
-        return [status_message, memory_message]
+        messages = [status_message]
+        knowledge = self.exchange.knowledge_to_send()
+        if knowledge is not None:
+            messages.append(
+                Message(
+                    sender=self.robot_id,
+                    sent_at=perception.time,
+                    kind=MessageKind.KNOWLEDGE,
+                    payload=knowledge,
+                )
+            )
+        return messages
