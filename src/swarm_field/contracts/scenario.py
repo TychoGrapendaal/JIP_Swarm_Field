@@ -159,6 +159,7 @@ class RobotSpec:
         v_max: Top speed in metres per second.
         battery: Starting / full energy, from 0 to 1.
         radio_range: Broadcast range in metres.
+        spare_batteries: Charged replacement batteries carried at the start, if applicable.
     """
 
     robot_id: RobotId
@@ -167,6 +168,7 @@ class RobotSpec:
     v_max: float
     battery: float
     radio_range: float
+    spare_batteries: int | None = None
 
 
 @dataclass
@@ -181,6 +183,7 @@ class ScenarioConfig:
         initial_infestation: Initial true infestation severity by cell.
         obstacles: Cells that are blocked at time zero.
         pest_dynamics: Parameters for the recurring pest dynamics event.
+        docks: Field cells where robots can recharge; battery robots replenish their spare stock.
         energy: Parameters for the battery model the simulation drains.
         failures: Recurring chance that a robot fails, for robustness runs.
         position_error: Recurring chance that a robot mislocates itself, for robustness runs.
@@ -193,6 +196,7 @@ class ScenarioConfig:
     initial_infestation: dict[CellId, float] = field(default_factory=dict)
     obstacles: tuple[CellId, ...] = ()
     pest_dynamics: PestDynamicsSpec = PestDynamicsSpec()
+    docks: tuple[CellId, ...] = ()
     energy: EnergySpec = EnergySpec()
     failures: FailureSpec = FailureSpec()
     position_error: PositionErrorSpec = PositionErrorSpec()
