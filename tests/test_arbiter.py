@@ -5,6 +5,7 @@ from swarm_field.contracts import (
     Charge,
     FieldGeometry,
     Perception,
+    PestId,
     RobotSelfState,
     Treat,
 )
@@ -118,6 +119,19 @@ def test_a_commitment_without_a_target_builds_no_effort() -> None:
 
     assert choice is not None
     assert (choice.candidate.source, choice.switched) == ("treat", True)
+
+
+def test_a_pest_known_by_its_id_keeps_its_effort_while_its_estimate_moves() -> None:
+    """With hop-based navigation the pest's id, not its estimated cell, is the commitment."""
+    arbiter = _arbiter()
+    trip = ActionCandidate(FollowField("treat"), 0.5, "treat", PestId(finder=3, number=1))
+    arbiter.choose([trip], now=0)
+
+    # After five minutes on the trip a rival 0.3 better is held off by the full margin.
+    choice = arbiter.choose([trip, _bid("explore", 0.8, (9, 9))], now=_HORIZON)
+
+    assert choice is not None
+    assert (choice.candidate.source, choice.switched) == ("treat", False)
 
 
 def test_a_finished_target_keeps_the_objective_and_restarts_its_effort() -> None:

@@ -34,6 +34,24 @@ from swarm_field.swarm.behavior import (
 from swarm_field.swarm.brain import ComposedAgent
 from swarm_field.swarm.capabilities import BODY_CAPABILITIES, CapabilitySet, capabilities_for
 from swarm_field.swarm.explore import ExploreConfig, ExploreSeeder
+from swarm_field.swarm.gradient import (
+    AnchorPest,
+    FollowGradient,
+    GradientAgent,
+    GradientConfig,
+    GradientEntry,
+    GradientSeeder,
+    GradientTable,
+    chosen_gradient,
+)
+from swarm_field.swarm.hop import (
+    BeaconSeeder,
+    BeaconTable,
+    FollowBeacon,
+    HopAgent,
+    HopConfig,
+    chosen_beacon,
+)
 from swarm_field.swarm.memory import AgentMemory, DecayConfig, KnowledgeSnapshot, MemoryView
 from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.provider import FieldProvider
@@ -52,15 +70,19 @@ from swarm_field.swarm.steering import (
     Steerer,
     SteeringConfig,
 )
+from swarm_field.swarm.tether import TetherConfig, tethered_action
 
 __all__ = [
     "BODY_CAPABILITIES",
     "ActionCandidate",
     "AgentMemory",
+    "AnchorPest",
     "Arbiter",
     "ArbiterChoice",
     "ArbiterConfig",
     "BatteryRequestSeeder",
+    "BeaconSeeder",
+    "BeaconTable",
     "Behavior",
     "CapabilitySet",
     "Commitment",
@@ -74,8 +96,17 @@ __all__ = [
     "ExploreSeeder",
     "FieldProvider",
     "FieldSeeder",
+    "FollowBeacon",
     "FollowField",
+    "FollowGradient",
     "FollowSeederField",
+    "GradientAgent",
+    "GradientConfig",
+    "GradientEntry",
+    "GradientSeeder",
+    "GradientTable",
+    "HopAgent",
+    "HopConfig",
     "Intent",
     "KnowledgeExchange",
     "KnowledgeSnapshot",
@@ -92,10 +123,14 @@ __all__ = [
     "Steerer",
     "SteeringConfig",
     "SupplyBattery",
+    "TetherConfig",
     "TreatInfestation",
     "TreatSeeder",
     "UtilityArbiter",
     "Vector2",
     "build_agent",
     "capabilities_for",
+    "chosen_beacon",
+    "chosen_gradient",
+    "tethered_action",
 ]

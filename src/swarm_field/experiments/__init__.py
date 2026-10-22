@@ -12,11 +12,14 @@ from swarm_field.experiments.catalogue import (
     sweep_scenarios,
 )
 from swarm_field.experiments.explore import ExploreScenario, cropped_cells, river_and_rocks
+from swarm_field.experiments.hop import NAVIGATIONS, HopPestScenario
 from swarm_field.experiments.pests import PestScenario
 from swarm_field.experiments.run import LiveRun
 
 __all__ = [
+    "NAVIGATIONS",
     "ExploreScenario",
+    "HopPestScenario",
     "LiveRun",
     "PestScenario",
     "build_named_experiment",

@@ -3,12 +3,33 @@
 These are the smallest shared vocabulary items; every other contract builds on them.
 """
 
+from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Final
 
 RobotId = int
 CellId = tuple[int, int]
 """Grid coordinate for v1; treated as an opaque handle elsewhere."""
+
+
+@dataclass(frozen=True)
+class PestId:
+    """A pest as the swarm knows it, whatever cell it is currently believed to be in.
+
+    With hop-based navigation a pest's position is an estimate that shifts as beacons refresh,
+    so a robot heading for it is committed to the pest, not to the estimated cell.
+
+    Attributes:
+        finder: The robot that first reported the pest.
+        number: The finder's running number for its reports, so the id is unique.
+    """
+
+    finder: RobotId
+    number: int
+
+
+Target = CellId | PestId
+"""What a bid commits a robot to: a cell, or a pest known by its id."""
 
 Time = int
 """Simulation time as an integer number of milliseconds.

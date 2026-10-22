@@ -22,6 +22,7 @@ from swarm_field.contracts import (
     Move,
     PeerObservation,
     Perception,
+    PestId,
     RobotId,
     Time,
 )
@@ -34,10 +35,12 @@ from swarm_field.swarm.behavior import (
     Intent,
 )
 from swarm_field.swarm.capabilities import CapabilitySet, capabilities_for
+from swarm_field.swarm.field import GridPotentialField
 from swarm_field.swarm.memory import AgentMemory
 from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.provider import FieldProvider
 from swarm_field.swarm.sharing import KnowledgeExchange, SharingConfig
+from swarm_field.swarm.tether import TetherConfig, tethered_action
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +58,8 @@ class ComposedAgent:
         arbiter: Picks the candidate the robot acts on and holds the robot to its choice. Every
             robot needs its own, since an arbiter remembers its robot's commitment.
         exchange: Merges what the robot hears into its memory, and picks what it shares.
+        tether: If set, every step is checked to keep the robot in radio contact with a peer
+            (see ``swarm.tether``); ``None`` leaves steps unchecked.
     """
 
     def __init__(
@@ -67,6 +72,7 @@ class ComposedAgent:
         arbiter: Arbiter | None = None,
         capabilities: CapabilitySet | None = None,
         sharing: SharingConfig | None = None,
+        tether: TetherConfig | None = None,
     ) -> None:
         self.robot_id: RobotId = robot_id
         self.behaviors: list[Behavior] = behaviors
@@ -76,6 +82,7 @@ class ComposedAgent:
         self.capabilities: CapabilitySet | None = capabilities
         self.arbiter: Arbiter = arbiter if arbiter is not None else UtilityArbiter()
         self.exchange: KnowledgeExchange = KnowledgeExchange(memory, sharing)
+        self.tether: TetherConfig | None = tether
         self._current_goal: str | None = None
         self._current_target: CellId | None = None
         self._current_objective: AgentObjective | None = None
@@ -124,12 +131,26 @@ class ComposedAgent:
         best = choice.candidate
         self._current_goal = best.source
         self._current_objective = best.objective
-        self._current_target = best.target
         action, field_target = self._action_for(
             best.action, perception.self_state.position, perception.time
         )
+        # Peers learn the cell a robot is heading for; a pest known only by its id has no
+        # reliable cell to report, so it is left out until the reports carry pest ids too.
+        self._current_target = None
+        if not isinstance(best.target, PestId):
+            self._current_target = best.target
         if field_target is not None:
             self._current_target = field_target
+        if self.tether is not None:
+            action = tethered_action(
+                action,
+                perception.self_state.position,
+                self._current_target,
+                self.memory,
+                perception.time,
+                self.tether,
+                self._followed_field(best.action),
+            )
 
         # Validate the concrete action as well as the proposed intent: a FollowField intent
         # becomes a Move (or Idle) only after the navigator has resolved it.
@@ -179,6 +200,15 @@ class ComposedAgent:
             logger.warning("FollowField couldn't find the corresponding field %s", intent.seeder)
             return Idle(), None
         return self.navigator.step_towards(field, robot)
+
+    def _followed_field(self, intent: Intent) -> GridPotentialField | None:
+        """The field the winning intent follows, as just built, or ``None`` for no field."""
+        if not isinstance(intent, FollowField):
+            return None
+        seeded = self.fields.cached_field(intent.seeder)
+        if seeded is None:
+            return None
+        return seeded.field
 
     def _messages_to_send(self, perception: Perception) -> list[Message]:
         """The messages to broadcast at this decision point: the robot's status and knowledge.

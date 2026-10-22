@@ -58,6 +58,15 @@ $$v'(c) = \frac{v(c)}{1 + n_{b(c)}}, \qquad w'_b = \frac{w_b}{1 + n_b}$$
 
 Every robot broadcasts its cell and its target at every decision point (`MessageKind.STATUS`), and memory keeps the newest report per peer. With `ExploreConfig.spread_peers`, a block's worths are divided by one plus the number of peers in it or heading to it (`PeerDiscount`), counting only reports younger than `peer_max_age`. The discount applies to the robot's own block too, so a robot sharing its block with a peer is drawn to a block nobody covers. There is no kernel and no further parameter. Robots are thus made to spread explicitly, not only through shared observations making each other's ground look fresh.
 
+### Robots standing together
+
+The discount alone did not keep robots apart. With ten scouts started side by side, four to six of them stood on a shared cell for a whole 1.5 h run, in groups of two to four that moved as one. Two causes:
+
+- **A sighting overwrote the report.** A robot also senses the peers on its own cell, and such a sighting cannot tell where the peer is heading. Memory kept only the newest fact per peer, so the sighting replaced the peer's own report and its target was lost exactly when robots stood together, which also blinded the discount's "heading to" count. Now memory keeps each peer's newest report of itself apart from its newest position, and the peer's fact carries the target and objective of that report whatever its position came from (`AgentMemory.merge`). A first version copied the target from the stored fact into the sighting, but a robot senses before it reads its messages, so the report arrived older than the sighting and was thrown away.
+- **Nothing told two robots on one cell apart.** They share their memory, so they see the same field, and the discount lowers a block equally for both, so they choose the same target and take the same step forever. With `yield_to_peers`, of the robots next to each other (within `yield_distance` cells) the one later in the order of `swarm/priority.py` (a hash of the robot's id and a 10-minute window, the same for every robot and reshuffled every window) gives way: it leaves out the target that a neighbour before it reported heading for, the stale cells of its own block within `yield_spacing` of it, or the other block holding it, and takes its next best target. Every robot applies the same rule, so exactly one of two gives way; if giving way would leave nothing to seed, nothing is left out.
+
+Over four seeds with ten scouts and three killers (`examples/hop_explainer.py --scouts 10 --killers 3 --pests-per-hour 10 --navigation memory`), the share of scouts standing on a shared cell fell from 33% to 16% with the memory fix and to 8% with both; mean idleness fell from 19.7 to 15.1 min, killers treated 35 pests instead of 33, and the mean infested cells fell from 4.8 to 4.3.
+
 ## Parameters
 
 The defaults are the ones that did best in the benchmark below.
@@ -70,6 +79,9 @@ The defaults are the ones that did best in the benchmark below.
 | `block_side` | 8 | The side of a block in cells. |
 | `spread_peers` | on | The peer discount. |
 | `peer_max_age` | 1 min | Older peer reports are left out of the discount. |
+| `yield_to_peers` | on | Of two robots together, the later in `swarm/priority.py` gives way on the other's target. |
+| `yield_distance` | 1 | How close, in cells, a peer counts as together. |
+| `yield_spacing` | 3 | Own-block cells this close to a given-way target are left out too. |
 | `window_blocks` | 1 | Blocks around the robot's searched cell by cell. |
 
 ## Measuring exploration

@@ -108,6 +108,18 @@ class FieldProvider:
             self._graphs[window_blocks] = graph
         return graph
 
+    def cached_field(self, seeder: str) -> SeededField | None:
+        """The field last built for the seeder named ``seeder``, without building one.
+
+        For viewers: unlike ``field_for`` it neither asks the seeder nor rebuilds, so reading
+        it cannot change what the robot does. ``None`` if none was built yet or it had no
+        targets.
+        """
+        cached = self._slots.get(seeder)
+        if cached is None:
+            return None
+        return cached.field
+
     def _block_of(self, robot: CellId) -> CellId:
         """The robot's block of ``max_leaf_side`` cells, the unit its field's window moves in."""
         side = self.quadtree.max_leaf_side

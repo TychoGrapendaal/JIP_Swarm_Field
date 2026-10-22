@@ -88,3 +88,15 @@ def test_no_seeds_means_no_field() -> None:
     fields = FieldProvider(AgentMemory(1, _FIELD), flies=False, seeders=[seeder])
 
     assert fields.field_for(seeder.name, (0, 0), 0) is None
+
+
+def test_the_cached_field_is_read_without_asking_the_seeder() -> None:
+    """A viewer reads the last field without building one, so it cannot change the robot."""
+    seeder = _CountingSeeder("fixed", (Seed((30, 30), 0.0),))
+    fields = FieldProvider(AgentMemory(1, _FIELD), flies=False, seeders=[seeder])
+
+    assert fields.cached_field(seeder.name) is None
+    built = fields.field_for(seeder.name, (0, 0), 0)
+
+    assert fields.cached_field(seeder.name) is built
+    assert seeder.seeds_asked == 1

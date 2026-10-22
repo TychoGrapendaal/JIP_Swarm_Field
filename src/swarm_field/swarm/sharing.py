@@ -6,11 +6,20 @@ changes what the robots know and when.
 """
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum, auto
+from typing import cast
 
-from swarm_field.contracts import Message, MessageKind, PeerObservation, RobotId
-from swarm_field.swarm.memory import AgentMemory, KnowledgeSnapshot
+import numpy as np
+
+from swarm_field.contracts import (
+    InfestationObservation,
+    Message,
+    MessageKind,
+    PeerObservation,
+    RobotId,
+)
+from swarm_field.swarm.memory import AgentMemory, FactColumns, KnowledgeSnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +70,9 @@ class KnowledgeExchange:
     Attributes:
         config: How the robot shares.
         facts_sent: How many facts the robot has broadcast so far, a measure of message size.
+        keep_pests: Whether the robot learns pests from its peers' snapshots. Hop-based
+            navigation turns this off, so that pests reach a robot only as hop messages; clean
+            cells are learned either way, since exploring robots use them.
     """
 
     def __init__(self, memory: AgentMemory, config: SharingConfig | None = None) -> None:
@@ -71,6 +83,8 @@ class KnowledgeExchange:
         self.facts_sent: int = 0
         self._decisions: int = 0
         self._merged: dict[RobotId, KnowledgeSnapshot] = {}
+        self.keep_pests: bool = True
+        self._clean: dict[RobotId, tuple[FactColumns, FactColumns]] = {}
 
     def receive(self, inbox: list[Message]) -> None:
         """Merge the status reports and memory snapshots in the inbox, in the order received."""
@@ -92,8 +106,31 @@ class KnowledgeExchange:
                         message.payload,
                     )
                     continue
-                self._memory.merge_snapshot(message.payload, self._merged.get(message.sender))
-                self._merged[message.sender] = message.payload
+                snapshot = message.payload
+                if not self.keep_pests:
+                    snapshot = self._without_pests(message.sender, snapshot)
+                self._memory.merge_snapshot(snapshot, self._merged.get(message.sender))
+                self._merged[message.sender] = snapshot
+
+    def _without_pests(self, sender: RobotId, snapshot: KnowledgeSnapshot) -> KnowledgeSnapshot:
+        """``snapshot`` without its infested cells.
+
+        The filtered infestation is reused while the sender's infestation part is the same
+        object, so that ``AgentMemory.merge_snapshot`` can still skip it.
+        """
+        known = self._clean.get(sender)
+        if known is not None and known[0] is snapshot.infestation:
+            return replace(snapshot, infestation=known[1])
+        columns = snapshot.infestation
+        facts = cast(list[InfestationObservation], columns.facts.tolist())
+        clean = np.array([fact.severity <= 0 for fact in facts], dtype=np.bool_)
+        filtered = FactColumns(
+            cells=columns.cells[clean],
+            observed_at=columns.observed_at[clean],
+            facts=columns.facts[clean],
+        )
+        self._clean[sender] = (columns, filtered)
+        return replace(snapshot, infestation=filtered)
 
     def knowledge_to_send(self) -> KnowledgeSnapshot | None:
         """The robot's memory to broadcast at this decision point, or ``None`` if not now."""

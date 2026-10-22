@@ -15,6 +15,12 @@ not while the robot travels over fresh ground.
 
 With ``spread_peers`` the robots are made to spread out: a block's values are divided by one
 plus the number of peers in it or heading to it.
+
+With ``yield_to_peers`` robots that stand together split up. Two robots on the same cell share
+their memory, so they see the same field and would take the same step forever: the discount
+lowers a block equally for both and cannot tell them apart. So of the robots next to each
+other the one later in the order of ``swarm.priority`` gives way: it leaves out the target that
+a neighbour before it reported heading for, and takes its next best one.
 """
 
 from collections import Counter
@@ -27,6 +33,7 @@ from numpy.typing import NDArray
 from swarm_field.contracts import CellId, Time, TimeUnit
 from swarm_field.swarm.field import Seed
 from swarm_field.swarm.memory import MemoryView
+from swarm_field.swarm.priority import ranks_before
 
 
 @dataclass(frozen=True)
@@ -47,6 +54,16 @@ class ExploreConfig:
         spread_peers: Whether to divide a block's worths by one plus the number of peers in it
             or heading to it.
         peer_max_age: Peer reports older than this are left out of the discount.
+        yield_to_peers: Whether a robot gives way to a peer next to it that goes before it
+            (``swarm.priority``), by leaving out the target that peer reported heading for.
+        yield_distance: How close, in cells along either axis, a peer must be to count as next
+            to the robot; 0 is the same cell only.
+        yield_spacing: The cells of the robot's own block this close to a target it gives way
+            on are left out with it, so the two robots sweep different parts of the block.
+        reach_cells: With robots kept in radio contact (``swarm.tether``), the link range in
+            cells. The stale cells within it of a peer are then seeded too, and when there are
+            any, only cells within reach are: a robot always has a target it can get to without
+            losing contact, and the robots spread out together. ``None`` seeds as usual.
         window_blocks: How many blocks of ``Quadtree.max_leaf_side`` cells around the robot's
             block the field is searched cell by cell. The sweep needs only the robot's own
             block, but beyond the window a block is one leaf, measured from its centre, which
@@ -59,6 +76,10 @@ class ExploreConfig:
     block_side: int = 8
     spread_peers: bool = True
     peer_max_age: Time = TimeUnit.MINUTE
+    yield_to_peers: bool = True
+    yield_distance: int = 1
+    yield_spacing: int = 3
+    reach_cells: float | None = None
     window_blocks: int = 1
 
     def block_of(self, cell: CellId) -> CellId:
@@ -128,6 +149,38 @@ class PeerDiscount:
         return worth / (1 + self.peers.get(block, 0))
 
 
+def yielded_targets(
+    memory: MemoryView, robot: CellId, now: Time, config: ExploreConfig
+) -> frozenset[CellId]:
+    """The targets this robot gives way on: those of fresh peers next to it that go first.
+
+    Empty without ``yield_to_peers``. Every robot applies the same rule, so of two robots
+    standing together exactly one gives way, and they do not both turn away.
+    """
+    if not config.yield_to_peers:
+        return frozenset()
+    targets: set[CellId] = set()
+    for peer in memory.peers():
+        if peer.peer is None or peer.target is None:
+            continue
+        if not ranks_before(peer.peer, memory.robot_id, now):
+            continue
+        if now - peer.observed_at > config.peer_max_age:
+            continue
+        apart = max(abs(peer.cell[0] - robot[0]), abs(peer.cell[1] - robot[1]))
+        if apart <= config.yield_distance:
+            targets.add(peer.target)
+    return frozenset(targets)
+
+
+def _near_any(cell: CellId, targets: frozenset[CellId], spacing: int) -> bool:
+    """Whether ``cell`` is within ``spacing`` cells, along both axes, of one of ``targets``."""
+    for target in targets:
+        if abs(cell[0] - target[0]) <= spacing and abs(cell[1] - target[1]) <= spacing:
+            return True
+    return False
+
+
 class ExploreSeeder:
     """Seeds the EXPLORE field: the stale cells of the robot's block, one seed per other block.
 
@@ -162,14 +215,17 @@ class ExploreSeeder:
         )
         stale = own_worths > 0.0
         peers = frozenset(PeerDiscount.from_memory(memory, now, config).peers.items())
-        return (now // config.rebuild_period, own_block, stale.tobytes(), peers)
+        yielded = yielded_targets(memory, robot, now, config)
+        return (now // config.rebuild_period, own_block, stale.tobytes(), peers, yielded)
 
     def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
         """A seed on every stale cell of the robot's block, and one on every other block.
 
         A stale cell starts at ``-beta * worth``, and another block at ``-beta * worth`` of its
         stalest cell. With ``spread_peers``, both are divided by one plus the peers of their
-        block.
+        block. With ``yield_to_peers``, the targets the robot gives way on are left out: the
+        stale cells of its block near them, and the other blocks that hold them; if that leaves
+        nothing, nothing is left out.
         """
         config = self.config
         worths = revisit_worths(
@@ -179,20 +235,73 @@ class ExploreSeeder:
         # spread_peers it changes nothing.
         discount = PeerDiscount.from_memory(memory, now, config)
 
+        yielded = yielded_targets(memory, robot, now, config)
+        yielded_blocks = {config.block_of(target) for target in yielded}
+
         # The robot's own block: one seed on every stale cell.
         own_block = config.block_of(robot)
         own_worths = worths[config.cells_of_block(own_block)]
         seeds: list[Seed] = []
+        kept: list[Seed] = []
         for dx, dy in np.argwhere(own_worths > 0.0).tolist():
             worth = discount.apply(float(own_worths[dx, dy]), own_block)
-            seeds.append(Seed(config.cell_in_block(own_block, dx, dy), -config.beta * worth))
+            seed = Seed(config.cell_in_block(own_block, dx, dy), -config.beta * worth)
+            seeds.append(seed)
+            if not _near_any(seed.cell, yielded, config.yield_spacing):
+                kept.append(seed)
 
         # Every other block: one seed on its stalest cell.
         for target in block_targets(worths, config):
             if target.block != own_block:
                 worth = discount.apply(target.worth, target.block)
-                seeds.append(Seed(target.cell, -config.beta * worth))
+                seed = Seed(target.cell, -config.beta * worth)
+                seeds.append(seed)
+                if target.block not in yielded_blocks:
+                    kept.append(seed)
+        within = _seeds_within_reach(memory, now, worths, discount, kept, config)
+        if within:
+            return within
+        if kept:
+            return tuple(kept)
         return tuple(seeds)
+
+
+def _seeds_within_reach(
+    memory: MemoryView,
+    now: Time,
+    worths: NDArray[np.float64],
+    discount: PeerDiscount,
+    seeds: list[Seed],
+    config: ExploreConfig,
+) -> tuple[Seed, ...]:
+    """The stale cells within ``reach_cells`` of a fresh peer, and those of ``seeds`` in reach.
+
+    Empty without ``reach_cells``, or when no peer is known or nothing stale is in reach.
+    """
+    reach = config.reach_cells
+    if reach is None:
+        return ()
+    peers: list[CellId] = []
+    for peer in memory.peers():
+        if peer.peer is not None and now - peer.observed_at <= config.peer_max_age:
+            peers.append(peer.cell)
+    if not peers:
+        return ()
+    width, height = worths.shape
+    xs, ys = np.meshgrid(np.arange(width), np.arange(height), indexing="ij")
+    in_reach = np.zeros(worths.shape, dtype=np.bool_)
+    for x, y in peers:
+        in_reach |= (xs - x) ** 2 + (ys - y) ** 2 <= reach * reach
+    found: dict[CellId, Seed] = {}
+    for seed in seeds:
+        if in_reach[seed.cell]:
+            found[seed.cell] = seed
+    for x, y in np.argwhere(in_reach & (worths > 0.0)).tolist():
+        cell = (x, y)
+        if cell not in found:
+            worth = discount.apply(float(worths[x, y]), config.block_of(cell))
+            found[cell] = Seed(cell, -config.beta * worth)
+    return tuple(found.values())
 
 
 def revisit_worths(

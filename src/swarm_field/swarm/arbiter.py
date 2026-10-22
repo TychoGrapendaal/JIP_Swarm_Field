@@ -17,7 +17,7 @@ from dataclasses import dataclass, replace
 from math import isnan
 from typing import Protocol
 
-from swarm_field.contracts import CellId, Time, TimeUnit
+from swarm_field.contracts import Target, Time, TimeUnit
 from swarm_field.swarm.behavior import ActionCandidate
 
 logger = logging.getLogger(__name__)
@@ -90,13 +90,13 @@ class Commitment:
 
     Attributes:
         source: The objective: the name of the behaviour whose bid won.
-        target: The cell that bid committed the robot to, or ``None``.
+        target: What that bid committed the robot to, a cell or a ``PestId``, or ``None``.
         objective_since: When the robot took on this objective.
         target_since: When the robot took on this target.
     """
 
     source: str
-    target: CellId | None
+    target: Target | None
     objective_since: Time
     target_since: Time
 

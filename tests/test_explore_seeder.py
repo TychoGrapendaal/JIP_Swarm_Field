@@ -15,6 +15,7 @@ from swarm_field.contracts import (
 )
 from swarm_field.swarm import AgentMemory, ExploreConfig, ExploreSeeder
 from swarm_field.swarm.explore import block_targets, revisit_worths
+from swarm_field.swarm.priority import ranks_before
 
 _FIELD = FieldGeometry(width=32, height=16, cell_size=10.0, row_sp=0.0, in_row_sp=0.0, headland=0.0)
 """Two blocks of 16 x 16 cells: (0, 0) on the left and (1, 0) on the right."""
@@ -61,7 +62,11 @@ def _memory_with_left_block_seen(at: Time, except_cells: tuple[CellId, ...] = ()
 
 def _seeder(spread_peers: bool = False) -> ExploreSeeder:
     config = ExploreConfig(
-        revisit_age=_REVISIT, beta=10.0, block_side=16, spread_peers=spread_peers
+        revisit_age=_REVISIT,
+        beta=10.0,
+        block_side=16,
+        spread_peers=spread_peers,
+        yield_to_peers=False,
     )
     return ExploreSeeder(config)
 
@@ -148,3 +153,35 @@ def test_old_peer_reports_are_left_out_of_the_discount() -> None:
     seeds = {seed.cell: seed.value for seed in seeder.seeds(memory, (0, 0), now=100)}
 
     assert seeds[(16, 0)] == pytest.approx(-10.0)
+
+
+def test_of_two_robots_together_the_later_one_gives_way_on_the_others_target() -> None:
+    """Robots on one cell see the same field; only the one later in the order turns away."""
+    config = ExploreConfig(revisit_age=_REVISIT, beta=10.0, block_side=16, spread_peers=False)
+    seeder = ExploreSeeder(config)
+    unseen = ((3, 4), (12, 12))
+
+    def seeded_cells(robot_id: int, peer_id: int) -> set[CellId]:
+        memory = AgentMemory(robot_id, _FIELD)
+        memory.merge(_memory_with_left_block_seen(at=100, except_cells=unseen).records())
+        memory.merge([_peer(peer_id, cell=(2, 2), target=(3, 4), at=100)])
+        return {seed.cell for seed in seeder.seeds(memory, (2, 2), now=100)}
+
+    first, later = 1, 2
+    if not ranks_before(first, later, 100):
+        first, later = later, first
+    assert seeded_cells(robot_id=first, peer_id=later) == {(3, 4), (12, 12), (16, 0)}
+    assert seeded_cells(robot_id=later, peer_id=first) == {(12, 12), (16, 0)}
+
+
+def test_with_a_reach_only_stale_cells_near_a_peer_are_seeded() -> None:
+    """Kept in contact, a robot explores where it can get to without losing its neighbours."""
+    config = ExploreConfig(
+        revisit_age=_REVISIT, beta=10.0, block_side=16, spread_peers=False, reach_cells=3.0
+    )
+    memory = _memory_with_left_block_seen(at=100, except_cells=((3, 4), (12, 12)))
+    memory.merge([_peer(2, cell=(4, 4), target=None, at=100)])
+
+    seeds = ExploreSeeder(config).seeds(memory, (0, 0), now=100)
+
+    assert {seed.cell for seed in seeds} == {(3, 4)}

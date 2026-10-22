@@ -17,6 +17,7 @@ from swarm_field.contracts import (
     Observation,
     ReplaceBattery,
     RobotSelfState,
+    Target,
     Time,
     TimeUnit,
     Treat,
@@ -64,10 +65,11 @@ class ActionCandidate:
         score: How much the behaviour wants it, on the ``[0, 1]`` scale shared by all
             behaviours; the arbiter picks the winner.
         source: The name of the proposing behaviour.
-        target: The cell this candidate commits the robot to, if the behaviour knows it from
-            memory (such as a known pest's cell), or ``None``. The arbiter uses it to tell a new
-            target from the one the robot is already heading for. For a winning ``FollowField``
-            the brain reports the field's target instead.
+        target: What this candidate commits the robot to, if the behaviour knows it from
+            memory: a known pest's cell, or with hop-based navigation the pest's ``PestId``,
+            which stays the same while the estimate of its cell shifts. ``None`` otherwise.
+            The arbiter uses it to tell a new target from the one the robot is already heading
+            for. For a winning ``FollowField`` the brain reports the field's target instead.
         objective: The objective this candidate serves, reported to peers with the target, or
             ``None`` if it serves none of them.
     """
@@ -75,7 +77,7 @@ class ActionCandidate:
     action: Intent
     score: float
     source: str
-    target: CellId | None
+    target: Target | None
     objective: AgentObjective | None = None
 
 

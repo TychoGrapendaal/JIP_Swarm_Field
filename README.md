@@ -135,6 +135,22 @@ uv run python examples/pest_demo.py
 
 Five scouts explore and three killers explore and treat a field with a river and two rocks, while pests appear at random free cells over time. Every robot is a real `ComposedAgent` with a `UtilityArbiter`: scouts follow the EXPLORE field with a mock behaviour that always bids 0.5, and killers weigh it against `TreatInfestation` on the TREAT field. Robots share their memory and status only within radio range. The panel shows what each killer is doing and how many pests it knows of. `--killers-treat-only` leaves the explore behaviour out of the killers, so they wait until they hear of a pest. The panel also shows the measures of `MetricsCollector`: infested cells, detection latency, coverage, idleness and redundancy. `--radio`, `--pests-per-hour`, `--spread`, `--scouts` and `--killers` change the setup, and `--save videos/pests.mp4` records a video. The killers' time per goal is weighted by simulated time, so pausing or changing the speed does not change it. `PestScenario` in `swarm_field.experiments` describes the run, and `swarm_field.runner` assembles and runs it.
 
+### Hop-based pest navigation
+
+```bash
+uv run python examples/hop_demo.py
+uv run python examples/hop_demo.py --compare --hours 3 --seeds 0 1 2
+```
+
+The pest experiment, but news of a pest travels only robot to robot, as a `PestBeacon` with a hop count. A robot that senses a pest starts a beacon at hop 0, every robot that hears one passes it on one hop further, and a robot that finds the pest gone passes on a cleared beacon that wins wherever it arrives. Each killer follows the live beacon with the fewest hops that no other killer is heading for, along the grid potential field seeded at that pest's cell, and bids with the pest's `PestId` as its target so the arbiter protects the trip. Peers' memory snapshots no longer carry pests. `--navigation gradient` runs hop-gradient navigation instead, `--navigation memory` the plain memory-sharing experiment, `--compare` prints all three side by side without a window, and `--radio`, `--killer-speed` and `--max-hops` change the setup. `HopPestScenario` in `swarm_field.experiments` describes the run, and `docs/research/hop-navigation.md` explains the method and the results.
+
+```bash
+uv run python examples/hop_explainer.py
+uv run python examples/hop_explainer.py --events
+```
+
+`hop_explainer.py` slows it down to explain it: one killer and six scouts with a 70 m radio, so news takes several hops. By default it shows real hop-gradient navigation (`--navigation gradient`): the scout that finds a pest stays on it as the anchor and sends hop 0 every round, every robot passes on its count and points to its parent, and the killer drives from parent to parent until it stands on the pest, with no position in any message. `--navigation hop` shows the beacons instead. The number above every robot is its hop count, the panel shows the numbers, every robot's counts, the killer's chain and an event log. Only the killer's last 5 cells are drawn as a trail (`--trail-cells`), and `--arrows` adds how the counts were passed from robot to robot. `--view field` draws the same run with the map coloured by the potential field the killer follows, the cost to its current target, and with the path that field predicts from the killer to its target instead of trails. `--scouts` and `--killers` set the swarm: with several killers each one has its own colour for its trail, its way and its chain in the panel, the number above every robot is its hops to the nearest anchor, and the field view colours each cell by the cost to the nearest killer's target. In the explainer every robot keeps at least one other in radio contact, and each pest has one anchor (`docs/research/hop-navigation.md`); a red dashed ring marks a robot out of contact, and `--no-contact` lets robots drift apart. In `HopPestScenario` contact-keeping is off unless `keep_connected` is set. `--events` prints only the event log and the numbers, and `--start 52` skips drawing the first 52 minutes. `docs/research/hop-navigation.md` compares the gradient, the beacons and memory sharing.
+
 ### Wall-following steering demonstration
 
 ```bash

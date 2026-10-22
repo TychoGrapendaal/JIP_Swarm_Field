@@ -174,3 +174,46 @@ def test_known_obstacles_are_not_monitorable() -> None:
     assert not monitorable[2, 2]
     assert monitorable[4, 4]
     assert monitorable[0, 0]
+
+
+def test_a_sighting_keeps_the_target_the_peer_last_reported() -> None:
+    """Seeing a peer on the cell cannot tell where it heads, so its last report still says."""
+    memory = _memory()
+    report = PeerObservation(
+        cell=(1, 1),
+        confidence=1.0,
+        observed_at=10,
+        source=2,
+        peer=2,
+        body=BodyType.SCOUT,
+        target=(5, 5),
+    )
+    sighting = PeerObservation(
+        cell=(1, 2), confidence=1.0, observed_at=20, source=_SELF, peer=2, body=BodyType.SCOUT
+    )
+    memory.merge([report, sighting])
+
+    (peer,) = memory.peers()
+    assert (peer.cell, peer.observed_at, peer.target) == ((1, 2), 20, (5, 5))
+
+
+def test_a_report_older_than_a_sighting_still_gives_the_peer_its_target() -> None:
+    """A robot senses before it reads its inbox, so the report comes in after the sighting."""
+    memory = _memory()
+    sighting = PeerObservation(
+        cell=(1, 2), confidence=1.0, observed_at=20, source=_SELF, peer=2, body=BodyType.SCOUT
+    )
+    report = PeerObservation(
+        cell=(1, 1),
+        confidence=1.0,
+        observed_at=15,
+        source=2,
+        peer=2,
+        body=BodyType.SCOUT,
+        target=(5, 5),
+    )
+    memory.merge([sighting])
+    memory.merge([report])
+
+    (peer,) = memory.peers()
+    assert (peer.cell, peer.observed_at, peer.target) == ((1, 2), 20, (5, 5))

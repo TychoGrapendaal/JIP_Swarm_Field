@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import chain
 from math import exp
 from typing import Protocol, cast
@@ -78,6 +78,9 @@ class DecayConfig:
 
 class MemoryView(Protocol):
     """The read-only queries on memory that behaviours and field seeders are typed against."""
+
+    @property
+    def robot_id(self) -> RobotId: ...
 
     def terrain_at(self, cell: CellId) -> Terrain | None: ...
 
@@ -237,7 +240,8 @@ class AgentMemory:
     """One robot's facts about the field and its peers, merged from its own sensing and peers.
 
     Crop, terrain, infestation and named peer facts are stored. Anonymous peer sightings and
-    sightings of the robot itself are ignored.
+    sightings of the robot itself are ignored. A sighting of a peer keeps the target and
+    objective of the peer's last report of itself.
 
     Attributes:
         version: How many facts memory has stored so far. It grows whenever a merge stores
@@ -260,9 +264,15 @@ class AgentMemory:
         self._crops_last_stored: int = -1
         self._peers: dict[RobotId, PeerObservation] = {}
         self._peers_last_stored: int = -1
+        self._reports: dict[RobotId, PeerObservation] = {}
         self._monitorable: NDArray[np.bool_] = np.ones(cells, dtype=np.bool_)
         self._shared: _SharedSnapshot | None = None
         self.version: int = 0
+
+    @property
+    def robot_id(self) -> RobotId:
+        """The robot whose memory this is."""
+        return self._robot_id
 
     @property
     def width(self) -> int:
@@ -463,14 +473,35 @@ class AgentMemory:
         self.version += len(stored)
 
     def _merge_peers(self, facts: Iterable[PeerObservation]) -> None:
-        """Merge peer facts; anonymous sightings and sightings of the robot itself are ignored."""
+        """Merge peer facts; anonymous sightings and sightings of the robot itself are ignored.
+
+        A peer's report of itself (``source`` is the peer) says where it is heading; a sighting
+        by another robot cannot tell. So the newest report is kept apart, and the peer's fact
+        carries its target and objective whatever the newest position came from. A robot
+        senses before it reads its messages, so a sighting is usually newer than the report
+        that arrives with it; without this, robots standing together would never learn where
+        the others are heading, or that one of them anchors a pest.
+        """
         for fact in facts:
             peer = fact.peer
             if peer is None or peer == self._robot_id:
                 continue
+            report = self._reports.get(peer)
+            if fact.source == peer and (report is None or fact.observed_at > report.observed_at):
+                report = fact
+                self._reports[peer] = fact
             known = self._peers.get(peer)
+            stored = known
             if known is None or fact.observed_at > known.observed_at:
-                self._peers[peer] = fact
+                stored = fact
+            if stored is None:
+                continue
+            if report is not None and stored is not report:
+                same = (stored.target, stored.objective) == (report.target, report.objective)
+                if not same:
+                    stored = replace(stored, target=report.target, objective=report.objective)
+            if stored is not known:
+                self._peers[peer] = stored
                 self._peers_last_stored = self._next_version()
 
     def _merge_crops(self, facts: Iterable[CropObservation]) -> None:

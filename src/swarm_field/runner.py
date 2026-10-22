@@ -76,6 +76,15 @@ from swarm_field.swarm import (
     TreatSeeder,
     UtilityArbiter,
 )
+from swarm_field.swarm.gradient import (
+    AnchorPest,
+    FollowGradient,
+    GradientAgent,
+    GradientConfig,
+    GradientSeeder,
+    GradientTable,
+)
+from swarm_field.swarm.hop import BeaconSeeder, BeaconTable, FollowBeacon, HopAgent, HopConfig
 
 T = TypeVar("T")
 """What a ``Registry`` holds: a swappable brain part."""
@@ -673,6 +682,12 @@ def build_agent(
     memory = AgentMemory(robot_id, field)
     if known is not None:
         memory.merge_snapshot(known)
+    hop: HopConfig | None = spec.params.get("hop")
+    if hop is not None:
+        return build_hop_agent(spec, robot_id, memory, rng, hop)
+    gradient: GradientConfig | None = spec.params.get("gradient")
+    if gradient is not None:
+        return build_gradient_agent(spec, robot_id, memory, rng, gradient)
     behaviors: list[Behavior] = [
         BEHAVIORS.build(name, _params_for(spec), rng) for name in spec.behaviors
     ]
@@ -685,6 +700,83 @@ def build_agent(
         navigator=Navigator(fields.quadtree),
         arbiter=UtilityArbiter(spec.arbiter),
         sharing=spec.sharing,
+        tether=spec.params.get("tether"),
+    )
+
+
+def build_hop_agent(
+    spec: BrainSpec, robot_id: RobotId, memory: AgentMemory, rng: Random, hop: HopConfig
+) -> HopAgent:
+    """Assemble a brain that passes on pest beacons, for a spec with a ``HopConfig``.
+
+    The behaviour ``"follow-beacon"`` and the seeder ``"beacon"`` share the robot's
+    ``BeaconTable``, so they are built here rather than from the registries; every other part
+    is resolved by name as usual.
+    """
+    beacons = BeaconTable(robot_id, hop)
+    params = _params_for(spec)
+    behaviors: list[Behavior] = []
+    for name in spec.behaviors:
+        if name == FollowBeacon.name:
+            behaviors.append(FollowBeacon(beacons))
+        else:
+            behaviors.append(BEHAVIORS.build(name, params, rng))
+    seeders: list[FieldSeeder] = []
+    for name in spec.seeders:
+        if name == BeaconSeeder.name:
+            seeders.append(BeaconSeeder(beacons, robot_id))
+        else:
+            seeders.append(SEEDERS.build(name, params, rng))
+    fields = FieldProvider(memory, flies=False, seeders=seeders)
+    return HopAgent(
+        robot_id=robot_id,
+        behaviors=behaviors,
+        memory=memory,
+        fields=fields,
+        navigator=Navigator(fields.quadtree),
+        arbiter=UtilityArbiter(spec.arbiter),
+        beacons=beacons,
+        sharing=spec.sharing,
+        tether=spec.params.get("tether"),
+    )
+
+
+def build_gradient_agent(
+    spec: BrainSpec, robot_id: RobotId, memory: AgentMemory, rng: Random, gradient: GradientConfig
+) -> GradientAgent:
+    """Assemble a brain that keeps hop counts, for a spec with a ``GradientConfig``.
+
+    The behaviours ``"follow-gradient"`` and ``"anchor"`` and the seeder ``"gradient"`` share
+    the robot's ``GradientTable``, so they are built here rather than from the registries;
+    every other part is resolved by name as usual.
+    """
+    gradients = GradientTable(robot_id, gradient)
+    params = _params_for(spec)
+    behaviors: list[Behavior] = []
+    for name in spec.behaviors:
+        if name == FollowGradient.name:
+            behaviors.append(FollowGradient(gradients))
+        elif name == AnchorPest.name:
+            behaviors.append(AnchorPest(gradients))
+        else:
+            behaviors.append(BEHAVIORS.build(name, params, rng))
+    seeders: list[FieldSeeder] = []
+    for name in spec.seeders:
+        if name == GradientSeeder.name:
+            seeders.append(GradientSeeder(gradients))
+        else:
+            seeders.append(SEEDERS.build(name, params, rng))
+    fields = FieldProvider(memory, flies=False, seeders=seeders)
+    return GradientAgent(
+        robot_id=robot_id,
+        behaviors=behaviors,
+        memory=memory,
+        fields=fields,
+        navigator=Navigator(fields.quadtree),
+        arbiter=UtilityArbiter(spec.arbiter),
+        gradients=gradients,
+        sharing=spec.sharing,
+        tether=spec.params.get("tether"),
     )
 
 

@@ -22,7 +22,8 @@ _SCENARIO = ExploreScenario(
 )
 """Idleness is measured once the field has been covered, which takes about 40 minutes."""
 _SPREAD = ExploreConfig()
-_PLAIN = ExploreConfig(spread_peers=False)
+_PLAIN = ExploreConfig(spread_peers=False, yield_to_peers=False)
+"""Explorers that ignore their peers: no peer discount, and no giving way on a shared target."""
 
 
 @cache
