@@ -148,3 +148,32 @@ def river_and_rocks(size: int) -> tuple[CellId, ...]:
         for dx in range(3):
             cells.extend((corner_x + dx, corner_y + dy) for dy in range(3))
     return tuple(cells)
+
+
+def two_rivers_and_rocks(size: int) -> tuple[CellId, ...]:
+    """Two rivers with three bridges between them, and eight square rocks.
+
+    The rivers are two cells wide, at a third and two thirds of the width. The first has two
+    bridges, at a quarter and three quarters of the height, the second one at half the height;
+    each bridge is three cells wide. The rocks are 3 by 3 cells, spread over the three banks.
+    """
+    cells: list[CellId] = []
+    for river_x, bridges in (
+        (size // 3, (size // 4, 3 * size // 4)),
+        (2 * size // 3, (size // 2,)),
+    ):
+        for y in range(size):
+            on_bridge = False
+            for bridge_y in bridges:
+                if abs(y - bridge_y) <= 1:
+                    on_bridge = True
+            if not on_bridge:
+                cells.extend([(river_x, y), (river_x + 1, y)])
+    rocks = ((0.1, 0.15), (0.15, 0.6), (0.4, 0.12), (0.5, 0.4))
+    rocks += ((0.42, 0.78), (0.8, 0.2), (0.85, 0.55), (0.75, 0.85))
+    for fraction_x, fraction_y in rocks:
+        corner_x = int(fraction_x * size)
+        corner_y = int(fraction_y * size)
+        for dx in range(3):
+            cells.extend((corner_x + dx, corner_y + dy) for dy in range(3))
+    return tuple(cells)

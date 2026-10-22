@@ -1,8 +1,10 @@
 """Tests for the pest experiment's scenario description."""
 
+from collections import deque
 from dataclasses import replace
 
-from swarm_field.experiments import RELAYED_KILLERS
+from swarm_field.contracts import CellId
+from swarm_field.experiments import RELAYED_KILLERS, RIVERS_LARGE
 
 
 def test_lattice_starts_are_inside_the_field_and_reproducible() -> None:
@@ -24,3 +26,20 @@ def test_lattice_starts_avoid_obstacles() -> None:
 
     for cell in scenario.starts():
         assert cell not in blocked
+
+
+def test_the_bridges_join_every_free_cell_of_the_two_rivers_field() -> None:
+    size = RIVERS_LARGE.size
+    blocked = set(RIVERS_LARGE.blocked_cells())
+    start = (0, 0)
+    reached: set[CellId] = {start}
+    queue: deque[CellId] = deque([start])
+    while queue:
+        x, y = queue.popleft()
+        for cell in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+            inside = 0 <= cell[0] < size and 0 <= cell[1] < size
+            if inside and cell not in blocked and cell not in reached:
+                reached.add(cell)
+                queue.append(cell)
+
+    assert len(reached) == size * size - len(blocked)

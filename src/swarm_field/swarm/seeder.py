@@ -81,10 +81,11 @@ class TreatSeeder:
         cutoff_sigmas: Infestations further apart than this many widths do not reinforce each
             other. At the default of three the weight is ``exp(-9)``, about 0.0001, so what is
             left out is negligible.
+        window_blocks: How many blocks around the robot's own the field is searched cell by
+            cell, as in ``FieldSeeder``.
     """
 
     name: str = "treat"
-    window_blocks: int = 2
 
     def __init__(
         self,
@@ -92,7 +93,9 @@ class TreatSeeder:
         value_amplifier: float = 1.0,
         sigma: float = 1.0,
         cutoff_sigmas: float = 3.0,
+        window_blocks: int = 2,
     ) -> None:
+        self.window_blocks: int = window_blocks
         self._reduction_rate: float = reduction_rate
         self._value_amplifier: float = value_amplifier
         self._sigma: float = sigma

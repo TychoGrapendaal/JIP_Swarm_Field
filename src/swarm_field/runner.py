@@ -169,8 +169,9 @@ def _beacon_parts(params: dict[str, Any], part: str) -> tuple[BeaconConfig, Beac
 
 @SEEDERS.register("treat")
 def _build_treat_seeder(params: dict[str, Any], rng: Random) -> TreatSeeder:
-    """Build the TREAT seeder. It has no parameters yet, so it takes none."""
-    return TreatSeeder()
+    """Build the TREAT seeder, with the window of ``"treat_window_blocks"`` if given."""
+    window_blocks: int = params.get("treat_window_blocks", 2)
+    return TreatSeeder(window_blocks=window_blocks)
 
 
 @BEHAVIORS.register("explore")

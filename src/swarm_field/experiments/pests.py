@@ -21,7 +21,7 @@ and a few killers hear of pests through them from a mock source on every pest
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from random import Random
 
 from swarm_field.contracts import (
@@ -36,12 +36,13 @@ from swarm_field.contracts import (
     Time,
     TimeUnit,
 )
-from swarm_field.experiments.explore import cropped_cells, river_and_rocks
+from swarm_field.experiments.explore import cropped_cells, river_and_rocks, two_rivers_and_rocks
 from swarm_field.runner import BrainSpec, ExperimentConfig
 from swarm_field.simulation import MetricsConfig
 from swarm_field.swarm import (
     ArbiterConfig,
     BeaconConfig,
+    EscapeConfig,
     ExploreConfig,
     HopField,
     KnowledgeSharing,
@@ -89,6 +90,8 @@ class PestScenario:
             neighbour; 0 keeps every pest where it spawned.
         spawn_severity: The severity of a new pest.
         explore: The parameters of every robot's EXPLORE field.
+        treat_window_blocks: How many blocks of the quadtree around a killer's own its TREAT
+            field is searched cell by cell; beyond them, leaf by leaf.
         arbiter: The overrides and hysteresis of every robot's ``UtilityArbiter``.
         sample_period: The time between two metrics samples.
         until: How long the run lasts.
@@ -119,6 +122,7 @@ class PestScenario:
     spread_probability: float = 0.0
     spawn_severity: float = 0.1
     explore: ExploreConfig = field(default_factory=ExploreConfig)
+    treat_window_blocks: int = 2
     arbiter: ArbiterConfig = field(default_factory=ArbiterConfig)
     sample_period: Time = TimeUnit.SECOND
     until: Time = 3 * TimeUnit.HOUR
@@ -262,16 +266,18 @@ class PestScenario:
             pest_dynamics=self.pest_dynamics(),
             pest_sources=pest_sources,
         )
-        params = {"explore": self.explore}
+        params: dict[str, object] = {"explore": self.explore}
         explore = self._brain(("explore",), ("explore",), params)
         if self.scouts_relay:
             explore = self._brain((), (), {})
         behavior, field = TreatInfestation.name, TreatSeeder.name
         if self.hop_treat:
             behavior, field = TreatByBeacon.name, HopField.name
-        treat = self._brain((behavior,), (field,), {})
+        treat_params: dict[str, object] = {"treat_window_blocks": self.treat_window_blocks}
+        treat = self._brain((behavior,), (field,), treat_params)
         if self.killers_explore:
-            treat = self._brain((behavior, "explore"), (field, "explore"), params)
+            treat_params.update(params)
+            treat = self._brain((behavior, "explore"), (field, "explore"), treat_params)
         return ExperimentConfig(
             label=label,
             scenario=scenario,
@@ -285,7 +291,7 @@ class PestScenario:
         )
 
     def _brain(
-        self, behaviors: tuple[str, ...], seeders: tuple[str, ...], params: dict[str, ExploreConfig]
+        self, behaviors: tuple[str, ...], seeders: tuple[str, ...], params: dict[str, object]
     ) -> BrainSpec:
         """A brain with the scenario's arbiter, sharing and beacons, and a map if it needs one."""
         return BrainSpec(
@@ -335,3 +341,58 @@ The scouts only relay, and a mock source on every pest stands in for the explore
 it. The radio reaches 1.25 relay pitches, so a pest reaches the nearest killer through several
 relays. The other arms of the benchmark are variants of it, in ``tests/benchmark_pests.py``.
 """
+
+
+RIVER_SMALL = PestScenario(
+    obstacles=river_and_rocks(32),
+    scouts=64,
+    killers=6,
+    lattice_starts=True,
+    scouts_relay=True,
+    killers_explore=False,
+    radio_range_m=50.0,
+    pest_source_range_m=50.0,
+    sharing=KnowledgeSharing.INFESTATIONS,
+    robots_know_terrain=False,
+    pests_per_hour=18.0,
+)
+"""The obstacle comparison's small field (#70): one river with a bridge, and two rocks.
+
+Relays stand on a lattice 4 cells apart, as sparse as it gets while the radio, which reaches
+1.25 pitches, still joins almost all of them into one network and every cell is in range of a
+relay. No robot knows the terrain; killers learn obstacles by sensing.
+``pest_response_configurations`` turns it into the compared configurations.
+"""
+
+RIVERS_LARGE = replace(
+    RIVER_SMALL,
+    size=64,
+    obstacles=two_rivers_and_rocks(64),
+    scouts=256,
+    killers=18,
+    pests_per_hour=48.0,
+)
+"""``RIVER_SMALL`` on four times the area: two rivers with three bridges, and eight rocks."""
+
+
+def pest_response_configurations(scenario: PestScenario) -> dict[str, PestScenario]:
+    """The four pest responses compared on ``scenario``, by name.
+
+    ``seeded`` treats remembered pests on the TREAT field and gossips them. The hop
+    configurations treat on hop beacons of one radio range each, capped where a beacon's
+    strength falls below 0.05: ``hop`` alone, ``hop-repel`` with killers repelling each other,
+    and ``hop-tuned`` with pulls weighted by the square root of the distance and the escape.
+    """
+    hop_beacons = BeaconConfig(
+        hop_cells=scenario.radio_range_m / scenario.cell_size,
+        max_value=math.log(0.05) / math.log(0.5),
+    )
+    repel = replace(hop_beacons, killer_repulsion=2.0)
+    tuned = replace(repel, distance_power=0.5, escape=EscapeConfig())
+    hop = replace(scenario, hop_treat=True, beacons=hop_beacons, sharing=KnowledgeSharing.NOTHING)
+    return {
+        "seeded": replace(scenario, sharing=KnowledgeSharing.INFESTATIONS),
+        "hop": hop,
+        "hop-repel": replace(hop, beacons=repel),
+        "hop-tuned": replace(hop, beacons=tuned),
+    }
