@@ -107,12 +107,8 @@ def test_a_snapshot_distinguishes_a_fault_condition_from_the_baseline() -> None:
         faulty,
     )
 
-    # Physical battery depletion can produce natural failures in the baseline. The injected
-    # all-fail condition must still fail every robot and remain distinguishable from baseline.
-    baseline_failures = _failed_count(baseline.snapshots[-1])
-    assert baseline_failures < len(baseline.snapshots[-1].robots)
+    assert _failed_count(baseline.snapshots[-1]) == 0
     assert _failed_count(faulty.snapshots[-1]) == 15
-    assert _failed_count(faulty.snapshots[-1]) > baseline_failures
 
 
 def test_a_run_with_a_renderer_measures_exactly_the_same_as_one_without() -> None:
@@ -144,10 +140,7 @@ def test_a_robustness_sweep_passes_its_renderer_to_every_case() -> None:
     # Two cases, each rendering at time zero and one hour: the renderer is shared, so the frames
     # arrive as one stream rather than being attributable to a condition.
     assert len(renderer.snapshots) == 4
-    # The baseline may naturally lose robots to battery depletion; the injected all-fail case
-    # must lose the complete swarm.
-    assert runs[0].active_robots > 0
-    assert runs[1].active_robots == 0
+    assert [run.active_robots for run in runs] == [15, 0]
 
 
 def test_a_case_configured_again_produces_the_same_run() -> None:

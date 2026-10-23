@@ -138,9 +138,11 @@ def test_charge_action_away_from_a_dock_cannot_restore_battery() -> None:
 
 def test_unaffordable_move_does_not_start_or_partially_pay_for_travel() -> None:
     robot = _robot(1, position=(2, 2), battery=0.6, speed_mps=5.0)
+    # A battery robot with a spare could still rescue the stranded robot, so it does not fail.
+    supply = _robot(2, body=BodyType.BATTERY, position=(5, 5), spare_batteries=1)
     world = WorldState(
         _field(),
-        robots=[robot],
+        robots=[robot, supply],
         docks=[(0, 0)],
         energy=EnergyConfig(per_decision=0.1, per_metre=0.1),
     )
@@ -151,6 +153,18 @@ def test_unaffordable_move_does_not_start_or_partially_pay_for_travel() -> None:
     assert world.robots[1].position == (2, 2)
     assert world.robots[1].battery == pytest.approx(0.5)
     assert world.robots[1].failed is False
+
+
+def test_a_robot_that_cannot_pay_for_a_move_fails_when_no_battery_robot_can_rescue_it() -> None:
+    # Decisions are free, so the robot's battery would never drain to zero on its own.
+    robot = _robot(1, position=(4, 3), battery=1e-6)
+    world = WorldState(_field(), robots=[robot], docks=[(0, 0)])
+
+    world.apply_action(1, Move(to=(5, 3)), time=0)
+
+    assert world.robots[1].failed is True
+    assert world.robots[1].failure_mode is FailureMode.DEAD_BATTERY
+    assert world.battery_failure_count() == 1
 
 
 def test_spend_and_charge_keep_battery_inside_zero_to_one() -> None:

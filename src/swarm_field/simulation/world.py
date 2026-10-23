@@ -557,11 +557,7 @@ class WorldState:
             robot.current_action = Idle()
             return None
         duration = self.movement_duration(robot.robot_id, target)
-        from swarm_field.swarm.capabilities import capabilities_for
-
-        endurance = capabilities_for(robot.body).endurance_seconds * TimeUnit.SECOND
-        distance_m = self._distance_m(robot.position, target)
-        travel_cost = duration / endurance + self.energy.per_metre * distance_m
+        travel_cost = self._travel_cost(robot, self._distance_m(robot.position, target))
         # Do not partially debit a movement and then start an action the robot cannot fund.
         if robot.battery + 1e-12 < travel_cost:
             robot.current_action = Idle()
@@ -801,14 +797,26 @@ class WorldState:
             self._settle_battery_failure(robot, time)
 
     def _settle_battery_failure(self, robot: RobotState, time: Time) -> None:
-        """Fail one empty robot when it is away from a dock and not in committed transit."""
-        if (
-            not robot.failed
-            and robot.battery <= 0.0
-            and robot.position not in self.docks
-            and robot.move_target is None
-        ):
+        """Fail one robot away from a dock and not moving, whose battery is empty or stranded.
+
+        A stranded robot cannot pay for even one straight hop. It never moves again unless a
+        battery robot brings it a spare, so without one it is as dead as an empty robot, even
+        with a sliver of charge left; counting only an empty battery would leave it idling as
+        an active robot forever when decisions cost nothing.
+        """
+        if robot.failed or robot.position in self.docks or robot.move_target is not None:
+            return
+        empty = robot.battery <= 0.0
+        stranded = robot.battery + 1e-12 < self._travel_cost(robot, self.field.cell_size)
+        if empty or (stranded and not self._battery_supply_left()):
             self.fail_robot(robot.robot_id, FailureMode.DEAD_BATTERY, time=time)
+
+    def _battery_supply_left(self) -> bool:
+        """Whether a live battery robot still carries a spare to bring a stranded robot."""
+        return any(
+            robot.body is BodyType.BATTERY and not robot.failed and robot.spare_batteries > 0
+            for robot in self.robots.values()
+        )
 
     @staticmethod
     def _stop_treatment(robot: RobotState) -> None:
@@ -845,6 +853,15 @@ class WorldState:
         drawn = min(robot.battery, amount)
         robot.battery -= drawn
         robot.energy_spent += drawn
+
+    def _travel_cost(self, robot: RobotState, distance_m: float) -> float:
+        """The battery a move of ``distance_m`` costs ``robot``: its travel time against its
+        body's endurance, plus the energy model's cost per metre."""
+        from swarm_field.swarm.capabilities import capabilities_for
+
+        duration = max(1, ceil(distance_m / robot.speed_mps * TimeUnit.SECOND))
+        endurance = capabilities_for(robot.body).endurance_seconds * TimeUnit.SECOND
+        return duration / endurance + self.energy.per_metre * distance_m
 
     def _distance_m(self, source: CellId, target: CellId) -> float:
         """Distance in metres between two cells, at the field's cell size."""

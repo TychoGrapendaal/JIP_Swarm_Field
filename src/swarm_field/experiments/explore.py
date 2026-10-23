@@ -41,6 +41,8 @@ class ExploreScenario:
         speed_mps: The robots' speed; a straight move takes ``cell_size / speed_mps`` seconds.
         decision_interval: The time between two decisions of a robot.
         radio_range_m: How far a robot's broadcasts reach.
+        docks: The cells where robots recharge, one at a time each; robots return to one when
+            their battery runs low. Empty means none: a robot then fails once its battery runs out.
         explore: The parameters of the EXPLORE field.
         sample_period: The time between two metrics samples.
         fresh_age: A visit to a cell sensed less than this before is redundant.
@@ -58,6 +60,7 @@ class ExploreScenario:
     speed_mps: float = 1.0
     decision_interval: Time = 2_500
     radio_range_m: float = float("inf")
+    docks: tuple[CellId, ...] = ((0, 0),)
     explore: ExploreConfig = field(default_factory=ExploreConfig)
     sample_period: Time = TimeUnit.MINUTE
     fresh_age: Time = 30 * TimeUnit.MINUTE
@@ -105,9 +108,12 @@ class ExploreScenario:
             pest_dynamics=PestDynamicsSpec(
                 spawn_probability=0.0, growth_rate=0.0, spread_probability=0.0
             ),
+            docks=self.docks,
         )
         brain = BrainSpec(
-            behaviors=("explore",), seeders=("explore",), params={"explore": self.explore}
+            behaviors=("explore", "return-to-dock"),
+            seeders=("explore", "dock"),
+            params={"explore": self.explore},
         )
         return ExperimentConfig(
             label=label,

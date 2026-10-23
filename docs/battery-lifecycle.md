@@ -17,6 +17,15 @@ recorded, and it no longer schedules normal decisions or appears in peer observa
 and the event loop continue. A zero-battery robot physically at a configured dock can wait for a
 charger and recover.
 
+A robot away from a dock whose battery cannot pay for even one straight move is stranded: it never
+moves again, and when decisions cost nothing its battery never drains to zero either. It fails in
+the same way unless a live BATTERY robot still carries a spare that could reach it. Without this
+rule a stranded robot would idle forever while still counted in `active_robots`.
+
+`PestScenario`, `ExploreScenario` and the presets have a dock at `(0, 0)` and give every robot
+`return-to-dock`, so robots recharge instead of running flat. `PestScenario.docks` and
+`ExploreScenario.docks` move it, add more, or remove them all.
+
 ## Dock charging
 
 A `Charge` action is effective only at a configured dock. Charging progresses in simulation time
