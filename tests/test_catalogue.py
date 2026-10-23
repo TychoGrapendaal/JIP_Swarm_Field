@@ -4,7 +4,7 @@ import pytest
 
 from swarm_field.contracts import TimeUnit
 from swarm_field.experiments import (
-    ExploreScenario,
+    EXPLORE,
     build_named_experiment,
     scenario_names,
     sweep_scenarios,
@@ -37,7 +37,7 @@ def test_a_named_run_is_labelled_with_its_name_and_seed() -> None:
 
 def test_a_scenario_keeps_its_own_horizon_unless_one_is_given() -> None:
     assert build_named_experiment("S1", 1).until == TimeUnit.HOUR
-    assert build_named_experiment("explore", 1).until == ExploreScenario().until
+    assert build_named_experiment("explore", 1).until == EXPLORE.until
     assert build_named_experiment("explore", 1, _SHORT).until == _SHORT
 
 

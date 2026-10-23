@@ -1,5 +1,7 @@
 """Tests for knowledge sharing: exact snapshot merges, and what each strategy broadcasts."""
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
@@ -16,7 +18,7 @@ from swarm_field.contracts import (
     Time,
     TimeUnit,
 )
-from swarm_field.experiments import PestScenario
+from swarm_field.experiments import PESTS, MapConfig
 from swarm_field.runner import run_experiment
 from swarm_field.swarm import (
     AgentMemory,
@@ -140,7 +142,7 @@ def test_the_pest_run_is_the_same_as_with_every_snapshot_merged_fact_by_fact(
     seed: int, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # A small field, so that the robots' paths cross and what they share matters early on.
-    scenario = PestScenario(size=16, seed=seed, until=5 * TimeUnit.MINUTE)
+    scenario = replace(PESTS.with_map(MapConfig(size=16)), seed=seed, until=5 * TimeUnit.MINUTE)
     config = scenario.into_experiment().with_sharing(SharingConfig(SharingStrategy.FULL))
 
     fast = run_experiment(config)

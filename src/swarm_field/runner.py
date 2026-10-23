@@ -280,6 +280,8 @@ class ExperimentConfig:
         brain: How to assemble each robot's brain.
         brains_by_body: A different brain for the robots of some body types; the others get
             ``brain``.
+        brains_by_robot: A brain for single robots, by id, e.g. for robots of one body that
+            play different roles; it wins over ``brains_by_body`` and ``brain``.
         robots_know_terrain: Whether every robot starts with the field's terrain map in its
             memory. Otherwise it learns an obstacle only once it stands next to it.
         stagger_decisions: Whether each robot decides first at a random time within one
@@ -296,6 +298,7 @@ class ExperimentConfig:
     scenario_name: str = ""
     brain: BrainSpec = field(default_factory=BrainSpec)
     brains_by_body: Mapping[BodyType, BrainSpec] = field(default_factory=dict)
+    brains_by_robot: Mapping[RobotId, BrainSpec] = field(default_factory=dict)
     robots_know_terrain: bool = False
     stagger_decisions: bool = False
     until: Time = TimeUnit.HOUR
@@ -307,7 +310,22 @@ class ExperimentConfig:
         by_body: dict[BodyType, BrainSpec] = {}
         for body, brain in self.brains_by_body.items():
             by_body[body] = replace(brain, sharing=sharing)
-        return replace(self, brain=replace(self.brain, sharing=sharing), brains_by_body=by_body)
+        by_robot: dict[RobotId, BrainSpec] = {}
+        for robot, brain in self.brains_by_robot.items():
+            by_robot[robot] = replace(brain, sharing=sharing)
+        return replace(
+            self,
+            brain=replace(self.brain, sharing=sharing),
+            brains_by_body=by_body,
+            brains_by_robot=by_robot,
+        )
+
+    def brain_of(self, robot: RobotId, body: BodyType) -> BrainSpec:
+        """The brain of one robot: its own, else its body's, else ``brain``."""
+        own = self.brains_by_robot.get(robot)
+        if own is not None:
+            return own
+        return self.brains_by_body.get(body, self.brain)
 
 
 @dataclass(frozen=True)
@@ -330,6 +348,8 @@ class RunMetadata:
         brain: The brain of every robot whose body has no brain of its own.
         brains_by_body: The brain of each body type that has one of its own, e.g.
             ``KILLER: behaviors=...``; empty if every robot has ``brain``.
+        brains_by_robot: The brains given to single robots, each distinct brain once with how
+            many robots have it, e.g. ``64x behaviors=...``; empty if none has its own.
         robots_know_terrain: Whether the robots started with the terrain map.
         stagger_decisions: Whether the robots' first decisions were spread over one interval.
         pest_spawn_probability: Chance per cell and pest update that a pest spawns.
@@ -353,6 +373,7 @@ class RunMetadata:
     radio_ranges_m: str
     brain: str
     brains_by_body: str
+    brains_by_robot: str
     robots_know_terrain: bool
     stagger_decisions: bool
     pest_spawn_probability: float
@@ -392,6 +413,7 @@ class RunMetadata:
             radio_ranges_m=" ".join(ranges),
             brain=config.brain.describe(),
             brains_by_body="; ".join(own_brains),
+            brains_by_robot=_describe_robot_brains(config.brains_by_robot),
             robots_know_terrain=config.robots_know_terrain,
             stagger_decisions=config.stagger_decisions,
             pest_spawn_probability=scenario.pest_dynamics.spawn_probability,
@@ -667,7 +689,7 @@ def build_run(
         known = terrain_knowledge(world)
     agents: dict[RobotId, SwarmAgent] = {}
     for spec in scenario.robots:
-        brain = config.brains_by_body.get(spec.body, config.brain)
+        brain = config.brain_of(spec.robot_id, spec.body)
         agents[spec.robot_id] = build_agent(brain, spec.robot_id, scenario.field, rng, known)
 
     collector = MetricsCollector(config=config.metrics)
@@ -730,7 +752,7 @@ def build_agent(
     """Resolve a ``BrainSpec`` into one assembled brain for one robot.
 
     The robot's ``BodyType`` is not a parameter: ``ComposedAgent`` has no capability gate to
-    apply it in, so a body gets its own brain through ``ExperimentConfig.brains_by_body``
+    apply it in, so a body or a robot gets its own brain through ``ExperimentConfig``
     instead (architecture §A.3). The robot's memory starts with what ``known`` holds. A brain
     with beacons gets a ``BeaconLink``, whose beacons its hop parts read, and steers headings
     from what it senses around itself at each decision only, not from a map.
@@ -858,6 +880,20 @@ def build_experiment(
         metrics=metrics if metrics is not None else MetricsConfig(),
         decision_interval=decision_interval,
     )
+
+
+def _describe_robot_brains(brains: Mapping[RobotId, BrainSpec]) -> str:
+    """Every distinct brain of ``brains`` with how many robots have it, e.g. ``64x behaviors=...``.
+
+    Robots share few brains, so listing each robot's would make an unreadable row.
+    """
+    counts: Counter[str] = Counter()
+    for brain in brains.values():
+        counts[brain.describe()] += 1
+    parts: list[str] = []
+    for described, count in sorted(counts.items()):
+        parts.append(f"{count}x {described}")
+    return "; ".join(parts)
 
 
 def _mean(values: Iterable[float | None]) -> float | None:

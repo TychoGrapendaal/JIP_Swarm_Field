@@ -29,6 +29,7 @@ from numpy.typing import NDArray
 from swarm_field.contracts import BodyType, Time, TimeUnit, WorldSnapshot
 from swarm_field.experiments.batch import Run, run_in_parallel
 from swarm_field.experiments.pest_response import MeasuredPestRun, PestResponse, PestRunSpec
+from swarm_field.experiments.presets import EXPLORER, RELAY
 from swarm_field.visualization import (
     MatplotlibRenderer,
     RobotStyle,
@@ -101,7 +102,8 @@ def record_video(run: Run[PestRunSpec], path: Path, fps: int = FPS) -> PestRespo
 
     measured = MeasuredPestRun(run)
     styles = {BodyType.KILLER: KILLER_STYLE}
-    if run.config.scenario.scouts_relay:
+    scenario = run.config.scenario
+    if scenario.count(RELAY.name) > 0 and scenario.count(EXPLORER.name) == 0:
         styles[BodyType.SCOUT] = RELAY_STYLE
     renderer = MatplotlibRenderer(
         (12.0, 8.0), show_targets=False, show_metrics=False, body_styles=styles
@@ -148,32 +150,35 @@ def panel_lines(measured: MeasuredPestRun, snapshot: WorldSnapshot) -> list[str]
     spec = measured.run.config
     scenario = spec.scenario
     tracker = measured.tracker
-    lines = [
-        f"time       {_clock(snapshot.time, measured.live.horizon)}",
-        f"robots     {scenario.scouts} relays, {scenario.killers} killers",
-        f"radio      {scenario.radio_range_m:g} m",
-        f"pest rate  {spec.pests_per_hour:g} per hour",
-        "",
-        f"infested   {len(tracker.appeared)} cells now",
-        f"treated    {len(tracker.responses)} pests so far",
-    ]
+    lines = [f"time       {_clock(snapshot.time, measured.live.horizon)}", "robots"]
+    for group in scenario.swarm:
+        if group.count > 0:
+            lines.append(f"  {group.count:3d}  {group.preset.name}")
+    lines.extend(
+        [
+            f"radio      {scenario.robots.radio_range_m:g} m",
+            f"pest rate  {spec.pests_per_hour:g} per hour",
+            "",
+            f"infested   {len(tracker.appeared)} cells now",
+            f"treated    {len(tracker.responses)} pests so far",
+        ]
+    )
     if tracker.responses:
         minutes = sum(tracker.responses) / len(tracker.responses) / TimeUnit.MINUTE
         lines.append(f"response   {minutes:.1f} min (mean)")
     lines.append("")
     goals: Counter[str] = Counter()
+    doses = scenario.pests.treatment_doses
     doses_used = 0.0
     agents = measured.live.agents()
     world = measured.live.context.world
     for robot_id in measured.killers:
         goals[agents[robot_id].inspect().current_goal or "idle"] += 1
-        doses_used += (1.0 - world.robots[robot_id].consumable) * scenario.treatment_doses
+        doses_used += (1.0 - world.robots[robot_id].consumable) * doses
     lines.append("killers by goal")
     for goal, count in sorted(goals.items()):
         lines.append(f"  {count:3d}  {goal}")
-    lines.append(
-        f"doses used {doses_used:.0f} of {scenario.treatment_doses * len(measured.killers)}"
-    )
+    lines.append(f"doses used {doses_used:.0f} of {doses * len(measured.killers)}")
     return lines
 
 

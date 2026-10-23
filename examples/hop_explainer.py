@@ -38,14 +38,22 @@ from swarm_field.contracts import (
     TimeUnit,
     WorldSnapshot,
 )
-from swarm_field.experiments import FAST_TREATMENT, LiveRun, PestScenario
+from swarm_field.experiments import (
+    FAST_TREATMENT,
+    RELAY,
+    HopKillerPreset,
+    LiveRun,
+    MapConfig,
+    PestConfig,
+    RobotConfig,
+    SwarmScenario,
+)
 from swarm_field.swarm import (
     BeaconConfig,
     BeaconMemory,
     BeaconView,
     ComposedAgent,
     EscapeConfig,
-    KnowledgeSharing,
     treat_beacon,
 )
 from swarm_field.swarm.hop import (
@@ -323,26 +331,18 @@ def main() -> None:
     escape: EscapeConfig | None = None
     if args.escape:
         escape = EscapeConfig()
-    config = BeaconConfig(
-        hop_cells=args.radio / PestScenario().cell_size,
-        max_value=args.cap,
-        escape=escape,
-    )
-    scenario = PestScenario(
-        scouts=args.relays,
-        killers=1,
-        lattice_starts=True,
-        scouts_relay=True,
-        killers_explore=False,
-        hop_treat=True,
-        radio_range_m=args.radio,
-        pest_source_range_m=args.radio,
-        sharing=KnowledgeSharing.NOTHING,
-        beacons=config,
-        robots_know_terrain=False,
+    field = MapConfig()
+    config = BeaconConfig(hop_cells=args.radio / field.cell_size, max_value=args.cap, escape=escape)
+    pests = PestConfig(
         pests_per_hour=args.pests_per_hour,
         treatment_rate=FAST_TREATMENT,
-        seed=args.seed,
+        source_range_m=args.radio,
+    )
+    robots = RobotConfig(radio_range_m=args.radio, knows_terrain=False, lattice_starts=True)
+    scenario = (
+        SwarmScenario(map=field, pests=pests, robots=robots, seed=args.seed)
+        .add_robots(RELAY, args.relays)
+        .add_robots(HopKillerPreset(beacons=config), 1)
     )
     run = LiveRun.from_config(scenario.into_experiment("hop explainer"))
     explainer = HopExplainer(run, config, args.show_broadcasts)

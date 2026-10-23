@@ -1,4 +1,4 @@
-"""Measure how a swarm responds to pests: one run of a ``PestScenario`` into a ``PestResponse``.
+"""Measure how a swarm responds to pests: one run of a ``SwarmScenario`` into a ``PestResponse``.
 
 ``measure_pest_response`` is a run function for ``Experiment.run``: it runs a ``PestRunSpec``
 with the run's seed, advancing one decision interval at a time, and a ``PestTracker`` samples
@@ -35,10 +35,10 @@ from statistics import mean, median, quantiles
 
 from swarm_field.contracts import BodyType, CellId, Idle, RobotId, Time, TimeUnit
 from swarm_field.experiments.batch import Run, mean_and_error
-from swarm_field.experiments.pests import PestScenario
 from swarm_field.experiments.run import LiveRun
+from swarm_field.experiments.scenario import SwarmScenario
 from swarm_field.runner import ExperimentConfig
-from swarm_field.swarm import treat_beacon
+from swarm_field.swarm import KnowledgeSharing, treat_beacon
 
 
 @dataclass(frozen=True)
@@ -52,7 +52,7 @@ class PestRunSpec:
         warmup_hours: How long at the start is left out of ``infested``.
     """
 
-    scenario: PestScenario
+    scenario: SwarmScenario
     hours: int
     pests_per_hour: float = 15.0
     warmup_hours: int = 1
@@ -76,16 +76,16 @@ class PestRunSpec:
         scenario = replace(
             self.scenario,
             until=self.hours * TimeUnit.HOUR,
-            sample_period=TimeUnit.MINUTE,
+            metrics=replace(self.scenario.metrics, period=TimeUnit.MINUTE),
             seed=seed,
-            pests_per_hour=self.pests_per_hour,
+            pests=replace(self.scenario.pests, pests_per_hour=self.pests_per_hour),
         )
         return scenario.into_experiment(label)
 
     def cost(self) -> float:
-        """A rough relative cost: the field's cells, five times for the seeded arm's gossip."""
-        cost = float(self.scenario.size**2 * self.hours)
-        if not self.scenario.hop_treat:
+        """A rough relative cost: the field's cells, five times when relays gossip pests."""
+        cost = float(self.scenario.map.size**2 * self.hours)
+        if self.scenario.relaying().pest_facts is not KnowledgeSharing.NOTHING:
             cost *= 5
         return cost
 

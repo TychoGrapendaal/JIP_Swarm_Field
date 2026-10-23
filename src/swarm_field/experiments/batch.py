@@ -49,7 +49,7 @@ class Run[C]:
     Attributes:
         arm: The configuration's name, e.g. ``river-small/hop-tuned``; the runs of one arm differ
             only in their seed.
-        config: Whatever the run function needs, e.g. a ``PestScenario``. It must pickle.
+        config: Whatever the run function needs, e.g. a ``PestRunSpec``. It must pickle.
         seed: The seed of this run.
         cost: A rough relative cost; the costliest runs start first, so that no process is left
             with a long run at the end. Optional.

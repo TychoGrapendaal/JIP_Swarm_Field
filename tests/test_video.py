@@ -8,9 +8,13 @@ import pytest
 
 from swarm_field.contracts import TimeUnit
 from swarm_field.experiments import (
+    EXPLORER,
+    SEEDED_KILLER,
+    MapConfig,
     PestRunSpec,
-    PestScenario,
+    RobotConfig,
     Run,
+    SwarmScenario,
     measure_pest_response,
     record_video,
     record_videos,
@@ -23,13 +27,13 @@ pytest.importorskip("matplotlib")
 
 def _tiny_spec() -> PestRunSpec:
     """One hour of a tiny field, deciding every five minutes: a video of twelve frames."""
-    scenario = PestScenario(
-        size=6,
-        obstacles=(),
-        scouts=1,
-        killers=1,
-        robots_know_terrain=True,
-        decision_interval=5 * TimeUnit.MINUTE,
+    scenario = (
+        SwarmScenario(
+            map=MapConfig(size=6, obstacles=()),
+            robots=RobotConfig(decision_interval=5 * TimeUnit.MINUTE),
+        )
+        .add_robots(EXPLORER, 1)
+        .add_robots(SEEDED_KILLER, 1)
     )
     return PestRunSpec(scenario, hours=1, pests_per_hour=20.0, warmup_hours=0)
 

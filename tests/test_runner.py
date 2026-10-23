@@ -306,7 +306,7 @@ def test_a_summary_row_records_how_the_run_was_set_up() -> None:
     assert row["failure_probability"] == 0.0
 
 
-def test_the_metadata_names_a_robustness_condition_and_a_brain_per_body() -> None:
+def test_the_metadata_names_a_robustness_condition_and_the_robots_own_brains() -> None:
     case = RobustnessCase(
         label="offline", failures=FailureSpec(probability=0.25, mode=FailureMode.OFFLINE)
     )
@@ -316,5 +316,6 @@ def test_the_metadata_names_a_robustness_condition_and_a_brain_per_body() -> Non
 
     assert (faulty.failure_probability, faulty.failure_mode) == (0.25, "OFFLINE")
     assert pests.bodies == "KILLER=3 SCOUT=5"
-    assert pests.brains_by_body.startswith("KILLER: behaviors=treat-infestation+explore")
+    assert pests.brain.startswith("behaviors=explore")
+    assert pests.brains_by_robot.startswith("3x behaviors=treat-infestation")
     assert pests.robots_know_terrain

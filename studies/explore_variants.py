@@ -28,7 +28,7 @@ from statistics import mean
 from tests.baselines import RANDOM_WAYPOINT_BRAIN
 
 from swarm_field.contracts import CellId, MetricsSample, Time, TimeUnit
-from swarm_field.experiments import ExploreScenario, river_and_rocks
+from swarm_field.experiments import EXPLORE, ExplorerPreset, MapConfig, river_and_rocks
 from swarm_field.runner import run_experiment
 from swarm_field.swarm import ExploreConfig
 
@@ -122,16 +122,14 @@ def run(job: Job) -> Result:
     explore = _REFERENCE
     if variant.explore is not None:
         explore = variant.explore
-    scenario = ExploreScenario(
-        width=job.size,
-        height=job.size,
-        robots=job.robots,
-        obstacles=obstacles,
-        radio_range_m=variant.radio_range_m,
-        explore=explore,
-        measure_from=end // 2,
-        until=end,
-        seed=job.seed,
+    field = (
+        EXPLORE.without_robots()
+        .with_map(MapConfig(size=job.size, obstacles=obstacles))
+        .with_robot_config(replace(EXPLORE.robots, radio_range_m=variant.radio_range_m))
+        .with_metrics(replace(EXPLORE.metrics, measure_from=end // 2))
+    )
+    scenario = replace(
+        field.add_robots(ExplorerPreset(explore=explore), job.robots), until=end, seed=job.seed
     )
     experiment = scenario.into_experiment(variant.name)
     if variant.explore is None:

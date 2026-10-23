@@ -60,8 +60,10 @@ from swarm_field.contracts import (
 from swarm_field.experiments import (
     RIVER_SMALL,
     RIVERS_LARGE,
+    SEEDED_KILLER,
     LiveRun,
-    PestScenario,
+    SeededKillerPreset,
+    SwarmScenario,
     pest_response_configurations,
 )
 from swarm_field.swarm import BeaconLink, Heading, SeededField, treat_beacon
@@ -89,7 +91,7 @@ from swarm_field.visualization import (
 
 logger = logging.getLogger(__name__)
 
-SCENARIOS: dict[str, PestScenario] = {"river-small": RIVER_SMALL, "rivers-large": RIVERS_LARGE}
+SCENARIOS: dict[str, SwarmScenario] = {"river-small": RIVER_SMALL, "rivers-large": RIVERS_LARGE}
 """The scenarios by the name used in file names and titles."""
 CONFIGS = ("seeded", "seeded-no-yield", "hop", "hop-repel", "hop-tuned")
 """Every configuration that can be recorded."""
@@ -272,21 +274,26 @@ class Recording:
     explain: bool = False
     treat_window_blocks: int | None = None
 
-    def into_scenario(self) -> PestScenario:
+    def into_scenario(self) -> SwarmScenario:
+        base = SCENARIOS[self.scenario]
+        if self.killers is not None:
+            base = base.without_robots(BodyType.KILLER).add_robots(SEEDED_KILLER, self.killers)
         scenario = replace(
-            pest_response_configurations(SCENARIOS[self.scenario], seeded_no_yield=True)[
-                self.config
-            ],
+            pest_response_configurations(base, seeded_no_yield=True)[self.config],
             seed=self.seed,
             until=int(self.hours * TimeUnit.HOUR),
-            sample_period=TimeUnit.HOUR,
         )
-        if self.killers is not None:
-            scenario = replace(scenario, killers=self.killers)
+        scenario = scenario.with_metrics(replace(scenario.metrics, period=TimeUnit.HOUR))
         if self.pests_per_hour is not None:
-            scenario = replace(scenario, pests_per_hour=self.pests_per_hour)
-        if self.treat_window_blocks is not None:
-            scenario = replace(scenario, treat_window_blocks=self.treat_window_blocks)
+            scenario = scenario.with_pests(
+                replace(scenario.pests, pests_per_hour=self.pests_per_hour)
+            )
+        if self.treat_window_blocks is not None and self.config.startswith("seeded"):
+            killer = SeededKillerPreset(
+                claims=self.config == "seeded", window_blocks=self.treat_window_blocks
+            )
+            others = scenario.without_robots(BodyType.KILLER)
+            scenario = others.add_robots(killer, scenario.killers)
         return scenario
 
 
@@ -302,8 +309,9 @@ def record(recording: Recording) -> Path:
     for robot_id, robot in world.robots.items():
         bodies[robot_id] = robot.body
     hop_cap: float | None = None
-    if scenario.beacons is not None:
-        hop_cap = scenario.beacons.max_value
+    beacons = scenario.relaying().beacons
+    if beacons is not None:
+        hop_cap = beacons.max_value
     trace = Trace(
         recording.scenario,
         recording.config,
@@ -315,7 +323,7 @@ def record(recording: Recording) -> Path:
         recording.explain,
         hop_cap,
     )
-    step = scenario.decision_interval
+    step = scenario.robots.decision_interval
     for now in range(0, scenario.until + 1, step):
         run.advance_to(now)
         trace.frames.append(_frame(run, now, recording.explain))

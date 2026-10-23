@@ -8,16 +8,15 @@ from dataclasses import replace
 from functools import cache
 
 from swarm_field.contracts import MetricsSample, TimeUnit
-from swarm_field.experiments import ExploreScenario
+from swarm_field.experiments import EXPLORE, EXPLORER, ExplorerPreset, MapConfig
 from swarm_field.runner import run_experiment
 from swarm_field.swarm import ExploreConfig
 from tests.baselines import RANDOM_WAYPOINT_BRAIN
 
-_SCENARIO = ExploreScenario(
-    width=24,
-    height=24,
-    robots=3,
-    measure_from=45 * TimeUnit.MINUTE,
+_FIELD = replace(
+    EXPLORE.without_robots()
+    .with_map(MapConfig(size=24, obstacles=()))
+    .with_metrics(replace(EXPLORE.metrics, measure_from=45 * TimeUnit.MINUTE)),
     until=90 * TimeUnit.MINUTE,
 )
 """Idleness is measured once the field has been covered, which takes about 40 minutes."""
@@ -29,9 +28,10 @@ _PLAIN = ExploreConfig(spread_peers=False)
 def _final(explore: ExploreConfig | None) -> MetricsSample:
     """Run the scenario and return its last metrics; ``None`` runs the random-waypoint baseline."""
     if explore is None:
-        experiment = replace(_SCENARIO.into_experiment(), brain=RANDOM_WAYPOINT_BRAIN)
+        scenario = _FIELD.add_robots(EXPLORER, 3)
+        experiment = replace(scenario.into_experiment(), brain=RANDOM_WAYPOINT_BRAIN)
     else:
-        experiment = replace(_SCENARIO, explore=explore).into_experiment()
+        experiment = _FIELD.add_robots(ExplorerPreset(explore=explore), 3).into_experiment()
     return run_experiment(experiment).series[-1]
 
 

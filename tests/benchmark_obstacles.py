@@ -23,15 +23,18 @@ treats 85-90 % of the pests. Not part of ``pytest``; run it with:
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
+from swarm_field.contracts import BodyType
 from swarm_field.experiments import (
+    RELAY,
     RIVER_SMALL,
     RIVERS_LARGE,
+    SEEDED_KILLER,
     Experiment,
     PestResponse,
     PestRunSpec,
-    PestScenario,
+    SwarmScenario,
     arm_name,
     by_arm,
     markdown_table,
@@ -44,7 +47,7 @@ from swarm_field.experiments import (
     treated_share,
 )
 
-SCENARIOS: dict[str, PestScenario] = {"river-small": RIVER_SMALL, "rivers-large": RIVERS_LARGE}
+SCENARIOS: dict[str, SwarmScenario] = {"river-small": RIVER_SMALL, "rivers-large": RIVERS_LARGE}
 """The scenarios by the name used in arm names and tables."""
 BASELINE = "seeded"
 """The configuration every other is compared with, seed by seed."""
@@ -107,8 +110,9 @@ def main() -> None:
     for name in names:
         scenario = SCENARIOS[name]
         if args.killers is not None:
-            scenario = replace(scenario, killers=args.killers)
-        rates = args.calibrate or [scenario.pests_per_hour]
+            others = scenario.without_robots(BodyType.KILLER)
+            scenario = others.add_robots(SEEDED_KILLER, args.killers)
+        rates = args.calibrate or [scenario.pests.pests_per_hour]
         for rate in rates:
             configs = pest_response_configurations(scenario, args.seeded_no_yield)
             if args.calibrate is not None:
@@ -119,8 +123,8 @@ def main() -> None:
                 arms[arm] = PestRunSpec(configured, args.hours, rate, args.warmup_hours)
                 rows[config] = arm
             title = (
-                f"{name}: {scenario.scouts} relays, {scenario.killers} killers, "
-                f"{scenario.radio_range_m:g} m radio, {rate:g} pests per hour, "
+                f"{name}: {scenario.count(RELAY.name)} relays, {scenario.killers} killers, "
+                f"{scenario.robots.radio_range_m:g} m radio, {rate:g} pests per hour, "
                 f"{args.hours} h (warm-up {args.warmup_hours} h), mean over {args.seeds} seeds"
             )
             sections.append(Section(title, rows))

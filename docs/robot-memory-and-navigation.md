@@ -170,7 +170,7 @@ class TreatInfestation:
         return (ActionCandidate(FollowField(TreatSeeder.name), score, self.name, None),)
 ```
 
-With `yield_to_treating_peer`, a robot standing on a pest that a peer with a lower id reports treating from that cell proposes nothing, so two robots do not both spend a dose on it. `PestScenario.treat_yield` turns both yield rules on.
+With `yield_to_treating_peer`, a robot standing on a pest that a peer with a lower id reports treating from that cell proposes nothing, so two robots do not both spend a dose on it. `SeededKillerPreset.claims` turns both yield rules on for seeded killers.
 
 The brain is then assembled from its memory, its field provider with the seeders registered, a navigator over the provider's quadtree, its behaviours and an arbiter of its own. Drones (`BodyType.SCOUT`) fly over obstacles:
 

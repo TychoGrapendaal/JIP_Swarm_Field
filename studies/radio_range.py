@@ -1,8 +1,8 @@
 """Study how far the robots' radio reaches against how fast the swarm finds and treats pests.
 
-Question: in the pest experiment (``PestScenario``), how do the detection latency, the pests
-left untreated and the amount of communication change with the radio range? Every range is run
-with the same seeds, so two rows differ only in the range.
+Question: in the pest experiment (``PESTS``: explorers and seeded killers), how do the
+detection latency, the pests left untreated and the amount of communication change with the
+radio range? Every range is run with the same seeds, so two rows differ only in the range.
 
 Every run writes its metrics series, and the whole study one summary row per run, to ``--out``
 (``runs/radio_range`` by default); each row also records how its run was set up. The table
@@ -19,7 +19,7 @@ from pathlib import Path
 from statistics import mean
 
 from swarm_field.contracts import TimeUnit
-from swarm_field.experiments import PestScenario
+from swarm_field.experiments import PESTS, RobotConfig
 from swarm_field.runner import (
     ExperimentConfig,
     RunSummary,
@@ -46,9 +46,8 @@ def parse_args() -> argparse.Namespace:
 
 def radio_range_config(radio_range_m: float, seed: int, hours: float) -> ExperimentConfig:
     """The pest experiment with one radio range and seed, labelled ``radio-RANGE/SEED``."""
-    scenario = PestScenario(
-        radio_range_m=radio_range_m, seed=seed, until=int(hours * TimeUnit.HOUR)
-    )
+    pests = PESTS.with_robot_config(RobotConfig(radio_range_m=radio_range_m))
+    scenario = replace(pests, seed=seed, until=int(hours * TimeUnit.HOUR))
     config = scenario.into_experiment(f"radio-{radio_range_m:g}/{seed}")
     return replace(config, scenario_name="pests")
 

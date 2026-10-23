@@ -2,11 +2,20 @@
 
 import pytest
 
-from swarm_field.experiments import PestRunSpec, PestScenario, Run, measure_pest_response
+from swarm_field.experiments import (
+    EXPLORER,
+    SEEDED_KILLER,
+    MapConfig,
+    PestRunSpec,
+    Run,
+    SwarmScenario,
+    measure_pest_response,
+)
 
 
 def test_a_measured_run_drifts_once_an_hour_and_counts_every_pest_treated_or_open() -> None:
-    scenario = PestScenario(size=8, obstacles=(), scouts=2, killers=2, robots_know_terrain=True)
+    field = SwarmScenario(map=MapConfig(size=8, obstacles=()))
+    scenario = field.add_robots(EXPLORER, 2).add_robots(SEEDED_KILLER, 2)
     spec = PestRunSpec(scenario, hours=1, pests_per_hour=20.0, warmup_hours=0)
 
     response = measure_pest_response(Run("tiny", spec, seed=0))
@@ -18,4 +27,4 @@ def test_a_measured_run_drifts_once_an_hour_and_counts_every_pest_treated_or_ope
 
 def test_a_warm_up_as_long_as_the_run_is_refused() -> None:
     with pytest.raises(ValueError):
-        PestRunSpec(PestScenario(), hours=1)
+        PestRunSpec(SwarmScenario(), hours=1)

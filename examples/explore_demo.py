@@ -36,7 +36,15 @@ from swarm_field.console import (
     show_window,
 )
 from swarm_field.contracts import CellId, Time, TimeUnit, WorldSnapshot
-from swarm_field.experiments import ExploreScenario, LiveRun, river_and_rocks
+from swarm_field.experiments import (
+    EXPLORE,
+    ExplorerPreset,
+    LiveRun,
+    MapConfig,
+    SwarmScenario,
+    river_and_rocks,
+)
+from swarm_field.simulation import MetricsConfig
 from swarm_field.swarm import ExploreConfig
 from swarm_field.swarm.explore import revisit_worths
 from swarm_field.visualization import MatplotlibRenderer
@@ -57,24 +65,22 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def build_scenario(args: argparse.Namespace, config: ExploreConfig) -> ExploreScenario:
+def build_scenario(args: argparse.Namespace, config: ExploreConfig) -> SwarmScenario:
     """The scenario of the command line; idleness is measured over the second half of the run."""
     obstacles: tuple[CellId, ...] = ()
     if args.obstacles:
         obstacles = river_and_rocks(args.size)
-    scenario = ExploreScenario(
-        width=args.size,
-        height=args.size,
-        robots=args.robots,
-        obstacles=obstacles,
-        explore=config,
-        sample_period=20 * TimeUnit.SECOND,
+    scenario = (
+        EXPLORE.without_robots()
+        .with_map(MapConfig(size=args.size, obstacles=obstacles))
+        .add_robots(ExplorerPreset(explore=config), args.robots)
     )
     if args.seed is not None:
         scenario = replace(scenario, seed=args.seed)
     if args.hours is not None:
         scenario = replace(scenario, until=int(args.hours * TimeUnit.HOUR))
-    return replace(scenario, measure_from=scenario.until // 2)
+    metrics = MetricsConfig(period=20 * TimeUnit.SECOND, measure_from=scenario.until // 2)
+    return scenario.with_metrics(metrics)
 
 
 def main() -> None:

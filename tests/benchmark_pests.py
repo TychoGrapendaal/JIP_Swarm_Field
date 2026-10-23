@@ -1,6 +1,6 @@
 """Benchmark pest response: the arms of the relay scenario, ``RELAYED_KILLERS``.
 
-Every arm is a ``PestScenario`` measured with ``measure_pest_response``, repeated with several
+Every arm is a ``SwarmScenario`` measured with ``measure_pest_response``, repeated with several
 seeds; the columns of the table are described in ``swarm_field.experiments.pest_response``.
 The runs, their results and the table go to a new folder in ``output/``. Not part of
 ``pytest``; run it with:
@@ -14,11 +14,15 @@ import argparse
 import math
 from dataclasses import replace
 
+from swarm_field.contracts import BodyType
 from swarm_field.experiments import (
+    RELAY,
     RELAYED_KILLERS,
     Experiment,
+    HopKillerPreset,
     PestRunSpec,
-    PestScenario,
+    SeededKillerPreset,
+    SwarmScenario,
     by_arm,
     markdown_table,
     measure_pest_response,
@@ -27,12 +31,14 @@ from swarm_field.experiments import (
     pest_table_headers,
     runs_for,
 )
-from swarm_field.swarm import BeaconConfig, KnowledgeSharing
+from swarm_field.swarm import BeaconConfig
 
 
-def arms(seeded_no_yield: bool = False) -> dict[str, PestScenario]:
+def arms(seeded_no_yield: bool = False) -> dict[str, SwarmScenario]:
     """The seeded arm, the oracle, which hears every pest at once, and the hop arms, by name.
 
+    The oracle's killers hear every pest from its source directly, and claim none; what its
+    relays pass on, they already know.
     ``hop`` counts integer hops without a cap. The others are ``pest_response_configurations``
     of ``RELAYED_KILLERS``: ``seeded`` with the killers' claims, ``hop metric`` with metric hops
     of one radio range and the cap, ``hop repel`` with killers repelling each other, and
@@ -41,14 +47,16 @@ def arms(seeded_no_yield: bool = False) -> dict[str, PestScenario]:
     without the claims.
     """
     configurations = pest_response_configurations(RELAYED_KILLERS, seeded_no_yield)
-    oracle = replace(
-        RELAYED_KILLERS, pest_source_range_m=math.inf, sharing=KnowledgeSharing.NOTHING
+    relays = RELAYED_KILLERS.without_robots(BodyType.KILLER)
+    killers = RELAYED_KILLERS.killers
+    oracle = relays.add_robots(SeededKillerPreset(claims=False), killers).with_pests(
+        replace(RELAYED_KILLERS.pests, source_range_m=math.inf)
     )
     found = {"seeded": configurations["seeded"]}
     if seeded_no_yield:
         found["seeded no yield"] = configurations["seeded-no-yield"]
     found["oracle"] = oracle
-    found["hop"] = replace(configurations["hop"], beacons=BeaconConfig())
+    found["hop"] = relays.add_robots(HopKillerPreset(beacons=BeaconConfig()), killers)
     found["hop metric"] = configurations["hop"]
     found["hop repel"] = configurations["hop-repel"]
     found["hop tuned"] = configurations["hop-tuned"]
@@ -76,8 +84,8 @@ def main() -> None:
 
     scenario = RELAYED_KILLERS
     title = (
-        f"{scenario.scouts} relays, {scenario.killers} killers, "
-        f"{scenario.radio_range_m:g} m radio, {args.pests_per_hour:g} pests per hour, "
+        f"{scenario.count(RELAY.name)} relays, {scenario.killers} killers, "
+        f"{scenario.robots.radio_range_m:g} m radio, {args.pests_per_hour:g} pests per hour, "
         f"{args.hours} h (warm-up {args.warmup_hours} h), mean over {args.seeds} seeds"
     )
     rows: list[list[str]] = []
