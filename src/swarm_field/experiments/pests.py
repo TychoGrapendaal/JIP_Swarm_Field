@@ -114,8 +114,8 @@ class PestScenario:
     hop_treat: bool = False
     scouts_relay: bool = False
     cell_size: float = 10.0
-    speed_mps_drone: float = 1.5
-    speed_mps_ground: float = 0.1
+    speed_mps_drone: float = 2.0
+    speed_mps_ground: float = 0.5
     decision_interval: Time = TimeUnit.SECOND * 15
     radio_range_m: float = 300.0
     pest_source_range_m: float | None = None

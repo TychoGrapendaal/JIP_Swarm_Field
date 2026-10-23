@@ -56,6 +56,17 @@ class PestRunSpec:
     pests_per_hour: float = 15.0
     warmup_hours: int = 1
 
+    def __post_init__(self) -> None:
+        """Refuse a warm-up that leaves nothing to measure ``infested`` over.
+
+        Raises:
+            ValueError: If the warm-up lasts as long as the run, or longer.
+        """
+        if self.warmup_hours >= self.hours:
+            raise ValueError(
+                f"a warm-up of {self.warmup_hours} h leaves nothing of a {self.hours} h run"
+            )
+
     def cost(self) -> float:
         """A rough relative cost: the field's cells, five times for the seeded arm's gossip."""
         cost = float(self.scenario.size**2 * self.hours)

@@ -89,7 +89,7 @@ def main() -> None:
     parser.add_argument("--seeds", type=int, default=8, help="runs per configuration")
     parser.add_argument("--hours", type=int, default=3, help="simulated hours per run")
     parser.add_argument("--warmup-hours", type=int, default=1, help="left out of infested")
-    parser.add_argument("--jobs", type=int, default=22, help="processes")
+    parser.add_argument("--jobs", type=int, help="processes; one per CPU if not given")
     parser.add_argument("--killers", type=int, help="override the scenario's killers")
     parser.add_argument(
         "--calibrate", type=float, nargs="+", help="run only hop-tuned at these pest rates"

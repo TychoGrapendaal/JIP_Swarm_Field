@@ -71,7 +71,7 @@ uv run python -m studies.explore_variants --size 32 --hours 3 --seeds 4 --jobs 2
 uv run python -m studies.radio_range --ranges 50 150 300 --seeds 3 --hours 1
 ```
 
-A study or benchmark that measures its runs itself uses `swarm_field.experiments.Experiment`, which runs them in parallel and writes their results and tables to a new folder `output/<date>_<time>_<name>/`, which git ignores. The pest-response benchmarks are examples:
+A study or benchmark that measures its runs itself uses `swarm_field.experiments.Experiment` (a tutorial is [`docs/experiments.md`](docs/experiments.md)), which runs them in parallel and writes their results and tables to a new folder `output/<date>_<time>_<name>/`, which git ignores. The pest-response benchmarks are examples:
 
 ```bash
 uv run python -m tests.benchmark_obstacles --seeds 12

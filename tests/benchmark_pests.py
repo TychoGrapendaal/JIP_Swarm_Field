@@ -59,7 +59,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--hours", type=int, default=3, help="simulated hours per run")
     parser.add_argument("--seeds", type=int, default=10, help="runs per arm")
-    parser.add_argument("--jobs", type=int, default=8, help="processes")
+    parser.add_argument("--jobs", type=int, help="processes; one per CPU if not given")
     parser.add_argument("--pests-per-hour", type=float, default=15.0, help="pest spawn rate")
     parser.add_argument("--warmup-hours", type=int, default=1, help="left out of infested")
     parser.add_argument(

@@ -26,7 +26,7 @@ class EscapeConfig:
     Attributes:
         window: Over how long the robot's progress is measured. A move is under way for a
             while, during which the robot reports the cell it left, so this must span several
-            moves: a ground killer at 0.1 m/s takes 100 s for one 10 m cell.
+            moves: a ground killer at 0.5 m/s takes 20 s for one 10 m cell, at 0.1 m/s 100 s.
         min_progress: Below this progress over the window the robot counts as stuck. Progress
             is how far the robot got divided by how far its top speed would have taken it: near
             1 for a straight walk, near 0 for a shuttle, and 0 for standing still.
