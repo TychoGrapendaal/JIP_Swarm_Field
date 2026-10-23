@@ -1,7 +1,5 @@
 """Tests for rendering a run driven by the runner (C.1 over B.5)."""
 
-from dataclasses import replace
-
 from swarm_field.contracts import FailureMode, FailureSpec, ScenarioId, WorldSnapshot
 from swarm_field.experiments import build_named_experiment
 from swarm_field.runner import (
@@ -16,18 +14,14 @@ from swarm_field.runner import (
 from swarm_field.simulation import MetricsConfig, SimulationLoop
 
 HOUR = 3_600_000
-RENDER_DECISION_INTERVAL = 5 * 60_000
 
 
 def _s2() -> ExperimentConfig:
-    """S2 for one hour, with a bounded cadence for renderer/robustness tests."""
-    return replace(
-        build_named_experiment("S2", 101, HOUR),
-        decision_interval=RENDER_DECISION_INTERVAL,
-    )
+    """The S2 preset from seed 101 for one hour, the base of the robustness conditions."""
+    return build_named_experiment("S2", 101, HOUR)
 
 
-BASE_STEP_MS = 60_000
+BASE_STEP_MS = 500
 
 
 class RecordingRenderer:
@@ -47,14 +41,8 @@ def _config(
     until: int = 2 * HOUR,
     period: int = HOUR,
 ) -> ExperimentConfig:
-    # These tests verify rendering and time-slice consistency, not the default control cadence.
     return build_experiment(
-        label,
-        scenario,
-        seed,
-        until=until,
-        metrics=MetricsConfig(period=period),
-        decision_interval=RENDER_DECISION_INTERVAL,
+        label, scenario, seed, until=until, metrics=MetricsConfig(period=period)
     )
 
 
@@ -119,9 +107,8 @@ def test_a_snapshot_distinguishes_a_fault_condition_from_the_baseline() -> None:
         faulty,
     )
 
-    # The preset does not install ReturnToDock, so physical endurance can cause natural
-    # battery failures in the one-hour baseline. The injected condition must still fail every
-    # robot, making it distinguishable from the baseline.
+    # Physical battery depletion can produce natural failures in the baseline. The injected
+    # all-fail condition must still fail every robot and remain distinguishable from baseline.
     baseline_failures = _failed_count(baseline.snapshots[-1])
     assert baseline_failures < len(baseline.snapshots[-1].robots)
     assert _failed_count(faulty.snapshots[-1]) == 15
@@ -152,14 +139,13 @@ def test_a_robustness_sweep_passes_its_renderer_to_every_case() -> None:
     renderer = RecordingRenderer()
     cases = (RobustnessCase(label="baseline"), _all_fail())
 
-    # Animation stepping and frame capture do not require the default five-second control cadence.
     runs = robustness_sweep(_s2(), cases, renderer=renderer)
 
     # Two cases, each rendering at time zero and one hour: the renderer is shared, so the frames
     # arrive as one stream rather than being attributable to a condition.
     assert len(renderer.snapshots) == 4
-    # The one-hour baseline may lose robots to physical battery depletion; the injected
-    # all-fail case must lose the complete swarm.
+    # The baseline may naturally lose robots to battery depletion; the injected all-fail case
+    # must lose the complete swarm.
     assert runs[0].active_robots > 0
     assert runs[1].active_robots == 0
 

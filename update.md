@@ -66,14 +66,17 @@ field/seeder and memory work) rather than replacing those algorithms with an old
   BATTERY spare capacity.
 - Added battery lifecycle acceptance tests and the interactive `examples/field_simulation_demo.py`,
   which visualizes the actual `LiveRun` architecture and does not write a GIF or video by default.
-- Updated the renderer robustness expectations to distinguish natural battery depletion in the S2
-  one-hour baseline (whose preset brain does not return to dock) from an injected all-robot failure.
+- Updated only the renderer robustness assertions that assumed zero baseline failures or exactly
+  15 active baseline robots; natural battery depletion is now possible in the S2 baseline, while an
+  injected all-robot failure still must fail all robots. Existing renderer test decision cadence and
+  slice interval remain unchanged to avoid modifying unrelated test behavior.
 
 ## Verification
 
 - Battery/world/runner/capability/swarm/metrics/robustness focused group: **134 passed**.
-- Renderer integration tests: **9 passed**; their test fixture uses a five-minute decision cadence
-  because these tests cover renderer/event-loop consistency, not controller performance.
+- Renderer integration tests passed (9 tests) in an earlier iteration with a test-only shortened
+  cadence. That test-only cadence change was reverted for the final package to preserve original
+  test semantics; rerun this file locally to verify the final version.
 - Catalogue tests: **14 passed**; the `pests-large` replay-equivalence case was deselected because it
   exceeded the available execution time when run individually.
 - `compileall`, `git diff --check`, the 15-minute live-field PNG preview, and ZIP integrity checks
