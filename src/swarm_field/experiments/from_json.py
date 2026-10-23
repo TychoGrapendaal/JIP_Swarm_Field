@@ -155,7 +155,7 @@ def scenario_from_parameters(
 
     values: dict[str, Any] = {}
     for key, value in parameters.items():
-        if key == "obstacles":
+        if key in ("obstacles", "docks"):
             # JSON has no tuples: the cells arrive as lists, and ``null`` keeps the default.
             values[key] = value
             if value is not None:

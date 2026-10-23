@@ -34,6 +34,21 @@ def test_every_condition_runs_with_every_seed_on_top_of_the_shared_parameters() 
     assert ranges == [50, 50, 300, 300]
 
 
+def test_cells_given_as_json_lists_become_the_scenarios_cells() -> None:
+    experiment = ExperimentFile.from_dict(
+        {
+            "name": "cells",
+            "scenario": "pests",
+            "parameters": {"docks": [[0, 0], [31, 31]], "obstacles": [[5, 5]]},
+        }
+    )
+
+    (config,) = experiment.into_configs()
+
+    assert config.scenario.docks == ((0, 0), (31, 31))
+    assert config.scenario.obstacles == ((5, 5),)
+
+
 def test_without_conditions_the_runs_are_named_after_the_experiment() -> None:
     experiment = ExperimentFile.from_dict({"name": "base", "scenario": "explore", "seeds": [1]})
 
