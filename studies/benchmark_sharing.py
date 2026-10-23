@@ -1,6 +1,6 @@
 """Benchmark: how much of a pest run's wall time goes to knowledge sharing.
 
-Run it with ``uv run python -m tests.benchmark_sharing``, optionally with ``--cases 10x32 20x32
+Run it with ``uv run python -m studies.benchmark_sharing``, optionally with ``--cases 10x32 20x32
 20x64 40x64`` (robots x field side), ``--minutes 10``, ``--radio 300`` or ``--strategy
 periodic``. It is not a pytest module: a run takes seconds to minutes.
 

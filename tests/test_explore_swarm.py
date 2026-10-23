@@ -7,11 +7,11 @@ from ground truth. ``studies/explore_variants.py`` compares many more variants o
 from dataclasses import replace
 from functools import cache
 
+from studies.baselines import RANDOM_WAYPOINT_BRAIN
 from swarm_field.contracts import MetricsSample, TimeUnit
 from swarm_field.experiments import EXPLORE, EXPLORER, ExplorerPreset, MapConfig
 from swarm_field.runner import run_experiment
 from swarm_field.swarm import ExploreConfig
-from tests.baselines import RANDOM_WAYPOINT_BRAIN
 
 _FIELD = replace(
     EXPLORE.without_robots()

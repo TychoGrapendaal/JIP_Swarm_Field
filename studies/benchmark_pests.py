@@ -5,7 +5,7 @@ seeds; the columns of the table are described in ``swarm_field.experiments.pest_
 The runs, their results and the table go to a new folder in ``output/``. Not part of
 ``pytest``; run it with:
 
-    uv run python -m tests.benchmark_pests --hours 3 --seeds 10 --pests-per-hour 15
+    uv run python -m studies.benchmark_pests --hours 3 --seeds 10 --pests-per-hour 15
 """
 
 from __future__ import annotations

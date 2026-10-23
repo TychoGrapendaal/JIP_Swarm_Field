@@ -2,7 +2,7 @@
 
 An experiment compares a few configurations, the *arms*, over the same seeds. Each run of an arm with a seed is simulated, measured, and its result kept. This page shows how to set up the arms for the main question, the seeded pest response against the hop-based one, how to measure them, how to run every arm with every seed in parallel, where the results end up, and how to watch a run as a video.
 
-Everything here is imported from `swarm_field.experiments`. A complete example is [`tests/benchmark_obstacles.py`](../tests/benchmark_obstacles.py).
+Everything here is imported from `swarm_field.experiments`. A complete example is [`studies/benchmark_obstacles.py`](../studies/benchmark_obstacles.py).
 
 ## 1. Configure a run
 
@@ -353,10 +353,10 @@ The panel's measures are those of `measure_pest_response` (`MeasuredPestRun`), s
 
 ## Example: the obstacle benchmark
 
-[`tests/benchmark_obstacles.py`](../tests/benchmark_obstacles.py) is this page as a script: the four configurations on both ready fields, one table per field, the treated share and the paired difference to `seeded`.
+[`studies/benchmark_obstacles.py`](../studies/benchmark_obstacles.py) is this page as a script: the four configurations on both ready fields, one table per field, the treated share and the paired difference to `seeded`.
 
 ```bash
-uv run python -m tests.benchmark_obstacles --seeds 12
+uv run python -m studies.benchmark_obstacles --seeds 12
 ```
 
 | Option | Meaning |
@@ -371,5 +371,5 @@ uv run python -m tests.benchmark_obstacles --seeds 12
 For a quick check that everything works, a run of a few seconds:
 
 ```bash
-uv run python -m tests.benchmark_obstacles --scenario river-small --seeds 1 --hours 1 --warmup-hours 0
+uv run python -m studies.benchmark_obstacles --scenario river-small --seeds 1 --hours 1 --warmup-hours 0
 ```

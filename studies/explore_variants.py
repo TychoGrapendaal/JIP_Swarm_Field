@@ -24,8 +24,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, replace
 from statistics import mean
 
-from tests.baselines import RANDOM_WAYPOINT_BRAIN
-
+from studies.baselines import RANDOM_WAYPOINT_BRAIN
 from swarm_field.contracts import BodyType, CellId, MetricsSample, Time, TimeUnit
 from swarm_field.experiments import (
     EXPLORE,

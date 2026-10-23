@@ -16,8 +16,8 @@ The runs, their results and the tables go to a new folder in ``output/``.
 ``--calibrate`` runs only ``hop-tuned`` at the pest rates given, to pick the rate at which it
 treats 85-90 % of the pests. Not part of ``pytest``; run it with:
 
-    uv run python -m tests.benchmark_obstacles --seeds 8
-    uv run python -m tests.benchmark_obstacles --scenario river-small --calibrate 4 6 8 --seeds 2
+    uv run python -m studies.benchmark_obstacles --seeds 8
+    uv run python -m studies.benchmark_obstacles --scenario river-small --calibrate 4 6 8 --seeds 2
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 # Research note — a hop-based potential field for pest response
 
-Status: describes the hop method implemented in the package `src/swarm_field/swarm/hop/` (#70): relaying in `relay.py`, the pull in `pull.py`, `HopField` in `field.py`, `TreatByBeacon` in `behavior.py`, the escape in `escape.py`, the beacons a robot remembers in `memory.py`, and `BeaconLink`, which connects them to the brain, in `link.py`. It is the second adapter of the objective-field port in `src/swarm_field/swarm/guidance.py`, next to the seeded Dijkstra field. The results below are produced by `tests/benchmark_pests.py` and are reproducible from the seeds given.
+Status: describes the hop method implemented in the package `src/swarm_field/swarm/hop/` (#70): relaying in `relay.py`, the pull in `pull.py`, `HopField` in `field.py`, `TreatByBeacon` in `behavior.py`, the escape in `escape.py`, the beacons a robot remembers in `memory.py`, and `BeaconLink`, which connects them to the brain, in `link.py`. It is the second adapter of the objective-field port in `src/swarm_field/swarm/guidance.py`, next to the seeded Dijkstra field. The results below are produced by `studies/benchmark_pests.py` and are reproducible from the seeds given.
 
 ## The question
 
@@ -129,7 +129,7 @@ The main outcome is `infested`: the infested cells averaged over the run after a
 
 These runs predate the `BeaconMemory` that forgets stale beacons and keeps the robot's own sightings apart from its peers' reports. Rerun at 15/h, 78 of the 80 hop runs give identical results with it, and the other two differ by 0.02 infested cells.
 
-They also predate the escape's time window and speed-aware progress (see the escape section). Rerun at 15/h on the same 20 seeds with it, `hop tuned` leaves 6.57 ± 0.51 infested cells against 6.60 ± 0.61, and the other arms are unchanged. On the two obstacle fields of `tests/benchmark_obstacles.py`, 8 paired seeds each, it leaves +0.50 ± 0.93 infested cells on the small field and +1.38 ± 1.24 on the large one, both within their standard error.
+They also predate the escape's time window and speed-aware progress (see the escape section). Rerun at 15/h on the same 20 seeds with it, `hop tuned` leaves 6.57 ± 0.51 infested cells against 6.60 ± 0.61, and the other arms are unchanged. On the two obstacle fields of `studies/benchmark_obstacles.py`, 8 paired seeds each, it leaves +0.50 ± 0.93 infested cells on the small field and +1.38 ± 1.24 on the large one, both within their standard error.
 
 ### The seeded arm with claims
 
@@ -137,7 +137,7 @@ The results above compare the hop method with a seeded arm whose killers do not 
 
 Three changes make the seeded arm coordinate. Memory keeps a peer's target and objective from its last status when a newer sighting arrives. With `SeededKillerPreset.claims`, the TREAT seeder leaves out a pest that a closer killer claimed within the last two minutes (`TreatSeeder.yield_to_closer`), and a killer standing on a pest that a killer with a lower id already treats waits (`TreatInfestation.yield_to_treating_peer`). With `KnowledgeSharing.INFESTATIONS_AND_TARGETS`, relays pass on the peers that report a target, the killers, so claims travel beyond one radio range; passing on every peer instead, about 270 per message, cost 36 % more run time for the same effect. The seeded arm of `pest_response_configurations` now has all three.
 
-12 paired seeds, 3 h, on the obstacle fields of `tests/benchmark_obstacles.py` (6 killers at 18 pests/h on 32 × 32, 18 killers at 48 pests/h on 64 × 64):
+12 paired seeds, 3 h, on the obstacle fields of `studies/benchmark_obstacles.py` (6 killers at 18 pests/h on 32 × 32, 18 killers at 48 pests/h on 64 × 64):
 
 | Arm | Infested, small | Paired to no yield | Infested, large | Paired to no yield | Doses per treated pest, large |
 | --- | --- | --- | --- | --- | --- |
@@ -213,9 +213,9 @@ With claims, the seeded arm beats `hop tuned` on both obstacle fields, by about 
 ## Reproducing
 
 ```bash
-uv run python -m tests.benchmark_pests --hours 3 --seeds 20 --pests-per-hour 15
+uv run python -m studies.benchmark_pests --hours 3 --seeds 20 --pests-per-hour 15
 ```
 
 ```bash
-uv run python -m tests.benchmark_pests --hours 2 --seeds 20 --pests-per-hour 30
+uv run python -m studies.benchmark_pests --hours 2 --seeds 20 --pests-per-hour 30
 ```

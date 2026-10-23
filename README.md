@@ -45,36 +45,38 @@ Run all checks together:
 uv run ruff check . && uv run ruff format --check . && uv run pyrefly check && uv run pytest
 ```
 
-Time the quadtree potential field against a plain Dijkstra over every cell, and a robot's trip with one and with two fields (takes about two minutes; not part of `pytest`):
-
-```bash
-uv run python -m tests.benchmark_field --sizes 100 250 500
-```
-
-Time how much of a pest run goes to knowledge sharing, at 10, 20 and 40 robots (not part of `pytest`):
-
-```bash
-uv run python -m tests.benchmark_sharing --cases 10x32 20x32 20x64 40x64
-```
-
-Compare variants and parameters of the EXPLORE seeder: five robots exploring a 32 × 32 field for three simulated hours, four seeds per variant, spread over processes (takes about ten minutes on 20 cores; not part of `pytest`). The results are in [`docs/explore.md`](docs/explore.md):
-
-```bash
-uv run python -m studies.explore_variants --size 32 --hours 3 --seeds 4 --jobs 20
-```
-
 ## Studies
 
-`examples/` shows what the simulation and its tools can do; [`studies/`](studies/README.md) holds the experiments behind the report, one script per research question. A study runs fixed configurations with fixed seeds and writes every run's series and a summary row per run under `runs/<study>/`:
+`examples/` shows what the simulation and its tools can do; [`studies/`](studies/README.md) holds the experiments behind the report, one script per research question. A study runs fixed configurations with fixed seeds through `swarm_field.experiments.Experiment` (a tutorial is [`docs/experiments.md`](docs/experiments.md)), which runs them in parallel and writes their results and tables to a new folder `output/<date>_<time>_<name>/`, which git ignores:
 
 ```bash
 uv run python -m studies.radio_range --ranges 50 150 300 --seeds 3 --hours 1
 ```
 
-A study or benchmark that measures its runs itself uses `swarm_field.experiments.Experiment` (a tutorial is [`docs/experiments.md`](docs/experiments.md)), which runs them in parallel and writes their results and tables to a new folder `output/<date>_<time>_<name>/`, which git ignores. The pest-response benchmarks are examples:
+Compare the four pest responses on the two fields with obstacles:
 
 ```bash
-uv run python -m tests.benchmark_obstacles --seeds 12
+uv run python -m studies.benchmark_obstacles --seeds 12
+```
+
+Compare variants and parameters of the EXPLORE seeder: five robots exploring a 32 × 32 field for three simulated hours, four seeds per variant, spread over processes (takes about ten minutes on 20 cores). The results are in [`docs/explore.md`](docs/explore.md):
+
+```bash
+uv run python -m studies.explore_variants --size 32 --hours 3 --seeds 4 --jobs 20
+```
+
+Two studies time the code rather than the swarm, and print their table instead of writing to `output/`.
+
+Time the quadtree potential field against a plain Dijkstra over every cell, and a robot's trip with one and with two fields (takes about two minutes):
+
+```bash
+uv run python -m studies.benchmark_field --sizes 100 250 500
+```
+
+Time how much of a pest run goes to knowledge sharing, at 10, 20 and 40 robots:
+
+```bash
+uv run python -m studies.benchmark_sharing --cases 10x32 20x32 20x64 40x64
 ```
 
 See [`studies/README.md`](studies/README.md) for the list of studies and how to write one.
