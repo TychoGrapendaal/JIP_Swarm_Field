@@ -36,7 +36,7 @@ Every method returns a new scenario, so the calls chain and a ready scenario is 
 | `PESTS` | 32 × 32, one river with a bridge, two rocks | 5 explorers, 3 seeded killers | 15 |
 | `EXPLORE` | 32 × 32, no obstacles | 5 explorers | none |
 
-The first three have 10 m cells, a decision every 15 s, ground killers at 0.5 m/s, relays that stand still on a jittered lattice, and a mock source on every pest that stands in for the explorer that found it. The numbers of killers and the pest rates were chosen when killers drove at 0.1 m/s, to overload them slightly; at 0.5 m/s the same swarm keeps up more easily, so raise the pest rate or lower the killers if a question needs an overloaded swarm.
+The first three have 10 m cells, a decision every 15 s, ground killers at 0.5 m/s, relays that stand still on a jittered lattice, and a mock source on every pest that stands in for the explorer that found it. `PESTS` treats with `FAST_TREATMENT` too: at the default rate of one severity per hour a pest grows faster than it is treated. The numbers of killers and the pest rates were chosen when killers drove at 0.1 m/s, to overload them slightly; at 0.5 m/s the same swarm keeps up more easily, so raise the pest rate or lower the killers if a question needs an overloaded swarm.
 
 ### The robots: presets
 
@@ -147,7 +147,7 @@ The seed is not part of the spec: it comes with each run (section 3), and it set
 
 ## 2. Metrics
 
-`measure_pest_response` runs one spec with one seed and returns a `PestResponse`. It advances the run one decision interval at a time and samples the ground truth and the killers between steps:
+`measure_pest_response` runs one spec with one seed and returns a `PestResponse`. It advances the run one decision interval at a time and samples the ground truth and the killers between steps. Coverage, idleness and redundancy come from the run's `MetricsCollector`, sampled once a minute, so the same runs measure how the explorers cover the field. A run without killers or without pests is measured too, e.g. explorers alone:
 
 | `PestResponse` field | Table column | Meaning |
 | --- | --- | --- |
@@ -162,7 +162,11 @@ The seed is not part of the spec: it comes with each run (section 3), and it set
 | `commit_hops` | commit hop | A killer's hop value each time it commits to treating, for hop arms; the table shows the median. |
 | `empty_killers` | empty | Killers that used up their doses. |
 | `consumable_used` | (not in the table) | Doses used by all killers together, in units of 1 per killer (`1 / treatment_doses` per dose). |
-| `drift` | drift N h | The killers' mean distance in cells from their start, after each hour. |
+| `drift` | drift N h | The killers' mean distance in cells from their start, after each hour; 0 without killers. |
+| `coverage` | coverage | The share of the crop cells some robot sensed by the end of the run. |
+| `idleness_minutes` | idle | Minutes since a robot last sensed a crop cell, averaged over the cells and the samples after the warm-up: the expected wait of a new pest for its first sighting. |
+| `worst_idleness_minutes` | (not in the table) | The longest of those, over the same samples. |
+| `redundancy` | redund | The share of the robots' visits to a cell sensed less than `MetricsConfig.fresh_age` (30 min) before. |
 | `wall` | wall (s) | Seconds the run took to compute. |
 
 Every pest is either treated or still open at the end, so the share of the pests that were treated is

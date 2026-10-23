@@ -223,13 +223,13 @@ The interactions flow through the typed `Command` port: `InjectInfestation` is a
 | `--save PATH` | Run to the horizon without a window, into a `.gif`, an `.mp4` (needs [ffmpeg](https://ffmpeg.org/)) or, for any other path, a directory of PNG frames. | a window |
 | `--record PATH` | When the run ends, write its recording to `PATH`. | |
 | `--replay PATH` | Play back a recording instead of starting a new run. | |
-| `--out DIR` | When the run ends, write its metrics series and a summary row to `DIR`. | |
+| `--out DIR` | When the run ends, write its metrics series to `DIR`. | |
 
 Each flag controls one thing, which is why there are several: `--scenario`, `--seed` and `--replay` choose the run; `--hours` sets how long it lasts and `--speed` how much of it one frame shows; and the run can produce three different outputs, which can be combined:
 
 - `--save` is what the run looks like: a video or PNG frames.
 - `--record` is what the user did: a small JSON `CommandLog` with the scenario, the seed, the time the run ended and every injected pest with its simulation time. A run is a function of its seed, so this is enough to replay it exactly, and to render it again later at another speed. Pause, step and speed changes are not recorded, because they change how the run is shown, not what happens in it.
-- `--out` is what the run measured: the metrics series as CSV and JSON, and a summary row in the same format as the sweeps below.
+- `--out` is what the run measured: the metrics series as `metrics.csv` and `metrics.json`.
 
 A replay takes its scenario, seed and length from the recording, so combining `--replay` with `--scenario`, `--seed`, `--hours` or `--record` is refused. During a replay, pausing, stepping, changing the speed and inspecting still work, but injecting is disabled so the run stays the recorded one.
 
@@ -269,56 +269,22 @@ Drawing a frame takes roughly a tenth of a second, so a long run at a low speed 
 
 ### Scenario catalogue
 
-Every scenario has a name, and every script that runs scenarios takes them by that name: the presets `S1` to `S5` of the scenario builder, and the hand-built experiments `explore` (`EXPLORE`, explorers monitoring a field) and `pests` (`SwarmScenario()`, explorers and seeded killers while pests keep appearing), both a `SwarmScenario`. `swarm_field.experiments.build_named_experiment(name, seed, until)` turns a name and a seed into the `ExperimentConfig` the runner runs, labelled `NAME/SEED`. Each scenario keeps its own horizon unless one is given: an hour for the presets, three hours for `explore` and `pests`. `scenario_names()` lists them, and `tests/test_catalogue.py` checks that every one of them reproduces its run exactly from the same seed.
+Every scenario has a name, and every script that runs scenarios takes them by that name: the presets `S1` to `S5` of the scenario builder, and the hand-built experiments `explore` (`EXPLORE`, explorers monitoring a field) and `pests` (`PESTS`, explorers and seeded killers while pests keep appearing), both a `SwarmScenario`. `swarm_field.experiments.build_named_experiment(name, seed, until)` turns a name and a seed into the `ExperimentConfig` the runner runs, labelled `NAME/SEED`. Each scenario keeps its own horizon unless one is given: an hour for the presets, three hours for `explore` and `pests`. `scenario_names()` lists them, and `tests/test_catalogue.py` checks that every one of them reproduces its run exactly from the same seed.
 
-### Seeded scenario sweep with metrics (B.5)
+### Running many configurations
+
+A batch of runs, every configuration with every seed, goes through `swarm_field.experiments.Experiment`, which runs them in parallel and writes their results to a new folder in `output/`; the tutorial is [`docs/experiments.md`](docs/experiments.md). The robustness demo is one:
 
 ```bash
-uv run python examples/metrics_sweep_demo.py
+uv run python examples/robustness_demo.py --scenario pests --hours 1 --seeds 3
 ```
 
-Runs the cross product of three scenarios and two seeds, and prints one row per run followed by a full metrics series. Each run is reproducible from its seed: the same seed and configuration produce the same series. `--scenarios` takes any names of the catalogue:
+It runs every failure mode and position-error rate against one scenario of the catalogue, and `--render CONDITION` writes PNG frames of one condition instead:
 
 ```bash
-uv run python examples/metrics_sweep_demo.py --scenarios S2 explore pests --hours 1
-```
-
-Every summary row also records how its run was set up (`RunMetadata`): the horizon, the decision and sampling intervals, the field, the robots per body type, each brain by its parts, whether robots started with the terrain map, the pest dynamics, and the failure and position-error settings. These columns follow the result columns, so a row can be traced back to its setup without the script that produced it. Brain parameters such as an `ExploreConfig` are named but not spelled out.
-
-Write the summary table and every run's series to a directory (CSV and JSON):
-
-```bash
-uv run python examples/metrics_sweep_demo.py --out runs/sweep
-```
-
-### Rendering a sweep (C.1 over B.5)
-
-Both sweep demos take a `Renderer` and draw the run on every metric tick, so a batch run can be watched instead of only tabulated:
-
-```bash
-uv run --with matplotlib python examples/metrics_sweep_demo.py --render
 uv run --with matplotlib python examples/robustness_demo.py --render failure-offline-0.005
 ```
 
-Frames land in `runs/frames` (override with `--render-out`), one PNG per metric tick, with the current metrics in the title. In a robustness run a lost robot is drawn hollow and grey, so the frames show the swarm shrinking rather than only reporting it. Rendering only reads ground truth: the same run with and without a renderer produces an identical metrics series.
-
-The ticks come from the metrics cadence rather than a render clock, because the runner drives the event loop to completion and there is nothing left to animate afterwards. For a window on a run you steer yourself — pause, step, speed, injection — use the scenario viewer.
-
-### Robustness sweep: robot failure and position error (B.5)
-
-```bash
-uv run python examples/robustness_demo.py
-```
-
-Runs one scenario under a baseline and then one fault at a time: three failure modes at two rates, and two position-error rates. Every condition runs from the same seed, and faults draw from a random source separate from the world's, so a condition and its baseline see identical pest dynamics and the difference in the metrics is attributable to the fault.
-
-```bash
-uv run python examples/robustness_demo.py --scenario S5 --hours 3
-uv run python examples/robustness_demo.py --scenario pests --hours 1
-uv run python examples/robustness_demo.py --out runs/robustness
-```
-
-**Previously observed baseline:** `active_robots` and `energy/m²` responded to the injected faults while the pest dynamics remained unaffected. The reported outcome metrics (`coverage`, `targets_remaining`, `detection_latency`) were flat for the older treat-only setup, where robots did not actively explore. The body-specific behaviour assembly now changes that setup, so rerun the sweep before treating those outcome metrics as a result for the current development branch. [`docs/research/robustness.md`](docs/research/robustness.md) explains the original experiment and its limitations.
 
 ## Current demonstration limitations
 

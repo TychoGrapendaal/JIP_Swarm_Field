@@ -67,18 +67,17 @@ Because A and C both depend only on `contracts` and on these ports, either can b
 There is one place — the runner — that knows every concrete class and wires them together. Everything else depends on ports. This is where "assembled, possibly dynamically" actually happens: the runner reads specs, resolves named parts from registries, and constructs the object graph for a single run.
 
 ```python
-def run_experiment(config: ExperimentConfig) -> RunSummary:
+def run_experiment(config: ExperimentConfig) -> tuple[MetricsSample, ...]:
     ctx, collector = build_run(config)   # assemble + seed the first events
     SimulationLoop().run(ctx, config.until)
-    return RunSummary.from_series(config.label, config.scenario_name,
-                                  config.scenario.seed, collector.series())
+    return collector.series()
 ```
 
 Every random draw a run makes happens inside `build_run`, in a fixed order, so a run is a function of its seed and configuration. The context's `rng` is then left to the pest dynamics; the metrics collector holds no random source of its own, so recording metrics cannot change the world a run produces.
 
-The runner is also the natural home for the batch / sweep logic that runs many configurations for benchmarking: `sweep` runs a list of configurations, and `robustness_sweep` runs one configuration under each fault condition from its shared seed, so a condition and its baseline see identical pest dynamics. Which configuration to run comes from the scenario catalogue in `experiments`, one layer above the runner: it names every scenario, the presets and the hand-built experiments alike, turns a name and a seed into an `ExperimentConfig`, and its `sweep_scenarios` runs the cross product of names and seeds.
+Running many configurations is not the runner's job: `swarm_field.experiments.Experiment`, one layer above it, runs a batch of runs, every configuration with every seed, in parallel processes and keeps their results in `output/`. Which configuration to run comes from `experiments` too: a `SwarmScenario`, or the scenario catalogue, which names every scenario, the presets and the hand-built experiments alike, and turns a name and a seed into an `ExperimentConfig`. A robustness run (`experiments.robustness`) applies one fault condition to a scenario of the catalogue; every condition runs with the same seeds, so a condition and its baseline see identical pest dynamics.
 
-`run_experiment`, `sweep` and `robustness_sweep` each take an optional `Renderer`. Handing one in makes the run draw its world on every metric tick, so a sweep can be watched without a second driver. Because a render only reads ground truth, a run with a renderer measures exactly what the same run without one would — `test_a_run_with_a_renderer_measures_exactly_the_same_as_one_without` pins that. One renderer shared across a sweep sees all the conditions and cannot tell them apart, so to attribute frames to a condition, rebuild that one condition with `robustness_case_config` and pass the renderer to a single `run_experiment`: a run is a function of its seed, so the drawn run is the tabled one.
+`run_experiment` takes an optional `Renderer`. Handing one in makes the run draw its world on every metric tick, so a run can be watched without a second driver. Because a render only reads ground truth, a run with a renderer measures exactly what the same run without one would — `test_a_run_with_a_renderer_measures_exactly_the_same_as_one_without` pins that. A run is a function of its seed, so a condition drawn again is the one in the table.
 
 Visualization also attaches to a run the other way round, through `Command`, or consumes a recorded event log offline.
 

@@ -37,7 +37,7 @@ from swarm_field.console import (
 )
 from swarm_field.contracts import CommandLog, Time, TimeUnit
 from swarm_field.experiments import LiveRun, build_named_experiment, scenario_names
-from swarm_field.runner import RunSummary, export_summary_csv, export_summary_json
+from swarm_field.simulation import write_metrics_csv, write_metrics_json
 from swarm_field.visualization import MatplotlibRenderer
 
 DEFAULT_SCENARIO = "S2"
@@ -73,12 +73,12 @@ def parse_args() -> argparse.Namespace:
 
 
 def export_run(run: LiveRun, out: Path) -> None:
-    """Write the run's metrics series and a one-row summary of it to ``out``."""
-    summary = RunSummary.from_run(run.config, run.metrics.series())
-    series_csv, series_json = summary.export(out)
-    export_summary_csv([summary], out / "summary.csv")
-    export_summary_json([summary], out / "summary.json")
-    print(f"Wrote the summary and the series ({series_csv.name}, {series_json.name}) to {out}")
+    """Write the run's metrics series to ``out`` as ``metrics.csv`` and ``metrics.json``."""
+    out.mkdir(parents=True, exist_ok=True)
+    series = run.metrics.series()
+    write_metrics_csv(series, out / "metrics.csv")
+    write_metrics_json(series, out / "metrics.json")
+    print(f"Wrote the metrics series ({len(series)} samples) to {out}")
 
 
 def main() -> None:

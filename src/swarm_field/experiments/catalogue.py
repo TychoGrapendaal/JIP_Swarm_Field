@@ -1,22 +1,28 @@
 """Every scenario by name: the presets ``S1`` to ``S5`` and the hand-built experiments.
 
-A name and a seed are all a sweep or a viewer needs to build a run: ``build_named_experiment``
-turns them into the ``ExperimentConfig`` that ``swarm_field.runner`` assembles and runs, labelled
-``NAME/SEED`` and with the name recorded as its ``scenario_name``. Each scenario keeps its own
-horizon unless the caller sets one: an hour for the presets, the sweeps' default, and the length
-its ``SwarmScenario`` defines for the others.
+A name and a seed are all an experiment or a viewer needs to build a run:
+``build_named_experiment`` turns them into the ``ExperimentConfig`` that ``swarm_field.runner``
+assembles and runs, labelled ``NAME/SEED`` and with the name recorded as its ``scenario_name``.
+Each scenario keeps its own horizon unless the caller sets one: an hour for the presets, and the
+length its ``SwarmScenario`` defines for the others.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from dataclasses import replace
 
 from swarm_field.contracts import BodyType, ScenarioId, Time, TimeUnit
 from swarm_field.experiments.maps import MapConfig
 from swarm_field.experiments.presets import EXPLORER, SEEDED_KILLER
-from swarm_field.experiments.scenario import EXPLORE, PESTS, PestConfig, SwarmScenario
-from swarm_field.runner import BrainSpec, ExperimentConfig, RunSummary, build_experiment, sweep
+from swarm_field.experiments.scenario import (
+    EXPLORE,
+    FAST_TREATMENT,
+    PESTS,
+    PestConfig,
+    SwarmScenario,
+)
+from swarm_field.runner import BrainSpec, ExperimentConfig, build_experiment
 from swarm_field.simulation import MetricsConfig
 
 ScenarioBuilder = Callable[[int, Time | None], ExperimentConfig]
@@ -65,7 +71,7 @@ def _pests(seed: int, until: Time | None) -> ExperimentConfig:
 LARGE_PESTS = (
     SwarmScenario(
         map=MapConfig(size=256),
-        pests=PestConfig(pests_per_hour=240.0),
+        pests=PestConfig(pests_per_hour=240.0, treatment_rate=FAST_TREATMENT),
         metrics=MetricsConfig(period=TimeUnit.MINUTE),
     )
     .add_robots(EXPLORER, 100)
@@ -116,29 +122,3 @@ def build_named_experiment(name: str, seed: int, until: Time | None = None) -> E
         KeyError: If no scenario has that name.
     """
     return _CATALOGUE[name](seed, until)
-
-
-def sweep_scenarios(
-    names: Iterable[str],
-    seeds: Iterable[int],
-    until: Time | None = None,
-    sample_period: Time | None = None,
-) -> tuple[RunSummary, ...]:
-    """Run every named scenario with every seed, and return one summary per run, in that order.
-
-    Args:
-        names: Scenarios from ``scenario_names()``.
-        seeds: The seeds every scenario is run with.
-        until: How far to run every scenario, or ``None`` for each scenario's own horizon.
-        sample_period: The time between two metrics samples in every run, or ``None`` for
-            each scenario's own. The rest of each scenario's metrics settings is kept.
-    """
-    every_seed = tuple(seeds)
-    configs: list[ExperimentConfig] = []
-    for name in names:
-        for seed in every_seed:
-            config = build_named_experiment(name, seed, until)
-            if sample_period is not None:
-                config = replace(config, metrics=replace(config.metrics, period=sample_period))
-            configs.append(config)
-    return sweep(configs)

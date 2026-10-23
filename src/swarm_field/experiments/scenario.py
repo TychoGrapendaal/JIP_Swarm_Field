@@ -448,8 +448,16 @@ EXPLORE = SwarmScenario(
 ).add_robots(EXPLORER, 5)
 """Five explorers alone on an open field, without pests, measured by coverage and idleness."""
 
-PESTS = SwarmScenario().add_robots(EXPLORER, 5).add_robots(SEEDED_KILLER, 3)
-"""Five explorers and three seeded killers on the river field, while pests keep appearing."""
+PESTS = (
+    SwarmScenario(pests=PestConfig(treatment_rate=FAST_TREATMENT))
+    .add_robots(EXPLORER, 5)
+    .add_robots(SEEDED_KILLER, 3)
+)
+"""Five explorers and three seeded killers on the river field, while pests keep appearing.
+
+Killers treat with ``FAST_TREATMENT``: at the default rate of one severity per hour a pest grows
+faster than it is treated and never clears.
+"""
 
 
 def pest_response_configurations(

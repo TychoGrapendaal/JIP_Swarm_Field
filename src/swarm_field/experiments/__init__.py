@@ -23,11 +23,7 @@ from swarm_field.experiments.batch import (
     run_in_parallel,
     runs_for,
 )
-from swarm_field.experiments.catalogue import (
-    build_named_experiment,
-    scenario_names,
-    sweep_scenarios,
-)
+from swarm_field.experiments.catalogue import build_named_experiment, scenario_names
 from swarm_field.experiments.maps import (
     MapConfig,
     cropped_cells,
@@ -57,6 +53,12 @@ from swarm_field.experiments.presets import (
     RobotPreset,
     SeededKillerPreset,
     hop_beacon_variants,
+)
+from swarm_field.experiments.robustness import (
+    RobustnessCase,
+    RobustnessRunSpec,
+    default_robustness_cases,
+    measure_robustness,
 )
 from swarm_field.experiments.run import LiveRun
 from swarm_field.experiments.scenario import (
@@ -102,6 +104,8 @@ __all__ = [
     "RobotConfig",
     "RobotGroup",
     "RobotPreset",
+    "RobustnessCase",
+    "RobustnessRunSpec",
     "Run",
     "RunResult",
     "SeededKillerPreset",
@@ -110,10 +114,12 @@ __all__ = [
     "build_named_experiment",
     "by_arm",
     "cropped_cells",
+    "default_robustness_cases",
     "hop_beacon_variants",
     "markdown_table",
     "mean_and_error",
     "measure_pest_response",
+    "measure_robustness",
     "paired_difference",
     "pest_response_configurations",
     "pest_table_cells",
@@ -124,7 +130,6 @@ __all__ = [
     "run_in_parallel",
     "runs_for",
     "scenario_names",
-    "sweep_scenarios",
     "treated_share",
     "two_rivers_and_rocks",
     "video_path",

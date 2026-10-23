@@ -11,7 +11,8 @@ measures of ``MetricsCollector``, sampled once a minute, as the mean over the se
 - ``redund``: the share of visits to a cell sensed less than 30 minutes before;
 - ``wall``: seconds of computation per run.
 
-Runs are spread over processes. Not part of ``pytest``; run it with:
+The runs go through ``Experiment``, in parallel, which writes them and the tables to a new
+folder in ``output/``. Not part of ``pytest``; run it with:
 
     uv run python -m studies.explore_variants --size 32 --hours 3 --seeds 4
 """
@@ -19,21 +20,36 @@ Runs are spread over processes. Not part of ``pytest``; run it with:
 from __future__ import annotations
 
 import argparse
-import time
 from collections.abc import Callable, Iterator
-from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, replace
 from statistics import mean
 
 from tests.baselines import RANDOM_WAYPOINT_BRAIN
 
-from swarm_field.contracts import CellId, MetricsSample, Time, TimeUnit
-from swarm_field.experiments import EXPLORE, ExplorerPreset, MapConfig, river_and_rocks
+from swarm_field.contracts import BodyType, CellId, MetricsSample, Time, TimeUnit
+from swarm_field.experiments import (
+    EXPLORE,
+    CustomPreset,
+    Experiment,
+    ExplorerPreset,
+    MapConfig,
+    RobotPreset,
+    Run,
+    RunResult,
+    SwarmScenario,
+    arm_name,
+    markdown_table,
+    mean_and_error,
+    river_and_rocks,
+    runs_for,
+)
 from swarm_field.runner import run_experiment
 from swarm_field.swarm import ExploreConfig
 
 _REFERENCE = ExploreConfig()
 """The variant the others are compared with: the defaults, 8 x 8 blocks with the discount."""
+RANDOM_WAYPOINT = CustomPreset("random-waypoint", BodyType.SCOUT, RANDOM_WAYPOINT_BRAIN)
+"""The baseline: robots that walk to one random cell after the other."""
 
 
 @dataclass(frozen=True)
@@ -54,29 +70,79 @@ class Variant:
 
 
 @dataclass(frozen=True)
-class Job:
-    """One run to make: a variant on a field of ``size`` cells for ``hours``, with ``seed``."""
+class ExploreRunSpec:
+    """One variant on a field of ``size`` cells with ``robots`` robots, for ``hours``.
+
+    Attributes:
+        variant: The configuration of the swarm.
+        size: The field's side in cells.
+        robots: How many robots explore it.
+        hours: How long a run lasts.
+    """
 
     variant: Variant
     size: int
     robots: int
     hours: float
-    seed: int
+
+    def into_scenario(self, seed: int) -> SwarmScenario:
+        """The run with ``seed``: idleness is measured over the second half of it."""
+        variant = self.variant
+        obstacles: tuple[CellId, ...] = ()
+        if variant.obstacles:
+            obstacles = river_and_rocks(self.size)
+        end: Time = int(self.hours * TimeUnit.HOUR)
+        field = (
+            EXPLORE.without_robots()
+            .with_map(MapConfig(size=self.size, obstacles=obstacles))
+            .with_robot_config(replace(EXPLORE.robots, radio_range_m=variant.radio_range_m))
+            .with_metrics(replace(EXPLORE.metrics, measure_from=end // 2))
+        )
+        preset: RobotPreset = RANDOM_WAYPOINT
+        if variant.explore is not None:
+            preset = ExplorerPreset(explore=variant.explore)
+        return replace(field.add_robots(preset, self.robots), until=end, seed=seed)
 
 
 @dataclass(frozen=True)
-class Result:
-    """The metrics series of one run, and the seconds it took."""
+class Exploration:
+    """What one run measured, from its metrics series sampled once a minute.
 
-    series: tuple[MetricsSample, ...]
-    wall: float
+    Attributes:
+        t90_minutes: When 90 % of the field had been sensed, or ``None`` if it never was.
+        full_minutes: When all of the field had been sensed, or ``None`` if it never was.
+        idleness_minutes: Mean idleness over the second half of the run.
+        worst_idleness_minutes: Worst idleness over the second half of the run.
+        redundancy: The share of visits to a cell sensed less than 30 minutes before.
+    """
 
-    def time_to_cover(self, share: float) -> Time | None:
-        """The first sample at which ``share`` of the field had been sensed, or ``None``."""
-        for sample in self.series:
-            if sample.coverage >= share:
-                return sample.time
-        return None
+    t90_minutes: float | None
+    full_minutes: float | None
+    idleness_minutes: float
+    worst_idleness_minutes: float
+    redundancy: float
+
+
+def measure_exploration(run: Run[ExploreRunSpec]) -> Exploration:
+    """Make one run of the spec with the run's seed and measure it; a run function."""
+    scenario = run.config.into_scenario(run.seed)
+    series = run_experiment(scenario.into_experiment(run.arm))
+    final = series[-1]
+    return Exploration(
+        t90_minutes=_time_to_cover(series, 0.9),
+        full_minutes=_time_to_cover(series, 1.0),
+        idleness_minutes=final.mean_idleness_ms / TimeUnit.MINUTE,
+        worst_idleness_minutes=final.worst_idleness_ms / TimeUnit.MINUTE,
+        redundancy=final.redundancy,
+    )
+
+
+def _time_to_cover(series: tuple[MetricsSample, ...], share: float) -> float | None:
+    """The minute of the first sample at which ``share`` of the field had been sensed."""
+    for sample in series:
+        if sample.coverage >= share:
+            return sample.time / TimeUnit.MINUTE
+    return None
 
 
 def variants() -> Iterator[Variant]:
@@ -112,66 +178,18 @@ SECTIONS: dict[str, tuple[str, Callable[[], Iterator[Variant]]]] = {
 """The tables the benchmark can print, by their name on the command line."""
 
 
-def run(job: Job) -> Result:
-    """Make one run and measure it."""
-    variant = job.variant
-    obstacles: tuple[CellId, ...] = ()
-    if variant.obstacles:
-        obstacles = river_and_rocks(job.size)
-    end: Time = int(job.hours * TimeUnit.HOUR)
-    explore = _REFERENCE
-    if variant.explore is not None:
-        explore = variant.explore
-    field = (
-        EXPLORE.without_robots()
-        .with_map(MapConfig(size=job.size, obstacles=obstacles))
-        .with_robot_config(replace(EXPLORE.robots, radio_range_m=variant.radio_range_m))
-        .with_metrics(replace(EXPLORE.metrics, measure_from=end // 2))
-    )
-    scenario = replace(
-        field.add_robots(ExplorerPreset(explore=explore), job.robots), until=end, seed=job.seed
-    )
-    experiment = scenario.into_experiment(variant.name)
-    if variant.explore is None:
-        experiment = replace(experiment, brain=RANDOM_WAYPOINT_BRAIN)
-    started = time.perf_counter()
-    summary = run_experiment(experiment)
-    return Result(summary.series, time.perf_counter() - started)
-
-
-def table_row(name: str, results: list[Result]) -> str:
-    """One Markdown table row: the means over the seeds' results."""
-    finals = [result.series[-1] for result in results]
-    cells = [
+def table_row(name: str, results: list[RunResult[ExploreRunSpec, Exploration]]) -> list[str]:
+    """One table row: the means over the seeds' results, ``-`` where a seed never got there."""
+    measured = [result.result for result in results]
+    return [
         name,
-        _mean_minutes([result.time_to_cover(0.9) for result in results]),
-        _mean_minutes([result.time_to_cover(1.0) for result in results]),
-        f"{mean(final.mean_idleness_ms for final in finals) / TimeUnit.MINUTE:.1f}",
-        f"{mean(final.worst_idleness_ms for final in finals) / TimeUnit.MINUTE:.1f}",
-        f"{mean(final.redundancy for final in finals):.3f}",
+        mean_and_error([exploration.t90_minutes for exploration in measured]),
+        mean_and_error([exploration.full_minutes for exploration in measured]),
+        f"{mean(exploration.idleness_minutes for exploration in measured):.1f}",
+        f"{mean(exploration.worst_idleness_minutes for exploration in measured):.1f}",
+        f"{mean(exploration.redundancy for exploration in measured):.3f}",
         f"{mean(result.wall for result in results):.0f}",
     ]
-    return "| " + " | ".join(cells) + " |"
-
-
-def _mean_minutes(times: list[Time | None]) -> str:
-    """The mean of ``times`` in minutes, or ``-`` if any is missing."""
-    reached: list[Time] = []
-    for time_ms in times:
-        if time_ms is None:
-            return "-"
-        reached.append(time_ms)
-    return f"{mean(reached) / TimeUnit.MINUTE:.1f}"
-
-
-def print_table(title: str, section: list[Variant], results: list[Result], seeds: int) -> None:
-    """Print one section as a Markdown table, ``seeds`` consecutive results per variant."""
-    print(f"\n### {title}\n")
-    headers = ["variant", "t90", "full", "idle", "worst", "redund", "wall (s)"]
-    print("| " + " | ".join(headers) + " |")
-    print("|" + " --- |" * len(headers))
-    for index, variant in enumerate(section):
-        print(table_row(variant.name, results[index * seeds : (index + 1) * seeds]))
 
 
 def main() -> None:
@@ -180,27 +198,38 @@ def main() -> None:
     parser.add_argument("--robots", type=int, default=5)
     parser.add_argument("--hours", type=float, default=3.0, help="simulated time per run")
     parser.add_argument("--seeds", type=int, default=4, help="runs per variant")
-    parser.add_argument("--jobs", type=int, default=8, help="processes")
+    parser.add_argument("--jobs", type=int, help="processes; one per CPU if not given")
     parser.add_argument(
         "--sections", nargs="+", choices=SECTIONS, default=list(SECTIONS), help="tables to print"
     )
     args = parser.parse_args()
 
-    print(
+    specs: dict[str, ExploreRunSpec] = {}
+    for name in args.sections:
+        _, make_variants = SECTIONS[name]
+        for variant in make_variants():
+            specs[arm_name(name, variant.name)] = ExploreRunSpec(
+                variant, args.size, args.robots, args.hours
+            )
+    experiment = Experiment("explore_variants")
+    results = experiment.run(runs_for(specs, range(args.seeds)), measure_exploration, args.jobs)
+    by_variant: dict[str, list[RunResult[ExploreRunSpec, Exploration]]] = {}
+    for result in results:
+        by_variant.setdefault(result.run.arm, []).append(result)
+
+    text = (
         f"{args.robots} robots, {args.size} x {args.size} cells of 10 m, {args.hours} h, "
-        f"mean over {args.seeds} seeds"
+        f"mean over {args.seeds} seeds\n"
     )
-    with ProcessPoolExecutor(max_workers=args.jobs) as pool:
-        for name in args.sections:
-            title, make_variants = SECTIONS[name]
-            section = list(make_variants())
-            jobs: list[Job] = []
-            for variant in section:
-                jobs.extend(
-                    Job(variant, args.size, args.robots, args.hours, seed)
-                    for seed in range(args.seeds)
-                )
-            print_table(title, section, list(pool.map(run, jobs)), args.seeds)
+    headers = ["variant", "t90", "full", "idle", "worst", "redund", "wall (s)"]
+    for name in args.sections:
+        title, make_variants = SECTIONS[name]
+        rows: list[list[str]] = []
+        for variant in make_variants():
+            rows.append(table_row(variant.name, by_variant[arm_name(name, variant.name)]))
+        text += f"\n### {title}\n\n{markdown_table(headers, rows)}"
+    print(text)
+    experiment.write_text("tables.md", text)
 
 
 if __name__ == "__main__":

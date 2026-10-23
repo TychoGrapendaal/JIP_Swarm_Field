@@ -150,7 +150,7 @@ def test_the_pest_run_is_the_same_as_with_every_snapshot_merged_fact_by_fact(
     monkeypatch.setattr(AgentMemory, "merge_snapshot", _merge_fact_by_fact)
     reference = run_experiment(config)
 
-    assert fast.series == reference.series
+    assert fast == reference
 
 
 def test_a_periodic_robot_shares_nothing_between_whole_memory_broadcasts() -> None:

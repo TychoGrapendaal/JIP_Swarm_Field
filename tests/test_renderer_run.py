@@ -1,16 +1,8 @@
 """Tests for rendering a run driven by the runner (C.1 over B.5)."""
 
 from swarm_field.contracts import FailureMode, FailureSpec, ScenarioId, WorldSnapshot
-from swarm_field.experiments import build_named_experiment
-from swarm_field.runner import (
-    ExperimentConfig,
-    RobustnessCase,
-    build_experiment,
-    build_run,
-    robustness_case_config,
-    robustness_sweep,
-    run_experiment,
-)
+from swarm_field.experiments import RobustnessCase, build_named_experiment
+from swarm_field.runner import ExperimentConfig, build_experiment, build_run, run_experiment
 from swarm_field.simulation import MetricsConfig, SimulationLoop
 
 HOUR = 3_600_000
@@ -65,7 +57,7 @@ def test_a_renderer_is_handed_one_snapshot_per_metric_tick() -> None:
     run = run_experiment(_config(), renderer)
 
     assert [snapshot.time for snapshot in renderer.snapshots] == [0, HOUR, 2 * HOUR]
-    assert len(renderer.snapshots) == len(run.series)
+    assert len(renderer.snapshots) == len(run)
 
 
 def test_each_snapshot_carries_the_metrics_sample_for_its_own_time() -> None:
@@ -73,7 +65,7 @@ def test_each_snapshot_carries_the_metrics_sample_for_its_own_time() -> None:
 
     run = run_experiment(_config(), renderer)
 
-    for snapshot, sample in zip(renderer.snapshots, run.series, strict=True):
+    for snapshot, sample in zip(renderer.snapshots, run, strict=True):
         assert snapshot.metrics is not None
         assert snapshot.metrics.time == snapshot.time
         assert snapshot.metrics == sample
@@ -90,7 +82,7 @@ def test_a_snapshot_shows_robots_the_run_has_lost() -> None:
 
     assert len(renderer.snapshots[-1].robots) == 15
     assert _failed_count(renderer.snapshots[-1]) == 15
-    assert run.active_robots == 0
+    assert run[-1].active_robots == 0
 
 
 def test_a_snapshot_distinguishes_a_fault_condition_from_the_baseline() -> None:
@@ -98,14 +90,8 @@ def test_a_snapshot_distinguishes_a_fault_condition_from_the_baseline() -> None:
     baseline = RecordingRenderer()
     faulty = RecordingRenderer()
 
-    run_experiment(
-        robustness_case_config(_s2(), RobustnessCase(label="baseline")),
-        baseline,
-    )
-    run_experiment(
-        robustness_case_config(_s2(), _all_fail()),
-        faulty,
-    )
+    run_experiment(RobustnessCase(label="baseline").apply(_s2()), baseline)
+    run_experiment(_all_fail().apply(_s2()), faulty)
 
     assert _failed_count(baseline.snapshots[-1]) == 0
     assert _failed_count(faulty.snapshots[-1]) == 15
@@ -116,7 +102,7 @@ def test_a_run_with_a_renderer_measures_exactly_the_same_as_one_without() -> Non
     plain = run_experiment(_config())
     drawn = run_experiment(_config(), RecordingRenderer())
 
-    assert plain.to_row() == drawn.to_row()
+    assert plain == drawn
 
 
 def test_a_run_still_renders_when_it_records_no_metrics() -> None:
@@ -129,28 +115,6 @@ def test_a_run_still_renders_when_it_records_no_metrics() -> None:
 
     assert [snapshot.time for snapshot in renderer.snapshots] == [0, HOUR, 2 * HOUR]
     assert all(snapshot.metrics is None for snapshot in renderer.snapshots)
-
-
-def test_a_robustness_sweep_passes_its_renderer_to_every_case() -> None:
-    renderer = RecordingRenderer()
-    cases = (RobustnessCase(label="baseline"), _all_fail())
-
-    runs = robustness_sweep(_s2(), cases, renderer=renderer)
-
-    # Two cases, each rendering at time zero and one hour: the renderer is shared, so the frames
-    # arrive as one stream rather than being attributable to a condition.
-    assert len(renderer.snapshots) == 4
-    assert [run.active_robots for run in runs] == [15, 0]
-
-
-def test_a_case_configured_again_produces_the_same_run() -> None:
-    """The basis for rendering one condition after the sweep has tabled it."""
-    case = _all_fail()
-    swept = robustness_sweep(_s2(), (case,))[0]
-
-    redone = run_experiment(robustness_case_config(_s2(), case))
-
-    assert swept.to_row() == redone.to_row()
 
 
 def test_driving_a_run_in_slices_measures_exactly_the_same() -> None:

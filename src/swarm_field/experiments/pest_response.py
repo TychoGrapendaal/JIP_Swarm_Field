@@ -19,11 +19,16 @@ over the seeds and its standard error (±) where it matters:
 - ``commit hop``: the median beacon value of a killer when it commits to treating, for arms
   with beacons;
 - ``empty``: killers that used up their treatment consumable;
+- ``coverage``: the share of the crop cells some robot sensed by the end;
+- ``idle``: minutes since a robot last sensed a crop cell, averaged over the cells and the
+  samples after the warm-up: the expected wait of a pest for its first sighting;
+- ``redund``: the share of the robots' visits to a cell sensed less than ``fresh_age`` before;
 - ``drift 1/2/3 h``: mean distance in cells of the killers from their start after each hour;
 - ``wall``: seconds of computation per run.
 
 The tracker reads the killers' goals and beacons, which the simulation's own metrics may not,
-so it lives here, at the composition level, next to ``LiveRun``.
+so it lives here, at the composition level, next to ``LiveRun``. Coverage, idleness and
+redundancy come from the run's ``MetricsCollector``, sampled once a minute.
 """
 
 from __future__ import annotations
@@ -71,12 +76,17 @@ class PestRunSpec:
     def into_experiment(self, label: str, seed: int) -> ExperimentConfig:
         """The run of this spec with ``seed`` as an experiment for ``swarm_field.runner``.
 
-        The scenario is sampled once a minute, and runs for ``hours`` at ``pests_per_hour``.
+        The scenario is sampled once a minute, its idleness measured after the warm-up, and it
+        runs for ``hours`` at ``pests_per_hour``.
         """
         scenario = replace(
             self.scenario,
             until=self.hours * TimeUnit.HOUR,
-            metrics=replace(self.scenario.metrics, period=TimeUnit.MINUTE),
+            metrics=replace(
+                self.scenario.metrics,
+                period=TimeUnit.MINUTE,
+                measure_from=self.warmup_hours * TimeUnit.HOUR,
+            ),
             seed=seed,
             pests=replace(self.scenario.pests, pests_per_hour=self.pests_per_hour),
         )
@@ -108,6 +118,12 @@ class PestResponse:
         consumable_used: Treatment consumable used by all killers together, each starting with
             1; a treatment job uses ``1 / treatment_doses`` of the scenario.
         drift: The killers' mean distance in cells from their start, after each hour.
+        coverage: The share of the crop cells some robot sensed by the end of the run.
+        idleness_minutes: Minutes since a robot last sensed a crop cell, averaged over the cells
+            and the samples after the warm-up.
+        worst_idleness_minutes: The longest of those, over the same samples.
+        redundancy: The share of the robots' visits to a crop cell sensed less than the
+            scenario's ``fresh_age`` before.
         wall: Seconds the run took.
     """
 
@@ -123,6 +139,10 @@ class PestResponse:
     empty_killers: int
     consumable_used: float
     drift: tuple[float, ...]
+    coverage: float
+    idleness_minutes: float
+    worst_idleness_minutes: float
+    redundancy: float
     wall: float
 
 
@@ -201,7 +221,9 @@ class PestTracker:
                     self.commit_hops.append(beacon.value)
 
     def mean_distance_from_start(self) -> float:
-        """The killers' mean straight-line distance in cells from where they started."""
+        """The killers' mean straight-line distance in cells from where they started; 0 without."""
+        if not self._positions:
+            return 0.0
         distances: list[float] = []
         for robot_id, position in self._positions.items():
             distances.append(math.dist(position, self._starts[robot_id]))
@@ -274,6 +296,9 @@ class MeasuredPestRun:
             if consumable <= 0:
                 empty += 1
         hours = self.run.config.hours
+        metrics = self.live.metrics.latest()
+        if metrics is None:
+            raise ValueError("the run recorded no metrics sample")
         return PestResponse(
             infested=mean(tracker.infested_samples),
             treated=treated,
@@ -287,6 +312,10 @@ class MeasuredPestRun:
             empty_killers=empty,
             consumable_used=used,
             drift=tuple(tracker.drift),
+            coverage=metrics.coverage,
+            idleness_minutes=metrics.mean_idleness_ms / TimeUnit.MINUTE,
+            worst_idleness_minutes=metrics.worst_idleness_ms / TimeUnit.MINUTE,
+            redundancy=metrics.redundancy,
             wall=time.perf_counter() - self._started,
         )
 
@@ -307,7 +336,7 @@ def pest_table_headers(hours: int, first: str = "arm") -> list[str]:
         first: The name of the label column.
     """
     headers = [first, "infested", "treated", "response", "p90", "open", "cells/treat", "msgs"]
-    headers.extend(["stuck", "commit hop", "empty"])
+    headers.extend(["stuck", "commit hop", "empty", "coverage", "idle", "redund"])
     for hour in range(1, hours + 1):
         headers.append(f"drift {hour} h")
     headers.append("wall (s)")
@@ -328,6 +357,9 @@ def pest_table_cells(label: str, results: list[PestResponse], hours: int) -> lis
         f"{mean(result.stuck for result in results):.2f}",
         _median_commit_hop(results),
         f"{mean(result.empty_killers for result in results):.1f}",
+        f"{mean(result.coverage for result in results):.3f}",
+        mean_and_error([result.idleness_minutes for result in results]),
+        f"{mean(result.redundancy for result in results):.3f}",
     ]
     for hour in range(hours):
         cells.append(f"{mean(result.drift[hour] for result in results):.1f}")

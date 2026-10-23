@@ -32,7 +32,7 @@ def _final(explore: ExploreConfig | None) -> MetricsSample:
         experiment = replace(scenario.into_experiment(), brain=RANDOM_WAYPOINT_BRAIN)
     else:
         experiment = _FIELD.add_robots(ExplorerPreset(explore=explore), 3).into_experiment()
-    return run_experiment(experiment).series[-1]
+    return run_experiment(experiment)[-1]
 
 
 def test_explorers_cover_the_field_and_keep_it_fresher_than_random_waypoints() -> None:
