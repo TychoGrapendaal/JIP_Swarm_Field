@@ -83,42 +83,6 @@ See [`studies/README.md`](studies/README.md) for the list of studies and how to 
 
 > **Note:** The examples below are demonstration and visualization tools for the current world model and potential-field prototype. They are not the final swarm exploration or communication implementation.
 
-### Small WorldState demonstration
-
-```bash
-uv run python examples/worldstate_demo.py
-```
-
-Terminal-based demonstration of the core `WorldState`. It shows field-cell state, multiple robots sharing a cell, different robot speeds, direct target-cell movement, obstacles, local observations, infestation, and treatment actions.
-
-### Simple animated field-cell demonstration
-
-```bash
-uv run --with matplotlib python examples/simple_world_sim.py
-```
-
-A small animated visualization showing the coarse-grained field representation, multi-cell obstacles, infested areas, and direct cell-to-cell robot movement.
-
-### Hundreds-of-robots potential-field proof of concept
-
-```bash
-uv run --with matplotlib python examples/mass_swarm_visualization.py
-```
-
-The main large-scale visualization. It demonstrates hundreds of robots moving through a coarse-grained field using a simple local potential-field controller. Known infestations provide attraction, known obstacles provide repulsion, and a small random component provides a basic exploration baseline. Robots move directly toward selected target cells at their own speeds, and multiple robots can occupy the same cell.
-
-The mass-swarm demo defaults to 300 robots. Try 500 or more:
-
-```bash
-uv run --with matplotlib python examples/mass_swarm_visualization.py --robots 500 --seed 7
-```
-
-For an even larger test:
-
-```bash
-uv run --with matplotlib python examples/mass_swarm_visualization.py --robots 1000 --seed 7
-```
-
 ### Exploration demonstration (#41)
 
 ```bash
@@ -148,44 +112,6 @@ uv run --with matplotlib python examples/steering_demo.py
 ```
 
 A single land robot running the reactive A.3 `Steerer` towards a target across an obstacle wall, drawing the cells it visited. The steerer is the mapless policy: gradient alignment towards the goal, and a committed right-hand wall-follow whenever that heading is blocked. In the brain it is the fallback behind `Navigator.step_towards`, which prefers a potential field over the robot's believed terrain. See [`docs/navigation-module.md`](docs/navigation-module.md) §11.1 and [`docs/robot-memory-and-navigation.md`](docs/robot-memory-and-navigation.md).
-
-### Event-driven robot decision demonstration (B.1 / issue #4)
-
-```bash
-uv run --with matplotlib python examples/robot_decision_demo.py
-```
-
-An animated demonstration of the real discrete-event robot loop. A scripted robot is scheduled as a `RobotDecision` event and repeatedly goes through `Perceive → Decide → Act → Re-queue` at a fixed decision interval. The visualization shows the robot moving between cells, its current action, the last decision time, and the next event waiting in the queue.
-
-Write animation frames as PNGs instead of opening a window:
-
-```bash
-uv run --with matplotlib python examples/robot_decision_demo.py --frames 200 --save frames
-```
-
-This demo is specifically intended to make the event-driven behavior added in issue #4 visible; it is separate from the higher-level swarm behavior demonstrations.
-
-### Treat-infestation demonstration
-
-```bash
-uv run python examples/treat_infestation_demo.py
-```
-
-A killer robot that already knows of three pests follows the TREAT field around a wall to each of them, treats it once, and then idles.
-
-### Renderer demonstration (C.1)
-
-```bash
-uv run --with matplotlib python examples/renderer_demo.py
-```
-
-Draws a running scenario through the `Renderer` port: each `WorldState.snapshot` is rendered as read-only data, covering the field cells (crop growth, infestation severity, obstacles), the robots, and their movement targets. The demo runs an all-scout roster over a fully cropped field with infestation patches of different severities.
-
-Write frames as PNGs instead of opening a window:
-
-```bash
-uv run --with matplotlib python examples/renderer_demo.py --frames 60 --save frames
-```
 
 ### Scenario viewer: the interactive console (C.1)
 
