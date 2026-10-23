@@ -16,9 +16,9 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import chain
-from math import exp
+from math import exp, inf
 from typing import Protocol, cast
 
 import numpy as np
@@ -78,6 +78,9 @@ class DecayConfig:
 
 class MemoryView(Protocol):
     """The read-only queries on memory that behaviours and field seeders are typed against."""
+
+    @property
+    def robot_id(self) -> RobotId: ...
 
     def terrain_at(self, cell: CellId) -> Terrain | None: ...
 
@@ -260,9 +263,15 @@ class AgentMemory:
         self._crops_last_stored: int = -1
         self._peers: dict[RobotId, PeerObservation] = {}
         self._peers_last_stored: int = -1
+        self._peer_reported_at: dict[RobotId, Time] = {}
         self._monitorable: NDArray[np.bool_] = np.ones(cells, dtype=np.bool_)
         self._shared: _SharedSnapshot | None = None
         self.version: int = 0
+
+    @property
+    def robot_id(self) -> RobotId:
+        """The robot this memory belongs to."""
+        return self._robot_id
 
     @property
     def width(self) -> int:
@@ -463,14 +472,33 @@ class AgentMemory:
         self.version += len(stored)
 
     def _merge_peers(self, facts: Iterable[PeerObservation]) -> None:
-        """Merge peer facts; anonymous sightings and sightings of the robot itself are ignored."""
+        """Merge peer facts; anonymous sightings and sightings of the robot itself are ignored.
+
+        Where a peer is comes from its newest fact of any kind, and what it is heading for (its
+        target and objective) from its newest own report, since a sighting cannot tell. Robots
+        in sight of each other are seen more recently than they report, so without this split
+        a sighting would erase the pest a killer announced, which ``pests_left_to_robot`` reads
+        to spread killers over pests.
+        """
         for fact in facts:
             peer = fact.peer
             if peer is None or peer == self._robot_id:
                 continue
             known = self._peers.get(peer)
-            if known is None or fact.observed_at > known.observed_at:
-                self._peers[peer] = fact
+            stored: PeerObservation | None = None
+            if fact.source == peer:
+                if fact.observed_at <= self._peer_reported_at.get(peer, -inf):
+                    continue
+                self._peer_reported_at[peer] = fact.observed_at
+                stored = fact
+                if known is not None and known.observed_at >= fact.observed_at:
+                    stored = replace(known, target=fact.target, objective=fact.objective)
+            elif known is None or fact.observed_at > known.observed_at:
+                stored = fact
+                if known is not None and peer in self._peer_reported_at:
+                    stored = replace(fact, target=known.target, objective=known.objective)
+            if stored is not None and stored != known:
+                self._peers[peer] = stored
                 self._peers_last_stored = self._next_version()
 
     def _merge_crops(self, facts: Iterable[CropObservation]) -> None:
