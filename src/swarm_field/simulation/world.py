@@ -114,6 +114,7 @@ class WorldState:
 
     Attributes:
         treatment_rate: How much infestation severity one treating robot removes per hour.
+        treatment_doses: How many treatments a killer's full consumable holds.
     """
 
     def __init__(
@@ -123,6 +124,7 @@ class WorldState:
         docks: Iterable[CellId] = (),
         energy: EnergyConfig | None = None,
         treatment_rate: float = 1.0,
+        treatment_doses: int = 10,
     ) -> None:
         """Create the field, fixed charging docks, and any initial robots."""
         if field.width <= 0 or field.height <= 0:
@@ -140,6 +142,9 @@ class WorldState:
         if treatment_rate <= 0:
             raise ValueError("treatment_rate must be positive")
         self.treatment_rate: float = treatment_rate
+        if treatment_doses <= 0:
+            raise ValueError("treatment_doses must be positive")
+        self.treatment_doses: int = treatment_doses
         self.cells: dict[CellId, CellState] = {
             (x, y): CellState(
                 crop=None,
@@ -550,7 +555,7 @@ class WorldState:
                 robot.treatment_updated_at = None
                 robot.current_action = Idle()
                 return
-            robot.consumable = max(0.0, robot.consumable - 0.1)
+            robot.consumable = max(0.0, robot.consumable - 1 / self.treatment_doses)
             robot.treating_cell = target
         robot.treatment_updated_at = time
 

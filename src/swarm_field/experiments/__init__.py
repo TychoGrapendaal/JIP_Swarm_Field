@@ -4,7 +4,7 @@ Each scenario describes its field, robots, brains and metrics as an ``Experiment
 runner assembles and runs it. The catalogue names every scenario, presets and hand-built ones
 alike, so sweeps and viewers take any of them by name. ``LiveRun`` advances one run step by step,
 for a viewer. ``Experiment`` runs a batch of runs in parallel and keeps their results in a folder
-of its own in ``output/``.
+of its own in ``output/``, and ``record_videos`` runs some of them again into videos there.
 """
 
 from swarm_field.experiments.batch import (
@@ -17,6 +17,7 @@ from swarm_field.experiments.batch import (
     markdown_table,
     mean_and_error,
     paired_difference,
+    run_in_parallel,
     runs_for,
 )
 from swarm_field.experiments.catalogue import (
@@ -31,6 +32,7 @@ from swarm_field.experiments.explore import (
     two_rivers_and_rocks,
 )
 from swarm_field.experiments.pest_response import (
+    MeasuredPestRun,
     PestResponse,
     PestRunSpec,
     PestTracker,
@@ -48,6 +50,7 @@ from swarm_field.experiments.pests import (
     pest_response_configurations,
 )
 from swarm_field.experiments.run import LiveRun
+from swarm_field.experiments.video import record_video, record_videos, video_path
 
 __all__ = [
     "FAST_TREATMENT",
@@ -58,6 +61,7 @@ __all__ = [
     "Experiment",
     "ExploreScenario",
     "LiveRun",
+    "MeasuredPestRun",
     "PestResponse",
     "PestRunSpec",
     "PestScenario",
@@ -75,10 +79,14 @@ __all__ = [
     "pest_response_configurations",
     "pest_table_cells",
     "pest_table_headers",
+    "record_video",
+    "record_videos",
     "river_and_rocks",
+    "run_in_parallel",
     "runs_for",
     "scenario_names",
     "sweep_scenarios",
     "treated_share",
     "two_rivers_and_rocks",
+    "video_path",
 ]

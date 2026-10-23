@@ -37,6 +37,7 @@ from swarm_field.contracts import BodyType, CellId, Idle, RobotId, Time, TimeUni
 from swarm_field.experiments.batch import Run, mean_and_error
 from swarm_field.experiments.pests import PestScenario
 from swarm_field.experiments.run import LiveRun
+from swarm_field.runner import ExperimentConfig
 from swarm_field.swarm import treat_beacon
 
 
@@ -67,6 +68,20 @@ class PestRunSpec:
                 f"a warm-up of {self.warmup_hours} h leaves nothing of a {self.hours} h run"
             )
 
+    def into_experiment(self, label: str, seed: int) -> ExperimentConfig:
+        """The run of this spec with ``seed`` as an experiment for ``swarm_field.runner``.
+
+        The scenario is sampled once a minute, and runs for ``hours`` at ``pests_per_hour``.
+        """
+        scenario = replace(
+            self.scenario,
+            until=self.hours * TimeUnit.HOUR,
+            sample_period=TimeUnit.MINUTE,
+            seed=seed,
+            pests_per_hour=self.pests_per_hour,
+        )
+        return scenario.into_experiment(label)
+
     def cost(self) -> float:
         """A rough relative cost: the field's cells, five times for the seeded arm's gossip."""
         cost = float(self.scenario.size**2 * self.hours)
@@ -91,7 +106,7 @@ class PestResponse:
         commit_hops: The killer's beacon value each time it committed to treating.
         empty_killers: Killers that used up their treatment consumable.
         consumable_used: Treatment consumable used by all killers together, each starting with
-            1; a treatment job uses 0.1.
+            1; a treatment job uses ``1 / treatment_doses`` of the scenario.
         drift: The killers' mean distance in cells from their start, after each hour.
         wall: Seconds the run took.
     """
@@ -193,59 +208,95 @@ class PestTracker:
         return mean(distances)
 
 
+class MeasuredPestRun:
+    """One run of a ``PestRunSpec``, advanced one decision interval at a time and measured.
+
+    ``measure_pest_response`` advances it to the end; ``record_video`` draws a frame after every
+    step as well, so a video shows exactly the run that was measured.
+
+    Attributes:
+        run: The run: its arm, its spec and its seed.
+        live: The run's simulation.
+        tracker: Samples the pests and the killers after every step.
+        killers: Each killer's start cell, by id.
+    """
+
+    def __init__(self, run: Run[PestRunSpec]) -> None:
+        self._started: float = time.perf_counter()
+        self.run: Run[PestRunSpec] = run
+        self.live: LiveRun = LiveRun.from_config(run.config.into_experiment(run.arm, run.seed))
+        self.killers: dict[RobotId, CellId] = {}
+        for robot_id, robot in self.live.context.world.robots.items():
+            if robot.body is BodyType.KILLER:
+                self.killers[robot_id] = robot.position
+        self.tracker: PestTracker = PestTracker(
+            self.killers, run.config.warmup_hours * TimeUnit.HOUR
+        )
+
+    @property
+    def step(self) -> Time:
+        """How far one ``advance`` moves the run: its decision interval."""
+        return self.live.config.decision_interval
+
+    @property
+    def steps(self) -> int:
+        """How many steps carry the run from its start to its horizon."""
+        return self.live.horizon // self.step
+
+    @property
+    def finished(self) -> bool:
+        """Whether the run has reached its horizon."""
+        return self.live.now + self.step > self.live.horizon
+
+    def advance(self) -> None:
+        """Advance the run by one decision interval, and sample it."""
+        now = self.live.now + self.step
+        self.live.advance_to(now)
+        self.tracker.sample(self.live, now)
+
+    def response(self) -> PestResponse:
+        """What the run measured, once it is ``finished``."""
+        tracker = self.tracker
+        treated = len(tracker.responses)
+        response: float | None = None
+        response_p90: float | None = None
+        cells_per_treatment: float | None = None
+        if treated > 0:
+            response = mean(tracker.responses) / TimeUnit.MINUTE
+            response_p90 = _percentile_90(tracker.responses) / TimeUnit.MINUTE
+            cells_per_treatment = tracker.cells_moved / treated
+        world = self.live.context.world
+        empty = 0
+        used = 0.0
+        for robot_id in self.killers:
+            consumable = world.robots[robot_id].consumable
+            used += 1.0 - consumable
+            if consumable <= 0:
+                empty += 1
+        hours = self.run.config.hours
+        return PestResponse(
+            infested=mean(tracker.infested_samples),
+            treated=treated,
+            response_minutes=response,
+            response_p90=response_p90,
+            open=len(tracker.appeared),
+            cells_per_treatment=cells_per_treatment,
+            messages_per_robot_hour=self.live.context.channel.received / len(world.robots) / hours,
+            stuck=tracker.stuck / max(tracker.committed, 1),
+            commit_hops=tuple(tracker.commit_hops),
+            empty_killers=empty,
+            consumable_used=used,
+            drift=tuple(tracker.drift),
+            wall=time.perf_counter() - self._started,
+        )
+
+
 def measure_pest_response(run: Run[PestRunSpec]) -> PestResponse:
     """Make one run of the spec with the run's seed and measure it; a run function."""
-    spec = run.config
-    scenario = replace(
-        spec.scenario,
-        until=spec.hours * TimeUnit.HOUR,
-        sample_period=TimeUnit.MINUTE,
-        seed=run.seed,
-        pests_per_hour=spec.pests_per_hour,
-    )
-    started = time.perf_counter()
-    live = LiveRun.from_config(scenario.into_experiment(run.arm))
-    starts: dict[RobotId, CellId] = {}
-    for robot_id, robot in live.context.world.robots.items():
-        if robot.body is BodyType.KILLER:
-            starts[robot_id] = robot.position
-    tracker = PestTracker(starts, spec.warmup_hours * TimeUnit.HOUR)
-    step = scenario.decision_interval
-    for now in range(step, scenario.until + 1, step):
-        live.advance_to(now)
-        tracker.sample(live, now)
-
-    treated = len(tracker.responses)
-    response: float | None = None
-    response_p90: float | None = None
-    cells_per_treatment: float | None = None
-    if treated > 0:
-        response = mean(tracker.responses) / TimeUnit.MINUTE
-        response_p90 = _percentile_90(tracker.responses) / TimeUnit.MINUTE
-        cells_per_treatment = tracker.cells_moved / treated
-    world = live.context.world
-    empty = 0
-    used = 0.0
-    for robot_id in starts:
-        consumable = world.robots[robot_id].consumable
-        used += 1.0 - consumable
-        if consumable <= 0:
-            empty += 1
-    return PestResponse(
-        infested=mean(tracker.infested_samples),
-        treated=treated,
-        response_minutes=response,
-        response_p90=response_p90,
-        open=len(tracker.appeared),
-        cells_per_treatment=cells_per_treatment,
-        messages_per_robot_hour=live.context.channel.received / len(world.robots) / spec.hours,
-        stuck=tracker.stuck / max(tracker.committed, 1),
-        commit_hops=tuple(tracker.commit_hops),
-        empty_killers=empty,
-        consumable_used=used,
-        drift=tuple(tracker.drift),
-        wall=time.perf_counter() - started,
-    )
+    measured = MeasuredPestRun(run)
+    while not measured.finished:
+        measured.advance()
+    return measured.response()
 
 
 def pest_table_headers(hours: int, first: str = "arm") -> list[str]:

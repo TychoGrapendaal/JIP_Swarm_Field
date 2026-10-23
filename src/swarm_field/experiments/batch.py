@@ -155,22 +155,10 @@ class Experiment:
         Raises:
             ValueError: If two runs share a name.
         """
-        names = [run.name for run in runs]
-        if len(set(names)) != len(names):
-            raise ValueError("every run of a batch needs a unique arm and seed")
+        _refuse_duplicate_names(runs)
         self.write_json("experiment.json", self._description(runs))
-        order = sorted(range(len(runs)), key=lambda index: runs[index].cost, reverse=True)
-        costliest_first = [runs[index] for index in order]
-        timed_function = _Timed(function)
         logger.info("Running %d runs of %s in %s", len(runs), self.name, self.directory)
-        with ProcessPoolExecutor(max_workers=processes) as pool:
-            outcomes = list(pool.map(timed_function, costliest_first))
-        by_index: dict[int, RunResult[C, R]] = {}
-        for index, run, (result, wall) in zip(order, costliest_first, outcomes, strict=True):
-            by_index[index] = RunResult(run, result, wall)
-        results: list[RunResult[C, R]] = []
-        for index in range(len(runs)):
-            results.append(by_index[index])
+        results = run_in_parallel(runs, function, processes)
         self.write_json("results.json", [_record(result) for result in results])
         return results
 
@@ -202,6 +190,38 @@ class Experiment:
             "commit": _git_commit(),
             "arms": arms,
         }
+
+
+def run_in_parallel[C, R](
+    runs: Sequence[Run[C]],
+    function: Callable[[Run[C]], R],
+    processes: int | None = None,
+) -> list[RunResult[C, R]]:
+    """Run every run in parallel processes, costliest first, and return the results in run order.
+
+    ``Experiment.run`` runs a batch with it, and ``record_videos`` the runs it films.
+
+    Args:
+        runs: The runs.
+        function: Turns one run into its result; a module-level function, or an object that
+            pickles, since it runs in a worker process.
+        processes: How many processes, or ``None`` for one per CPU.
+
+    Raises:
+        ValueError: If two runs share a name.
+    """
+    _refuse_duplicate_names(runs)
+    order = sorted(range(len(runs)), key=lambda index: runs[index].cost, reverse=True)
+    costliest_first = [runs[index] for index in order]
+    with ProcessPoolExecutor(max_workers=processes) as pool:
+        outcomes = list(pool.map(_Timed(function), costliest_first))
+    by_index: dict[int, RunResult[C, R]] = {}
+    for index, run, (result, wall) in zip(order, costliest_first, outcomes, strict=True):
+        by_index[index] = RunResult(run, result, wall)
+    results: list[RunResult[C, R]] = []
+    for index in range(len(runs)):
+        results.append(by_index[index])
+    return results
 
 
 def by_arm[C, R](results: Iterable[RunResult[C, R]]) -> dict[str, list[R]]:
@@ -264,6 +284,13 @@ class _Timed[C, R]:
         started = time.perf_counter()
         result = self._function(run)
         return result, time.perf_counter() - started
+
+
+def _refuse_duplicate_names(runs: Sequence[Run[Any]]) -> None:
+    """Raise ``ValueError`` if two runs share a name, so no result or file overwrites another."""
+    names = [run.name for run in runs]
+    if len(set(names)) != len(names):
+        raise ValueError("every run of a batch needs a unique arm and seed")
 
 
 def _record(result: RunResult[Any, Any]) -> dict[str, object]:

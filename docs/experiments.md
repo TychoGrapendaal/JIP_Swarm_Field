@@ -1,6 +1,6 @@
 # Running experiments
 
-An experiment compares a few configurations, the *arms*, over the same seeds. Each run of an arm with a seed is simulated, measured, and its result kept. This page shows how to set up the arms for the main question, the seeded pest response against the hop-based one, how to measure them, how to run every arm with every seed in parallel, and where the results end up.
+An experiment compares a few configurations, the *arms*, over the same seeds. Each run of an arm with a seed is simulated, measured, and its result kept. This page shows how to set up the arms for the main question, the seeded pest response against the hop-based one, how to measure them, how to run every arm with every seed in parallel, where the results end up, and how to watch a run as a video.
 
 Everything here is imported from `swarm_field.experiments`. A complete example is [`tests/benchmark_obstacles.py`](../tests/benchmark_obstacles.py).
 
@@ -43,7 +43,7 @@ scenario = replace(RIVERS_LARGE, size=48, obstacles=two_rivers_and_rocks(48))
 | Field | Meaning |
 | --- | --- |
 | `scouts` | The relays. With `scouts_relay=True` they stand still and only pass messages on. |
-| `killers` | The robots that treat pests. Each carries ten doses; every treatment uses one. |
+| `killers` | The robots that treat pests. Each carries `treatment_doses` doses, 10 by default; every treatment uses one. |
 | `lattice_starts` | Relays and killers each start on a jittered lattice over the field, from the seed. |
 | `radio_range_m` | How far every robot's broadcasts reach. |
 | `pest_source_range_m` | How far the mock source on a pest reaches; keep it equal to the radio. |
@@ -112,8 +112,8 @@ The seed is not part of the spec: it comes with each run (section 3), and it set
 | `messages_per_robot_hour` | msgs | Messages received per robot per hour. |
 | `stuck` | stuck | The share of the time a killer committed to treating stands idle. |
 | `commit_hops` | commit hop | A killer's hop value each time it commits to treating, for hop arms; the table shows the median. |
-| `empty_killers` | empty | Killers that used up their ten doses. |
-| `consumable_used` | (not in the table) | Doses used by all killers together, in units of 1 per killer (0.1 per dose). |
+| `empty_killers` | empty | Killers that used up their doses. |
+| `consumable_used` | (not in the table) | Doses used by all killers together, in units of 1 per killer (`1 / treatment_doses` per dose). |
 | `drift` | drift N h | The killers' mean distance in cells from their start, after each hour. |
 | `wall` | wall (s) | Seconds the run took to compute. |
 
@@ -234,10 +234,13 @@ output/
     experiment.json
     results.json
     tables.md
+    video/
+      hop-tuned_seed0.mp4
 ```
 
 - **`experiment.json`** says what was run: the name, the start time, the command line, the git commit (with `+dirty` if there were uncommitted changes) and every arm with its seeds. The configurations themselves are not written yet, since they have no JSON form so far; the commit and the command reproduce them.
 - **`results.json`** has one record per run: its `name` (`ARM/seedN`), `arm`, `seed`, `wall`, and `result`, the `PestResponse` as an object.
+- **`video/`** holds the videos of section 6, one per filmed run, named after it.
 - **Anything else** goes next to them with `experiment.write_text(name, text)`, `experiment.write_json(name, data)` or `experiment.path(name)`, which gives a path for a video or a figure.
 
 To use the results again without running anything, read `results.json`:
@@ -254,6 +257,47 @@ for record in records:
 for arm, values in infested.items():
     print(arm, round(mean(values), 2))
 ```
+
+## 6. Watch a run: videos
+
+The table says how well an arm did, not why. To see what its robots actually did, film a few of its runs. `record_videos` runs them again and renders each into a video in the experiment's folder. A run is a function of its arm and seed, so the video shows exactly the run that `results.json` describes.
+
+Pass it the folder and the runs to film. `runs_for` builds those runs from the same specs as the batch, here the `hop-tuned` arm with seed 0:
+
+```python
+from swarm_field.experiments import record_videos
+
+experiment = Experiment("seeded_vs_hop_small")
+runs = runs_for(specs, seeds=range(12), cost=PestRunSpec.cost)
+results = experiment.run(runs, measure_pest_response)
+record_videos(experiment.directory, runs_for({"hop-tuned": specs["hop-tuned"]}, seeds=[0]))
+```
+
+The video goes to `video/hop-tuned_seed0.mp4` in the experiment's folder. Its name is the run's name, `ARM/seedN`, with every `/` turned into `_`; `video_path(directory, run)` gives it.
+
+- **Several runs** are filmed in parallel, one per process, as in `Experiment.run`: `runs_for({"seeded": specs["seeded"], "hop-tuned": specs["hop-tuned"]}, seeds=[0, 1])` gives four videos. `processes` sets the number of processes.
+- **An experiment run earlier** works too. Pass its folder, e.g. `Path("output/2026-10-22_22-19-02_seeded_vs_hop_small")`, and the same arm name and spec as in the batch, so the run is the same one. The arm name matters: it is the run's label.
+- **Only pest runs** can be filmed: `record_videos` takes runs of a `PestRunSpec`, which it steps like `measure_pest_response`.
+
+### What a video shows
+
+One frame is one decision interval (15 s), and a video plays at 16 frames per second (`fps`), so a 3-hour run is 720 frames, a 45-second video. The frames are drawn with `MatplotlibRenderer`:
+
+| Mark | Meaning |
+| --- | --- |
+| red cells | Pests, light red at a new one and dark at a full one. |
+| big red dots | Killers, with a line along their last 20 cells and a dashed line to their target. |
+| small grey dots | Relays. |
+| dark grey cells | Obstacles. |
+| side panel | The run's setup, the infested cells now, the pests treated so far and their mean response, the killers by goal, and the doses used. |
+
+The panel's measures are those of `measure_pest_response` (`MeasuredPestRun`), so at the last frame they agree with the run's record in `results.json`.
+
+### Requirements and time
+
+- An `.mp4` needs [ffmpeg](https://ffmpeg.org/) on the `PATH` (`sudo apt install ffmpeg`).
+- Drawing a frame takes about 0.3 s, on top of the simulation. One 3-hour video on the small field takes about 4 minutes, and the large field is slower. Film a few runs, not every seed.
+- To try a video on its own, without a batch, `record_video(run, path)` films one run to any path: `.mp4`, `.gif`, or a directory of PNG frames. It returns the run's `PestResponse`.
 
 ## Example: the obstacle benchmark
 

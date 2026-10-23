@@ -221,6 +221,8 @@ class ScenarioConfig:
         pest_sources: Mock sources broadcasting every pest, or ``None`` for none.
         treatment_rate: How much infestation severity one treating robot removes per hour; at
             1.0 a pest of full severity takes an hour.
+        treatment_doses: How many treatments a killer's full consumable holds; each treatment
+            uses ``1 / treatment_doses`` of it.
     """
 
     field: FieldGeometry
@@ -236,3 +238,4 @@ class ScenarioConfig:
     position_error: PositionErrorSpec = PositionErrorSpec()
     pest_sources: PestSourceSpec | None = None
     treatment_rate: float = 1.0
+    treatment_doses: int = 10

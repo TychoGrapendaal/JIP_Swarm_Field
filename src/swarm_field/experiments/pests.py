@@ -86,6 +86,7 @@ class PestScenario:
         robots_know_terrain: Whether every robot starts with the field's terrain map.
         treatment_rate: How much infestation severity a treating killer removes per hour. It
             must beat the growth, ``growth_rate`` per ``pest_period``, or no pest ever clears.
+        treatment_doses: How many treatments a killer carries.
         pests_per_hour: How many pests spawn per hour, on average, on the free healthy cells.
         pest_period: The time between two pest updates (``WorldTick``).
         growth_rate: How much a pest's severity grows per pest update.
@@ -123,6 +124,7 @@ class PestScenario:
     beacons: BeaconConfig | None = None
     robots_know_terrain: bool = True
     treatment_rate: float = 1.0
+    treatment_doses: int = 10
     pests_per_hour: float = 15.0
     pest_period: Time = TimeUnit.MINUTE
     growth_rate: float = 0.05
@@ -274,6 +276,7 @@ class PestScenario:
             pest_dynamics=self.pest_dynamics(),
             pest_sources=pest_sources,
             treatment_rate=self.treatment_rate,
+            treatment_doses=self.treatment_doses,
         )
         params: dict[str, object] = {"explore": self.explore}
         explore = self._brain(("explore",), ("explore",), params)
