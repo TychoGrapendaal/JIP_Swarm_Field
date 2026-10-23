@@ -228,7 +228,7 @@ def test_body_assembly_configures_flying_traversability_and_roles() -> None:
     battery = build_agent(3, BodyType.BATTERY, FIELD)
 
     assert scout.fields._flies is True
-    assert [behavior.name for behavior in scout.behaviors] == ["explore-field", "return-to-dock"]
+    assert [behavior.name for behavior in scout.behaviors] == ["explore", "return-to-dock"]
     assert killer.fields._flies is False
     assert [behavior.name for behavior in killer.behaviors] == [
         "treat-infestation",

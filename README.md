@@ -322,7 +322,7 @@ uv run python examples/robustness_demo.py --out runs/robustness
 
 ## Current demonstration limitations
 
-- The default body-specific assembly gives SCOUT robots the `ExploreField` behaviour, KILLER robots the `TreatInfestation` behaviour, and BATTERY robots the `SupplyBattery` behaviour. These are the current simulation behaviours, not a guarantee of optimal coverage or pest-control performance.
+- The default body-specific assembly gives SCOUT robots the `ExploreBehaviour` behaviour, KILLER robots the `TreatInfestation` behaviour, and BATTERY robots the `SupplyBattery` behaviour. These are the current simulation behaviours, not a guarantee of optimal coverage or pest-control performance.
 - Goal-directed navigation uses potential fields over the robot's believed terrain, with a reactive wall-follow as its fallback. A wrong obstacle belief can therefore still lead to a wrong route; there is no general observation-based recovery from it yet.
 - Coarse-grained infestation dynamics are implemented as a scheduled `WorldTick`; the current model supports severity growth, neighbour spread, and stochastic spawning.
 - Sensing is local and body-specific. Robots do not receive the complete world state; observations beyond their sensing footprints depend on information being shared through communication.

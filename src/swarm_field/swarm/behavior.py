@@ -233,150 +233,76 @@ class Regroup:
 
 
 class ExploreBehaviour:
-    """Score exploration from remembered terrain and the composition of nearby peers.
+    """Bid for the EXPLORE field, scored from the robot's memory.
 
-    The behaviour proposes the configured exploration field as an intent. It never reads the
-    field itself; the brain builds it only after this candidate wins arbitration.
+    The bid is the mean of three criteria, each from 0 to 0.99:
+
+    - the share of the peers the robot remembers that are not scouts, so a robot among few
+      explorers explores more eagerly;
+    - the mean revisit worth of the cells it remembers, by the field's ``revisit_age``, so a
+      field gone stale draws it out;
+    - the share of the field it has observed at least once.
+
+    It never reads the field itself; the brain builds it only after this candidate wins.
+
+    Attributes:
+        config: The parameters of the EXPLORE field, whose ``revisit_age`` the bid uses.
     """
 
     name: str = "explore"
 
-    def __init__(self, seeder: str = ExploreSeeder.name) -> None:
+    def __init__(
+        self, seeder: str = ExploreSeeder.name, config: ExploreConfig | None = None
+    ) -> None:
         self._seeder: str = seeder
-        self._weights: list[float] = [1 / 3, 1 / 3, 1 / 3]
-        self._previous_time: Time | None = None
+        self.config: ExploreConfig = ExploreConfig()
+        if config is not None:
+            self.config = config
 
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
-        """Build an exploration candidate scored from memory, without inspecting a field.
-
-        The score combines the nearby non-scout fraction, revisit worth across monitorable cells,
-        and the fraction of cells already observed. The field provider resolves the target only
-        if this candidate wins arbitration.
-        """
         memory = ctx.memory
-
-        criteria_scores = [
-            self._body_type_criteria(memory),
-            self._explore_score_criteria(memory, ctx.time),
-            self._unexplore_criteria(memory),
+        criteria = [
+            self._non_scout_share(memory),
+            self._mean_revisit_worth(memory, ctx.time),
+            self._explored_share(memory),
         ]
-        previous_time = self._previous_time
-        if previous_time is None:
-            previous_time = ctx.time
-        weights = self._update_weight(ctx, self._weights, previous_time)
-        self._weights = weights
-        self._previous_time = ctx.time
-        score = sum(w * s for w, s in zip(weights, criteria_scores, strict=True))
-        action = FollowField(self._seeder)
         candidate = ActionCandidate(
-            action=action,
-            score=score,
+            action=FollowField(self._seeder),
+            score=sum(criteria) / len(criteria),
             source=self.name,
             target=None,
             objective=AgentObjective.EXPLORE,
         )
         return (candidate,)
 
-    def _body_type_criteria(self, memory: MemoryView) -> float:
-        """Return the 1 - (fraction of nearby robots that are scouts)."""
-        num_explore = 0
-        num_peers = 0
+    @staticmethod
+    def _non_scout_share(memory: MemoryView) -> float:
+        """The share of the remembered peers that are not scouts; 0.99 with no scout among them."""
+        scouts = 0
+        peers = 0
         for peer in memory.peers():
-            num_peers += 1
+            peers += 1
             if peer.body is BodyType.SCOUT:
-                num_explore += 1
-        if num_explore == 0:
+                scouts += 1
+        if scouts == 0:
             return 0.99
-        return 1 - (num_explore / num_peers)
+        return 1 - scouts / peers
 
-    def _explore_score_criteria(
-        self,
-        memory: MemoryView,
-        time: Time,
-    ) -> float:
-        """Return the revisit worth of the chosen exploration target."""
-        revisit_age = ExploreConfig.revisit_age
-        last_seen = np.asarray([memory.last_observed_times()], dtype=np.float64)
-        monitorable = np.asarray([memory.monitorable_cells()], dtype=np.bool_)
-        worths = revisit_worths(last_seen, monitorable, time, revisit_age)
-        avg_worth = min(float(np.mean(worths)), 0.99)
-        return avg_worth
-
-    def _unexplore_criteria(self, memory: MemoryView) -> float:
-        """Return the 1 - (fraction of unexplored cells in the provided exploration field)."""
-        last_seen = memory.last_observed_times()
-        if last_seen is None:
-            return 0.99
-        total_cells = last_seen.size
-        if total_cells == 0:
-            return 0.99
-        unexplored_cells = np.count_nonzero(np.isneginf(last_seen))
-        return 1 - (unexplored_cells / total_cells)
-
-    def _update_weight(
-        self,
-        ctx: DecisionContext,
-        old_weights: list[float],
-        previous_time: Time,
-        alpha: float = 0.2,
-    ) -> list[float]:
-        """Blend prior weights toward equal criterion weights after time advances.
-
-        Args:
-            ctx: The current decision context, including the current timestamp.
-            old_weights: The weights retained from the previous decision.
-            previous_time: The timestamp saved from the previous weight update.
-            alpha: The fraction of the way to move toward equal weights.
-
-        Returns:
-            Updated weights. If the timestamp has not advanced, the old weights are retained.
-        """
-        if ctx.time <= previous_time:
-            return old_weights
-        importance = [
-            1.0,  # Weight for body type criteria
-            1.0,  # Weight for explore score criteria
-            1.0,  # Weight for unexplored criteria
-        ]
-        total_weight = sum(importance)
-        normalized_weights = [w / total_weight for w in importance]
-        weights = [
-            alpha * nw + (1 - alpha) * ow
-            for nw, ow in zip(normalized_weights, old_weights, strict=True)
-        ]
-        return weights
-
-
-class FollowSeederField:
-    """A mock behaviour: always bid 0.5 to follow one seeder's field, for the objective EXPLORE.
-
-    As the only behaviour of a robot it always wins. Next to other behaviours it is a mock
-    explore behaviour with an even bid on the arbiter's scale.
-    """
-
-    name: str = "follow-field"
-
-    def __init__(self, seeder: str) -> None:
-        self._seeder: str = seeder
-
-    def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
-        candidate = ActionCandidate(
-            FollowField(self._seeder), 0.5, self.name, target=None, objective=AgentObjective.EXPLORE
+    def _mean_revisit_worth(self, memory: MemoryView, time: Time) -> float:
+        """The mean revisit worth of the field's cells at ``time``, at most 0.99."""
+        worths = revisit_worths(
+            memory.last_observed_times(), memory.monitorable_cells(), time, self.config.revisit_age
         )
-        return (candidate,)
+        return min(float(np.mean(worths)), 0.99)
 
-
-class ExploreField(ExploreBehaviour):
-    """Bid for the EXPLORE field using memory-based exploration scoring.
-
-    The legacy class name is retained for configuration and registry compatibility. Target
-    selection remains the responsibility of the winning field and navigator.
-    """
-
-    name: str = "explore-field"
-
-    def __init__(self, seeder: str = ExploreSeeder.name) -> None:
-        super().__init__(seeder)
+    @staticmethod
+    def _explored_share(memory: MemoryView) -> float:
+        """The share of the field's cells observed at least once; 0.99 for an empty field."""
+        last_seen = memory.last_observed_times()
+        if last_seen.size == 0:
+            return 0.99
+        unexplored = np.count_nonzero(np.isneginf(last_seen))
+        return 1 - unexplored / last_seen.size
 
 
 class SupplyBattery:

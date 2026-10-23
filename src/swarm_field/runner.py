@@ -66,8 +66,8 @@ from swarm_field.swarm import (
     BeaconView,
     Behavior,
     ComposedAgent,
+    ExploreBehaviour,
     ExploreConfig,
-    ExploreField,
     ExploreSeeder,
     FieldProvider,
     FieldSeeder,
@@ -183,10 +183,11 @@ def _build_treat_seeder(params: dict[str, Any], rng: Random) -> TreatSeeder:
     return TreatSeeder(window_blocks=window_blocks, yield_to_closer=yield_to_closer)
 
 
-@BEHAVIORS.register("explore")
-def _build_explore(params: dict[str, Any], rng: Random) -> ExploreField:
-    """Build the memory-scored exploration behaviour for the EXPLORE seeder."""
-    return ExploreField(ExploreSeeder.name)
+@BEHAVIORS.register(ExploreBehaviour.name)
+def _build_explore(params: dict[str, Any], rng: Random) -> ExploreBehaviour:
+    """Build the exploration behaviour, with the ``ExploreConfig`` under ``"explore"``, if given."""
+    config: ExploreConfig | None = params.get("explore")
+    return ExploreBehaviour(ExploreSeeder.name, config)
 
 
 @SEEDERS.register("explore")
@@ -228,7 +229,7 @@ class BrainSpec:
             behaviour that follows a single field takes the first name.
         navigator: Registry name of the movement layer. Only ``"potential-field"`` exists.
         params: Per-part parameters, passed through to the named factory, e.g. an
-            ``ExploreConfig`` under ``"explore"`` for the EXPLORE seeder.
+            ``ExploreConfig`` under ``"explore"`` for the EXPLORE seeder and behaviour.
         arbiter: The overrides and hysteresis of the robot's ``UtilityArbiter``.
         sharing: What the robot broadcasts of its memory, and how often.
         beacons: How beacons are kept, relayed and weighed, or ``None`` for a robot that

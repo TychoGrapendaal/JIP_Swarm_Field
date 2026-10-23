@@ -7,7 +7,7 @@ simulation can still construct custom ``ComposedAgent`` instances for targeted e
 from swarm_field.contracts import BodyType, CellId, FieldGeometry, RobotId
 from swarm_field.swarm.behavior import (
     Behavior,
-    ExploreField,
+    ExploreBehaviour,
     ReturnToDock,
     SupplyBattery,
     TreatInfestation,
@@ -45,7 +45,7 @@ def build_agent(
 
     if behaviors is None:
         if body is BodyType.SCOUT:
-            agent_behaviors: list[Behavior] = [ExploreField(), ReturnToDock(docks=docks)]
+            agent_behaviors: list[Behavior] = [ExploreBehaviour(), ReturnToDock(docks=docks)]
         elif body is BodyType.KILLER:
             agent_behaviors = [TreatInfestation(), ReturnToDock(docks=docks)]
         else:

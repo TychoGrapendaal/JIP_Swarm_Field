@@ -174,7 +174,7 @@ The revisit age with saturating values and the block max (32 × 32, four seeds; 
 
 ## What is not done
 
-- **The behaviour.** `ExploreBehaviour` (Jin, branch `41-explore-objective`) scores EXPLORE against other objectives. The experiments use the stand-in `FollowSeederField`.
+- **The behaviour's bid.** `ExploreBehaviour` (see [`explore-behaviour.md`](./explore-behaviour.md)) scores EXPLORE from memory, but an explorer has no other behaviour, so the bid never competes with anything yet. The random-waypoint baseline of `tests/baselines.py` follows its seeder with `FollowSeederField`, a fixed bid of 0.5.
 - **Results recorded before the move to the runner.** The tables above were measured with `CoverageTracker`, which no longer exists, and with a perfect pool that shared every sensed fact instantly. The experiments now share over the channel, and the "no sharing" variants are a radio range of 0, which also turns off the peer discount. The tables need a re-run with `studies/explore_variants.py`.
 - **Holes on large fields.** On 64 × 64 cells the worst idleness stays above 300 minutes. Uncapped linear growth fixed most of it (see "Earlier value rules") but was left out to keep the rule simple.
 - **Choosing the revisit age.** It should grow with the time the swarm needs to sweep its field, which depends on the field and the number of robots; it is a fixed parameter for now, and the swarm-size experiment is still to do.
