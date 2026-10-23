@@ -17,7 +17,7 @@ See [`docs/high-level-world-model.md`](docs/high-level-world-model.md) for the c
 - A robot does not have the complete world state; facts outside its local observation range are unknown unless they are learned through messages or provided by the initial configuration.
 - Runs are reproducible: one seeded random source drives the world, a second drives fault injection, and `runner.py` builds every run from a `BrainSpec` so algorithms can be compared as configuration.
 - The B.3 range-based communication channel is implemented; higher-level belief sharing is still the algorithm’s responsibility, so distant infestation information only propagates when agents choose to send messages.
-- The body capability model defines the permitted actions and simulation assumptions for SCOUT, KILLER, and BATTERY robots. See [`docs/body-capabilities.md`](docs/body-capabilities.md) for the profiles, default behaviour assembly, and current limitations.
+- The body capability model defines the permitted actions and simulation assumptions for SCOUT, KILLER, and BATTERY robots. See [`docs/body-capabilities.md`](docs/body-capabilities.md) for the profiles, the capability gate, and current limitations.
 
 ## Requirements
 
@@ -216,7 +216,7 @@ uv run --with matplotlib python examples/robustness_demo.py --render failure-off
 
 ## Current demonstration limitations
 
-- The default body-specific assembly gives SCOUT robots the `ExploreBehaviour` behaviour, KILLER robots the `TreatInfestation` behaviour, and BATTERY robots the `SupplyBattery` behaviour. These are the current simulation behaviours, not a guarantee of optimal coverage or pest-control performance.
+- An experiment builds every brain from a `BrainSpec`, whose parts the runner registers: explorers run `ExploreBehaviour`, and killers `TreatInfestation` or the hop method. The dock and battery behaviours, `ReturnToDock` and `SupplyBattery`, are not registered yet, so only a `ComposedAgent` built by hand uses them. These are the current simulation behaviours, not a guarantee of optimal coverage or pest-control performance.
 - Goal-directed navigation uses potential fields over the robot's believed terrain, with a reactive wall-follow as its fallback. A wrong obstacle belief can therefore still lead to a wrong route; there is no general observation-based recovery from it yet.
 - Coarse-grained infestation dynamics are implemented as a scheduled `WorldTick`; the current model supports severity growth, neighbour spread, and stochastic spawning.
 - Sensing is local and body-specific. Robots do not receive the complete world state; observations beyond their sensing footprints depend on information being shared through communication.

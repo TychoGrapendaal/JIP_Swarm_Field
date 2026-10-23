@@ -16,7 +16,6 @@ from swarm_field.swarm.arbiter import (
     Commitment,
     UtilityArbiter,
 )
-from swarm_field.swarm.assembly import build_agent
 from swarm_field.swarm.behavior import (
     ActionCandidate,
     Behavior,
@@ -125,7 +124,6 @@ __all__ = [
     "TreatSeeder",
     "UtilityArbiter",
     "Vector2",
-    "build_agent",
     "capabilities_for",
     "treat_beacon",
 ]

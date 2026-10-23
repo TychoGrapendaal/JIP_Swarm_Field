@@ -1,4 +1,4 @@
-"""Tests for body capability enforcement and body-specific agent assembly."""
+"""Tests for the body capability profiles, their gate in the brain, and the bodies' behaviours."""
 
 from swarm_field.contracts import (
     BodyType,
@@ -20,11 +20,16 @@ from swarm_field.simulation.scenario import build_world
 from swarm_field.swarm import (
     ActionCandidate,
     AgentMemory,
+    BatteryRequestSeeder,
+    Behavior,
     CapabilitySet,
     ComposedAgent,
+    DockSeeder,
     FieldProvider,
+    FieldSeeder,
     Navigator,
-    build_agent,
+    ReturnToDock,
+    SupplyBattery,
     capabilities_for,
 )
 from swarm_field.swarm.behavior import DecisionContext, Intent
@@ -71,13 +76,15 @@ def _perception(body: BodyType, *, battery: float = 1.0, spare_batteries: int = 
     )
 
 
-def _manual_agent(body: BodyType, behavior: _CandidateBehavior) -> ComposedAgent:
+def _manual_agent(
+    body: BodyType, *behaviors: Behavior, seeders: tuple[FieldSeeder, ...] = ()
+) -> ComposedAgent:
     memory = AgentMemory(1, FIELD)
     capabilities = capabilities_for(body)
-    fields = FieldProvider(memory, flies=capabilities.can_fly, seeders=[])
+    fields = FieldProvider(memory, flies=capabilities.can_fly, seeders=seeders)
     return ComposedAgent(
         robot_id=1,
-        behaviors=[behavior],
+        behaviors=list(behaviors),
         memory=memory,
         fields=fields,
         navigator=Navigator(fields.quadtree),
@@ -186,27 +193,10 @@ def test_body_mismatch_cannot_expand_capabilities() -> None:
     assert agent.decide(_perception(BodyType.SCOUT)).action == Idle()
 
 
-def test_every_body_registers_all_seeders() -> None:
-    expected_seeders = {"explore", "treat", "battery-support", "dock"}
-
-    for body in BodyType:
-        agent = build_agent(1, body, FIELD, docks=((1, 1),))
-
-        assert agent.fields.names() == expected_seeders
-
-
-def test_build_agent_uses_a_supplied_behavior_list() -> None:
-    custom_behavior = _CandidateBehavior((Idle(), 0.4))
-
-    agent = build_agent(1, BodyType.SCOUT, FIELD, behaviors=[custom_behavior])
-    no_behavior_agent = build_agent(2, BodyType.SCOUT, FIELD, behaviors=[])
-
-    assert agent.behaviors == [custom_behavior]
-    assert no_behavior_agent.behaviors == []
-
-
 def test_return_to_dock_charges_when_at_a_configured_dock() -> None:
-    agent = build_agent(1, BodyType.SCOUT, FIELD, docks=((2, 2),))
+    agent = _manual_agent(
+        BodyType.SCOUT, ReturnToDock(docks=((2, 2),)), seeders=(DockSeeder(((2, 2),)),)
+    )
     state = RobotSelfState(
         robot_id=1,
         position=(2, 2),
@@ -222,40 +212,15 @@ def test_return_to_dock_charges_when_at_a_configured_dock() -> None:
     assert decision.action == Charge()
 
 
-def test_body_assembly_configures_flying_traversability_and_roles() -> None:
-    scout = build_agent(1, BodyType.SCOUT, FIELD)
-    killer = build_agent(2, BodyType.KILLER, FIELD)
-    battery = build_agent(3, BodyType.BATTERY, FIELD)
-
-    assert scout.fields._flies is True
-    assert [behavior.name for behavior in scout.behaviors] == ["explore", "return-to-dock"]
-    assert killer.fields._flies is False
-    assert [behavior.name for behavior in killer.behaviors] == [
-        "treat-infestation",
-        "return-to-dock",
-    ]
-    assert battery.fields._flies is False
-    assert [behavior.name for behavior in battery.behaviors] == ["supply-battery", "return-to-dock"]
-
-
 def test_scout_can_move_across_obstacles_but_killer_cannot() -> None:
     obstacle = TerrainObservation(
         cell=(3, 2), confidence=1.0, observed_at=0, source=1, terrain=Terrain.OBSTACLE
     )
-    scout = build_agent(1, BodyType.SCOUT, FIELD)
-    killer = build_agent(2, BodyType.KILLER, FIELD)
+    scout = _manual_agent(BodyType.SCOUT)
+    killer = _manual_agent(BodyType.KILLER)
 
     scout.decide(Perception(0, _perception(BodyType.SCOUT).self_state, [obstacle], []))
-    killer_state = RobotSelfState(
-        robot_id=2,
-        position=(2, 2),
-        battery=1.0,
-        body=BodyType.KILLER,
-        speed_mps=1.0,
-        consumable=1.0,
-        health=1.0,
-    )
-    killer.decide(Perception(0, killer_state, [obstacle], []))
+    killer.decide(Perception(0, _perception(BodyType.KILLER).self_state, [obstacle], []))
 
     assert scout.fields.quadtree is not None
     assert killer.fields.quadtree is not None
@@ -263,8 +228,10 @@ def test_scout_can_move_across_obstacles_but_killer_cannot() -> None:
     assert not killer.fields.quadtree.is_traversable((3, 2))
 
 
-def test_battery_assembly_replaces_a_low_battery_peer_in_same_cell() -> None:
-    battery_agent = build_agent(1, BodyType.BATTERY, FIELD)
+def test_battery_robot_replaces_a_low_battery_peer_in_same_cell() -> None:
+    battery_agent = _manual_agent(
+        BodyType.BATTERY, SupplyBattery(), seeders=(BatteryRequestSeeder(),)
+    )
     peer = PeerObservation(
         cell=(2, 2),
         confidence=1.0,
@@ -290,8 +257,10 @@ def test_battery_assembly_replaces_a_low_battery_peer_in_same_cell() -> None:
     assert decision.action == ReplaceBattery(robot_id=2)
 
 
-def test_battery_assembly_follows_field_to_a_remote_low_battery_peer() -> None:
-    battery_agent = build_agent(1, BodyType.BATTERY, FIELD)
+def test_battery_robot_follows_field_to_a_remote_low_battery_peer() -> None:
+    battery_agent = _manual_agent(
+        BodyType.BATTERY, SupplyBattery(), seeders=(BatteryRequestSeeder(),)
+    )
     peer = PeerObservation(
         cell=(5, 2),
         confidence=1.0,

@@ -425,11 +425,11 @@ def build_agent(
 ) -> ComposedAgent:
     """Resolve a ``BrainSpec`` into one assembled brain for one robot.
 
-    The robot's ``BodyType`` is not a parameter: ``ComposedAgent`` has no capability gate to
-    apply it in, so a body or a robot gets its own brain through ``ExperimentConfig``
-    instead (architecture §A.3). The robot's memory starts with what ``known`` holds. A brain
-    with beacons gets a ``BeaconLink``, whose beacons its hop parts read, and steers headings
-    from what it senses around itself at each decision only, not from a map.
+    The robot's ``BodyType`` is not a parameter: the capability gate of ``ComposedAgent`` takes
+    it from each ``Perception``, and a body or a robot gets its own brain through
+    ``ExperimentConfig`` (architecture §A.3). The robot's memory starts with what ``known``
+    holds. A brain with beacons gets a ``BeaconLink``, whose beacons its hop parts read, and
+    steers headings from what it senses around itself at each decision only, not from a map.
     """
     memory = AgentMemory(robot_id, field, keeps_map=spec.keeps_map)
     if known is not None:

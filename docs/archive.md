@@ -14,3 +14,4 @@ Files deleted from the repository, and why. Each one can still be read from the 
 | `examples/scenario_builder_demo.py` | `1335f0f` | Printed the scenario presets. Nothing referenced it, and the presets are described in `docs/experiments.md`. |
 | `examples/treat_infestation_demo.py` | `1335f0f` | One killer treating three pests from hand-fed perceptions. `examples/pest_demo.py` shows the same with the real swarm. |
 | `examples/robot_decision_demo.py` | `1335f0f` | A scripted agent on the `RobotDecision` event, an early explainer of the event loop. `docs/architecture.md` explains the loop, and every demo now runs on it. |
+| `src/swarm_field/swarm/assembly.py` | `d145996` | A second way to build a brain, with a fixed behaviour list per body type. Experiments build every brain from a `BrainSpec` through `swarm_field.runner.build_agent`, and only `tests/test_capabilities.py` used it. Its capability-gate tests now build a `ComposedAgent` by hand. |
