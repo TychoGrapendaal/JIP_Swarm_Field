@@ -1,0 +1,13 @@
+{
+  "name": "explore",
+  "scenario": "explore",
+  "seeds": [0, 1, 2],
+  "hours": 1,
+  "jobs": 3,
+  "parameters": {
+    "width": 32,
+    "height": 32,
+    "robots": 5,
+    "explore": {"revisit_age": 1680000, "block_side": 8}
+  }
+}
