@@ -553,6 +553,9 @@ class WorldState:
             robot.current_action = Idle()
             return None
 
+        if robot.battery <= 0.0:
+            robot.current_action = Idle()
+            return None
         duration = self.movement_duration(robot.robot_id, target)
         from swarm_field.swarm.capabilities import capabilities_for
 
