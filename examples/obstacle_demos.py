@@ -1,15 +1,16 @@
 """Demo videos of the obstacle comparison (#70): record a run once, render it as often as wanted.
 
 Each of the four pest responses of ``pest_response_configurations`` runs on ``RIVER_SMALL`` or
-``RIVERS_LARGE``. ``record`` runs it once through ``LiveRun``, one frame per decision interval,
-and writes a ``Trace``: everything the videos might show, so that new visuals need no new run.
-``render`` turns traces into videos with ``MatplotlibRenderer`` and the overlays, without the
-simulation.
+``RIVERS_LARGE``; ``--config seeded-no-yield`` records the seeded response without the claims.
+``record`` runs it once through ``LiveRun``, one frame per decision interval, and writes a
+``Trace``: everything the videos might show, so that new visuals need no new run. ``render``
+turns traces into videos with ``MatplotlibRenderer`` and the overlays, without the simulation.
 
 Red cells are the pests in ground truth. Big red dots are the killers, small grey dots the
 relays. A black arrow points from each killer to where it walks: along its heading for the hop
 configurations, to its target cell for the seeded one. Purple dots are the escape beacons a
-killer of ``hop-tuned`` placed where it circled.
+killer of ``hop-tuned`` placed where it circled. The number next to a killer is the doses of
+treatment it has left, and a gold square marks a pest several killers treat at once.
 
 With ``--explain``, ``record`` also keeps why each killer walks where it does, and ``render``
 draws it. For a hop killer: the beacons it hears with their hop values, the pull of each one,
@@ -90,7 +91,10 @@ logger = logging.getLogger(__name__)
 
 SCENARIOS: dict[str, PestScenario] = {"river-small": RIVER_SMALL, "rivers-large": RIVERS_LARGE}
 """The scenarios by the name used in file names and titles."""
-CONFIGS = ("seeded", "hop", "hop-repel", "hop-tuned")
+CONFIGS = ("seeded", "seeded-no-yield", "hop", "hop-repel", "hop-tuned")
+"""Every configuration that can be recorded."""
+DEFAULT_CONFIGS = ("seeded", "hop", "hop-repel", "hop-tuned")
+"""The configurations recorded when none is named: the four of the comparison."""
 TRACES = Path("runs/70-obstacle-comparison/traces")
 VIDEOS = Path("videos/70-obstacle-comparison")
 SHOWN_PUSH = 0.05
@@ -156,6 +160,7 @@ class KillerFrame:
         consumable: Its remaining treatment consumable.
         hop: Why it walks where it does, for a hop killer recorded with ``--explain``.
         field: The field it followed, for a seeded killer recorded with ``--explain``.
+        treating: The cell it is treating, if any.
     """
 
     goal: str | None
@@ -166,6 +171,7 @@ class KillerFrame:
     consumable: float
     hop: HopDetails | None = None
     field: FieldDetails | None = None
+    treating: CellId | None = None
 
 
 @dataclass(frozen=True)
@@ -268,7 +274,9 @@ class Recording:
 
     def into_scenario(self) -> PestScenario:
         scenario = replace(
-            pest_response_configurations(SCENARIOS[self.scenario])[self.config],
+            pest_response_configurations(SCENARIOS[self.scenario], seeded_no_yield=True)[
+                self.config
+            ],
             seed=self.seed,
             until=int(self.hours * TimeUnit.HOUR),
             sample_period=TimeUnit.HOUR,
@@ -372,6 +380,7 @@ def _frame(run: LiveRun, now: Time, explain: bool) -> Frame:
             hop_value=hop_value,
             escapes=tuple(escapes),
             consumable=robot.consumable,
+            treating=robot.treating_cell,
             hop=hop,
             field=field,
         )
@@ -461,15 +470,21 @@ def frame_visuals(frame: Frame, explain: bool) -> FrameVisuals:
     """The arrows, markers and lines of one frame.
 
     Without ``explain``: a black arrow from each killer to where it walks, along its heading or
-    to its target cell's centre, and its escape beacons. With ``explain``, a hop killer gets the
-    beacons it hears, an orange arrow for each beacon's pull and a red one for its heading,
-    and a seeded killer its route through the field to its target.
+    to its target cell's centre, and its escape beacons. Every killer is labelled with the doses
+    it has left, and a pest that several killers treat at once gets a gold square labelled ``xN``.
+    With ``explain``, a hop killer gets the beacons it hears, an orange arrow for each beacon's
+    pull and a red one for its heading, and a seeded killer its route through the field to its
+    target.
     """
     arrows: list[Arrow] = []
     markers: list[Marker] = []
     lines: list[Polyline] = []
+    treaters: dict[CellId, int] = {}
     for robot_id, killer in frame.killers.items():
         start = frame.positions[robot_id]
+        markers.append(Marker(start, "red", size=0.0, label=f"{round(killer.consumable * 10)}"))
+        if killer.treating is not None:
+            treaters[killer.treating] = treaters.get(killer.treating, 0) + 1
         for cell, push in killer.escapes:
             if push >= SHOWN_PUSH:
                 markers.append(Marker((cell[0] + 0.5, cell[1] + 0.5), "mediumorchid", size=40.0))
@@ -490,6 +505,12 @@ def frame_visuals(frame: Frame, explain: bool) -> FrameVisuals:
             end = (killer.target[0] + 0.5, killer.target[1] + 0.5)
         if end is not None and end != start:
             arrows.append(Arrow(start, end, "black", width=1.8))
+    for cell, count in treaters.items():
+        if count > 1:
+            x, y = cell
+            ring = ((x - 0.4, y - 0.4), (x + 1.4, y - 0.4), (x + 1.4, y + 1.4), (x - 0.4, y + 1.4))
+            lines.append(Polyline((*ring, ring[0]), "gold", 3.0))
+            markers.append(Marker((x + 1.4, y + 1.4), "gold", 0.0, f"x{count}"))
     return FrameVisuals(tuple(arrows), tuple(markers), tuple(lines))
 
 
@@ -672,6 +693,16 @@ class TracePlayback:
             elif killer.goal is not None and killer.goal.startswith("treat"):
                 treating += 1
         idle = len(frame.killers) - treating - empty
+        doses = 0
+        treaters: dict[CellId, int] = {}
+        for killer in frame.killers.values():
+            doses += round((1.0 - killer.consumable) * 10)
+            if killer.treating is not None:
+                treaters[killer.treating] = treaters.get(killer.treating, 0) + 1
+        shared = 0
+        for count in treaters.values():
+            if count > 1:
+                shared += 1
         informed = len(frame.relay_values) + len(frame.relay_pests or {})
         relays = len(self.trace.bodies) - len(frame.killers)
         lines = [
@@ -683,6 +714,9 @@ class TracePlayback:
             f"  treating      {treating}",
             f"  idle          {idle}",
             f"  empty         {empty}",
+            f"doses used      {doses}",
+            f"pests with 2+   {shared}",
+            "  killers on it",
             "",
         ]
         if self.trace.explain:
@@ -694,7 +728,15 @@ class TracePlayback:
         """What the drawn elements mean."""
         legend = ["big red dots    killers", "grey dots       relays"]
         if not self.trace.explain:
-            legend.extend(["red cells       pests", "black arrows    where a killer walks"])
+            legend.extend(
+                [
+                    "red cells       pests",
+                    "black arrows    where a killer walks",
+                    "numbers         doses a killer has left",
+                    "gold squares    a pest treated by several",
+                    "                killers at once",
+                ]
+            )
         elif self.shows_field():
             legend.extend(
                 [
@@ -793,7 +835,7 @@ def main() -> None:
 
     if args.command == "record":
         scenarios = args.scenario or list(SCENARIOS)
-        configs = args.config or list(CONFIGS)
+        configs = args.config or list(DEFAULT_CONFIGS)
         recordings: list[Recording] = []
         # The large field first, the seeded configuration first: they take longest.
         for scenario, config in itertools.product(reversed(scenarios), configs):

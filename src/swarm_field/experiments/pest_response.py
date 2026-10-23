@@ -79,6 +79,8 @@ class PestResponse:
         stuck: The share of committed killer samples in which the killer stood idle.
         commit_hops: The killer's beacon value each time it committed to treating.
         empty_killers: Killers that used up their treatment consumable.
+        consumable_used: Treatment consumable used by all killers together, each starting with
+            1; a treatment job uses 0.1.
         drift: The killers' mean distance in cells from their start, after each hour.
         wall: Seconds the run took.
     """
@@ -93,6 +95,7 @@ class PestResponse:
     stuck: float
     commit_hops: tuple[float, ...]
     empty_killers: int
+    consumable_used: float
     drift: tuple[float, ...]
     wall: float
 
@@ -211,8 +214,11 @@ def measure_pest_response(run: Run[PestRunSpec]) -> PestResponse:
         cells_per_treatment = tracker.cells_moved / treated
     world = live.context.world
     empty = 0
+    used = 0.0
     for robot_id in starts:
-        if world.robots[robot_id].consumable <= 0:
+        consumable = world.robots[robot_id].consumable
+        used += 1.0 - consumable
+        if consumable <= 0:
             empty += 1
     return PestResponse(
         infested=mean(tracker.infested_samples),
@@ -225,6 +231,7 @@ def measure_pest_response(run: Run[PestRunSpec]) -> PestResponse:
         stuck=tracker.stuck / max(tracker.committed, 1),
         commit_hops=tuple(tracker.commit_hops),
         empty_killers=empty,
+        consumable_used=used,
         drift=tuple(tracker.drift),
         wall=time.perf_counter() - started,
     )

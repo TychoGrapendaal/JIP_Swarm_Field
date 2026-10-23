@@ -23,11 +23,16 @@ class KnowledgeSharing(Enum):
     Attributes:
         EVERYTHING: Its whole memory: terrain, infestation, peer and crop facts.
         INFESTATIONS: Only its infestation facts, e.g. for relays that gossip pests.
+        INFESTATIONS_AND_TARGETS: Its infestation facts, and the peer facts that carry a target,
+            but no terrain: e.g. relays that also pass on which pest each killer is heading
+            for, so that killers can leave it to each other. Peers without a target, such as
+            stationary relays, are not passed on, which keeps the messages small.
         NOTHING: No memory at all, only its status, e.g. for robots that share beacons instead.
     """
 
     EVERYTHING = auto()
     INFESTATIONS = auto()
+    INFESTATIONS_AND_TARGETS = auto()
     NOTHING = auto()
 
 
@@ -130,7 +135,8 @@ class KnowledgeExchange:
     def knowledge_to_send(self) -> KnowledgeSnapshot | None:
         """The robot's memory to broadcast at this decision point, or ``None`` if not now.
 
-        ``None`` too when the robot shares nothing; with ``INFESTATIONS`` only those facts.
+        ``None`` too when the robot shares nothing; with ``INFESTATIONS`` only those facts, and
+        with ``INFESTATIONS_AND_TARGETS`` also the peers heading for a target.
         """
         self._decisions += 1
         config = self.config
@@ -143,5 +149,7 @@ class KnowledgeExchange:
         snapshot = self._memory.knowledge()
         if config.facts is KnowledgeSharing.INFESTATIONS:
             snapshot = snapshot.only_infestations()
+        elif config.facts is KnowledgeSharing.INFESTATIONS_AND_TARGETS:
+            snapshot = snapshot.only_infestations(with_targets=True)
         self.facts_sent += len(snapshot)
         return snapshot

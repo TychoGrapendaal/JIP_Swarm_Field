@@ -9,6 +9,8 @@ standard columns the table repeats, and adds:
 - ``Δ infested``: the paired difference in infested cells to ``seeded`` over the same seeds, with
   its standard error.
 
+``--seeded-no-yield`` adds the seeded response without the claims, as it was measured first.
+
 The runs, their results and the tables go to a new folder in ``output/``.
 
 ``--calibrate`` runs only ``hop-tuned`` at the pest rates given, to pick the rate at which it
@@ -92,6 +94,9 @@ def main() -> None:
     parser.add_argument(
         "--calibrate", type=float, nargs="+", help="run only hop-tuned at these pest rates"
     )
+    parser.add_argument(
+        "--seeded-no-yield", action="store_true", help="also run seeded without the claims"
+    )
     args = parser.parse_args()
 
     names = list(SCENARIOS)
@@ -105,7 +110,7 @@ def main() -> None:
             scenario = replace(scenario, killers=args.killers)
         rates = args.calibrate or [scenario.pests_per_hour]
         for rate in rates:
-            configs = pest_response_configurations(scenario)
+            configs = pest_response_configurations(scenario, args.seeded_no_yield)
             if args.calibrate is not None:
                 configs = {"hop-tuned": configs["hop-tuned"]}
             rows: dict[str, str] = {}

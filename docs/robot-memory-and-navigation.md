@@ -92,7 +92,7 @@ The `Steerer` is the fallback, used when the field cannot guide. That is either 
 
 ## The brain
 
-`ComposedAgent` owns one `AgentMemory`, one `FieldProvider`, one `Navigator` and one `Arbiter`. At every decision it merges what the robot sensed and received into memory, gives the provider the cells that got new terrain facts (the provider re-reads them from memory and updates its `Quadtree`), and hands the robot's state and memory to the behaviours in the `DecisionContext`. Every behaviour returns a tuple of `ActionCandidate`s, and the arbiter picks one (see [`research/arbiter.md`](./research/arbiter.md)). The brain then turns the winner's intent into one action: for a `FollowField` it asks the provider for that seeder's field, whose target becomes the robot's current target, and the navigator steps along it. Any other intent (`Treat`, `Charge`, `Idle`) passes through unchanged. A winning `FollowField` whose seeder has no targets logs a warning and idles. With every decision the brain broadcasts two messages: a `STATUS` message, a `PeerObservation` of the robot itself carrying its current target and objective, and a `KNOWLEDGE` message whose `KnowledgeSnapshot` its `KnowledgeExchange` picks: by default all its facts at every decision, but the `SharingConfig` in `BrainSpec.sharing` can send only the infestation facts or none (`facts`), or send them less often (`strategy`). A receiver merges both into memory, so a peer's target is read through `MemoryView.peers()`. `inspect()` returns the memory's facts, for visualization.
+`ComposedAgent` owns one `AgentMemory`, one `FieldProvider`, one `Navigator` and one `Arbiter`. At every decision it merges what the robot sensed and received into memory, gives the provider the cells that got new terrain facts (the provider re-reads them from memory and updates its `Quadtree`), and hands the robot's state and memory to the behaviours in the `DecisionContext`. Every behaviour returns a tuple of `ActionCandidate`s, and the arbiter picks one (see [`research/arbiter.md`](./research/arbiter.md)). The brain then turns the winner's intent into one action: for a `FollowField` it asks the provider for that seeder's field, whose target becomes the robot's current target, and the navigator steps along it. Any other intent (`Treat`, `Charge`, `Idle`) passes through unchanged. A winning `FollowField` whose seeder has no targets logs a warning and idles. With every decision the brain broadcasts two messages: a `STATUS` message, a `PeerObservation` of the robot itself carrying its current target and objective, and a `KNOWLEDGE` message whose `KnowledgeSnapshot` its `KnowledgeExchange` picks: by default all its facts at every decision, but the `SharingConfig` in `BrainSpec.sharing` can send only the infestation facts, the infestation facts and the peers that report a target, or none (`facts`), or send them less often (`strategy`). A receiver merges both into memory, so a peer's target is read through `MemoryView.peers()`. A peer's own status is the only fact that carries its goal; a robot's sighting of a peer says where it is, so a newer sighting updates the peer's cell but keeps the target and objective of its last status. `inspect()` returns the memory's facts, for visualization.
 
 ## Writing a behaviour
 
@@ -130,7 +130,7 @@ A **`Behavior`** (`swarm/behavior.py`) bids for what the robot does next. Its `p
 
 An `Intent` is `FollowField`, `Treat`, `Charge` or `Idle`. There is deliberately no `Move`, so the type checker keeps every step inside the navigator. Every behaviour bids on the shared `[0, 1]` scale of the arbiter (see [`research/arbiter.md`](./research/arbiter.md)), from 0.9 up only for needs that override everything else.
 
-`TreatSeeder`, in outline, has target value severity × confidence. A cell that a peer is already heading for, with the objective `TREAT`, keeps only `reduction_rate` of its value, which is how robots avoid going to the same target, and clustered pests reinforce each other (left out here). The key is a one-minute time bucket, so the field follows the decaying confidences, plus the infested cells and the peers' targets, so the field reacts at once when a pest is treated or a peer picks a target:
+`TreatSeeder`, in outline, has target value severity × confidence. A cell that a peer is already heading for, with the objective `TREAT`, keeps only `reduction_rate` of its value, and clustered pests reinforce each other (left out here). The value is worth at most `value_amplifier` cells of travel, one by default, so the discount rarely changes which pest a robot picks. With `yield_to_closer` the seeder leaves a cell out altogether when a peer heading for it is closer to it, counting only reports younger than `claim_fresh_for`; if every pest is claimed by a closer peer, it keeps them all. This set depends on the robot's own cell, so it is part of the key. The key is a one-minute time bucket, so the field follows the decaying confidences, plus the infested cells and the peers' targets, so the field reacts at once when a pest is treated or a peer picks a target:
 
 ```python
 class TreatSeeder:
@@ -170,6 +170,8 @@ class TreatInfestation:
         return (ActionCandidate(FollowField(TreatSeeder.name), score, self.name, None),)
 ```
 
+With `yield_to_treating_peer`, a robot standing on a pest that a peer with a lower id reports treating from that cell proposes nothing, so two robots do not both spend a dose on it. `PestScenario.treat_yield` turns both yield rules on.
+
 The brain is then assembled from its memory, its field provider with the seeders registered, a navigator over the provider's quadtree, its behaviours and an arbiter of its own. Drones (`BodyType.SCOUT`) fly over obstacles:
 
 ```python
@@ -198,7 +200,7 @@ When a behaviour or seeder recovers from something that should not happen instea
 
 ## Not in v1
 
-- **Claims.** A robot broadcasts its target and peers are drawn to it less, but nothing is a binding claim: two robots that pick the same cell at once may both turn away, and a target never expires. A sighting of a peer that is newer than its status also replaces the target with `None`. Claims need their own merge rule (the earliest claim wins, and claims expire), and a new fact kind in memory.
+- **Binding claims.** With the yield rules a closer claimant keeps a pest and stale claims stop counting, but a claim is still only a target in a status: two robots that pick the same pest within one decision interval, before either hears the other, both go, and two claimants at the same distance both keep it.
 - **Crop facts and docks.** Memory ignores `CropObservation`s. Dock positions are not stored; they will be given to whatever needs them.
 - **Forgetting.** Memory never deletes facts; it is bounded by the field size plus the number of robots.
 - **Sending only new facts.** Robots exchange all their facts at every meeting. Sending only what the other robot has not seen yet needs, per fact, the time this robot learned it (not when it was observed).

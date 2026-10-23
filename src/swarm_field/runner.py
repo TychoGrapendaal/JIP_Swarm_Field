@@ -132,13 +132,16 @@ _NOISE_SEED_OFFSET = 0x5EED
 def _build_treat_infestation(params: dict[str, Any], rng: Random) -> TreatInfestation:
     """Build the pest-response behaviour, following the TREAT seeder the spec names first.
 
+    It leaves a pest to a peer already treating it with ``"treat_yield"``.
+
     Raises:
         ValueError: If the spec names no seeder, so there is no field to follow.
     """
     seeders: tuple[str, ...] = tuple(params.get("seeders", (TreatSeeder.name,)))
     if not seeders:
         raise ValueError("treat-infestation needs a seeder to follow")
-    return TreatInfestation(seeders[0])
+    yield_to_treating_peer: bool = params.get("treat_yield", False)
+    return TreatInfestation(seeders[0], yield_to_treating_peer=yield_to_treating_peer)
 
 
 @BEHAVIORS.register(TreatByBeacon.name)
@@ -174,9 +177,10 @@ def _beacon_parts(params: dict[str, Any], part: str) -> tuple[BeaconConfig, Beac
 
 @SEEDERS.register("treat")
 def _build_treat_seeder(params: dict[str, Any], rng: Random) -> TreatSeeder:
-    """Build the TREAT seeder, with the window of ``"treat_window_blocks"`` if given."""
+    """Build the TREAT seeder, with ``"treat_window_blocks"`` and ``"treat_yield"`` if given."""
     window_blocks: int = params.get("treat_window_blocks", 2)
-    return TreatSeeder(window_blocks=window_blocks)
+    yield_to_closer: bool = params.get("treat_yield", False)
+    return TreatSeeder(window_blocks=window_blocks, yield_to_closer=yield_to_closer)
 
 
 @BEHAVIORS.register("explore")

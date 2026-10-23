@@ -95,6 +95,9 @@ class PestScenario:
         explore: The parameters of every robot's EXPLORE field.
         treat_window_blocks: How many blocks of the quadtree around a killer's own its TREAT
             field is searched cell by cell; beyond them, leaf by leaf.
+        treat_yield: Whether a killer's TREAT field leaves out the pests a closer killer is
+            heading for (``TreatSeeder.yield_to_closer``), and a killer on a pest another
+            killer already treats waits (``TreatInfestation.yield_to_treating_peer``).
         arbiter: The overrides and hysteresis of every robot's ``UtilityArbiter``.
         sample_period: The time between two metrics samples.
         until: How long the run lasts.
@@ -127,6 +130,7 @@ class PestScenario:
     spawn_severity: float = 0.1
     explore: ExploreConfig = field(default_factory=ExploreConfig)
     treat_window_blocks: int = 2
+    treat_yield: bool = False
     arbiter: ArbiterConfig = field(default_factory=ArbiterConfig)
     sample_period: Time = TimeUnit.SECOND
     until: Time = 3 * TimeUnit.HOUR
@@ -278,7 +282,10 @@ class PestScenario:
         behavior, field = TreatInfestation.name, TreatSeeder.name
         if self.hop_treat:
             behavior, field = TreatByBeacon.name, HopField.name
-        treat_params: dict[str, object] = {"treat_window_blocks": self.treat_window_blocks}
+        treat_params: dict[str, object] = {
+            "treat_window_blocks": self.treat_window_blocks,
+            "treat_yield": self.treat_yield,
+        }
         treat = self._brain((behavior,), (field,), treat_params)
         if self.killers_explore:
             treat_params.update(params)
@@ -348,11 +355,12 @@ RELAYED_KILLERS = PestScenario(
     robots_know_terrain=False,
     treatment_rate=FAST_TREATMENT,
 )
-"""The seeded arm of the pest-response benchmark (#70): relays on a lattice, a few killers.
+"""The scenario of the open-field pest-response benchmark (#70): relays on a lattice, killers.
 
 The scouts only relay, and a mock source on every pest stands in for the explorer that found
 it. The radio reaches 1.25 relay pitches, so a pest reaches the nearest killer through several
-relays. The other arms of the benchmark are variants of it, in ``tests/benchmark_pests.py``.
+relays. As it stands it is the seeded response without the killers' claims; every arm of the
+benchmark is a variant of it, in ``tests/benchmark_pests.py``.
 """
 
 
@@ -389,13 +397,23 @@ RIVERS_LARGE = replace(
 """``RIVER_SMALL`` on four times the area: two rivers with three bridges, and eight rocks."""
 
 
-def pest_response_configurations(scenario: PestScenario) -> dict[str, PestScenario]:
+def pest_response_configurations(
+    scenario: PestScenario, seeded_no_yield: bool = False
+) -> dict[str, PestScenario]:
     """The four pest responses compared on ``scenario``, by name.
 
-    ``seeded`` treats remembered pests on the TREAT field and gossips them. The hop
-    configurations treat on hop beacons of one radio range each, capped where a beacon's
-    strength falls below 0.05: ``hop`` alone, ``hop-repel`` with killers repelling each other,
-    and ``hop-tuned`` with pulls weighted by the square root of the distance and the escape.
+    ``seeded`` treats remembered pests on the TREAT field. Its killers leave a pest to a closer
+    killer that claimed it, and do not join one another killer already treats (``treat_yield``);
+    its relays gossip the pests and pass on the killers' claims
+    (``KnowledgeSharing.INFESTATIONS_AND_TARGETS``). The hop configurations treat on hop
+    beacons of one radio range each, capped where a beacon's strength falls below 0.05: ``hop``
+    alone, ``hop-repel`` with killers repelling each other, and ``hop-tuned`` with pulls
+    weighted by the square root of the distance and the escape.
+
+    Args:
+        scenario: The scenario every configuration is a variant of.
+        seeded_no_yield: Whether to add ``seeded-no-yield``: the seeded response without the
+            claims, whose relays gossip only the pests, as before the claims existed.
     """
     hop_beacons = BeaconConfig(
         hop_cells=scenario.radio_range_m / scenario.cell_size,
@@ -404,9 +422,16 @@ def pest_response_configurations(scenario: PestScenario) -> dict[str, PestScenar
     repel = replace(hop_beacons, killer_repulsion=2.0)
     tuned = replace(repel, distance_power=0.5, escape=EscapeConfig())
     hop = replace(scenario, hop_treat=True, beacons=hop_beacons, sharing=KnowledgeSharing.NOTHING)
-    return {
-        "seeded": replace(scenario, sharing=KnowledgeSharing.INFESTATIONS),
-        "hop": hop,
-        "hop-repel": replace(hop, beacons=repel),
-        "hop-tuned": replace(hop, beacons=tuned),
+    configurations = {
+        "seeded": replace(
+            scenario, treat_yield=True, sharing=KnowledgeSharing.INFESTATIONS_AND_TARGETS
+        ),
     }
+    if seeded_no_yield:
+        configurations["seeded-no-yield"] = replace(
+            scenario, treat_yield=False, sharing=KnowledgeSharing.INFESTATIONS
+        )
+    configurations["hop"] = hop
+    configurations["hop-repel"] = replace(hop, beacons=repel)
+    configurations["hop-tuned"] = replace(hop, beacons=tuned)
+    return configurations

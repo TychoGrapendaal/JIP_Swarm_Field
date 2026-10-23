@@ -3,6 +3,7 @@
 from math import exp, isclose
 
 from swarm_field.contracts import (
+    AgentObjective,
     BodyType,
     CellId,
     CropObservation,
@@ -187,3 +188,27 @@ def test_known_obstacles_are_not_monitorable() -> None:
     assert not monitorable[2, 2]
     assert monitorable[4, 4]
     assert monitorable[0, 0]
+
+
+def test_a_sighting_of_a_peer_keeps_the_goal_of_its_last_status() -> None:
+    memory = AgentMemory(1, FieldGeometry(10, 10, 10.0, 0.0, 0.0, 0.0))
+    status = PeerObservation(
+        cell=(3, 3),
+        confidence=1.0,
+        observed_at=0,
+        source=2,
+        peer=2,
+        body=BodyType.KILLER,
+        target=(5, 5),
+        objective=AgentObjective.TREAT,
+    )
+    sighting = PeerObservation(
+        cell=(4, 4), confidence=1.0, observed_at=10, source=1, peer=2, body=BodyType.KILLER
+    )
+
+    memory.merge([status, sighting])
+
+    (known,) = memory.peers()
+    assert known.cell == (4, 4)
+    assert known.target == (5, 5)
+    assert known.objective is AgentObjective.TREAT

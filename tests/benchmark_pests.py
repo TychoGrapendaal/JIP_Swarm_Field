@@ -30,26 +30,29 @@ from swarm_field.experiments import (
 from swarm_field.swarm import BeaconConfig, KnowledgeSharing
 
 
-def arms() -> dict[str, PestScenario]:
+def arms(seeded_no_yield: bool = False) -> dict[str, PestScenario]:
     """The seeded arm, the oracle, which hears every pest at once, and the hop arms, by name.
 
-    ``hop`` counts integer hops without a cap; the others are ``pest_response_configurations``
-    of ``RELAYED_KILLERS``: ``hop metric`` has metric hops of one radio range and the cap,
-    ``hop repel`` adds killers repelling each other, and ``hop tuned``, the best hop
-    configuration so far, adds pulls weighted by the square root of the distance and the escape.
+    ``hop`` counts integer hops without a cap. The others are ``pest_response_configurations``
+    of ``RELAYED_KILLERS``: ``seeded`` with the killers' claims, ``hop metric`` with metric hops
+    of one radio range and the cap, ``hop repel`` with killers repelling each other, and
+    ``hop tuned``, the best hop configuration so far, with pulls weighted by the square root of
+    the distance and the escape. With ``seeded_no_yield``, ``seeded no yield`` is the seeded arm
+    without the claims.
     """
-    configurations = pest_response_configurations(RELAYED_KILLERS)
+    configurations = pest_response_configurations(RELAYED_KILLERS, seeded_no_yield)
     oracle = replace(
         RELAYED_KILLERS, pest_source_range_m=math.inf, sharing=KnowledgeSharing.NOTHING
     )
-    return {
-        "seeded": configurations["seeded"],
-        "oracle": oracle,
-        "hop": replace(configurations["hop"], beacons=BeaconConfig()),
-        "hop metric": configurations["hop"],
-        "hop repel": configurations["hop-repel"],
-        "hop tuned": configurations["hop-tuned"],
-    }
+    found = {"seeded": configurations["seeded"]}
+    if seeded_no_yield:
+        found["seeded no yield"] = configurations["seeded-no-yield"]
+    found["oracle"] = oracle
+    found["hop"] = replace(configurations["hop"], beacons=BeaconConfig())
+    found["hop metric"] = configurations["hop"]
+    found["hop repel"] = configurations["hop-repel"]
+    found["hop tuned"] = configurations["hop-tuned"]
+    return found
 
 
 def main() -> None:
@@ -59,10 +62,13 @@ def main() -> None:
     parser.add_argument("--jobs", type=int, default=8, help="processes")
     parser.add_argument("--pests-per-hour", type=float, default=15.0, help="pest spawn rate")
     parser.add_argument("--warmup-hours", type=int, default=1, help="left out of infested")
+    parser.add_argument(
+        "--seeded-no-yield", action="store_true", help="also run seeded without the claims"
+    )
     args = parser.parse_args()
 
     specs: dict[str, PestRunSpec] = {}
-    for name, scenario in arms().items():
+    for name, scenario in arms(args.seeded_no_yield).items():
         specs[name] = PestRunSpec(scenario, args.hours, args.pests_per_hour, args.warmup_hours)
     experiment = Experiment("pest_benchmark")
     runs = runs_for(specs, range(args.seeds), PestRunSpec.cost)

@@ -108,7 +108,7 @@ The supervisor's literal rule, "go to the robot with the next lower hop number",
 
 ## The scenario
 
-`RELAYED_KILLERS` in `src/swarm_field/experiments/pests.py`: a 32 × 32 field of 10 m cells without obstacles, 400 stationary relay scouts on a jittered lattice, 8 killers on a lattice of their own, and a 20 m radio. A mock source on every infested cell (`PestSourceBroadcast`) stands in for the explorer that found the pest. It sends the pest's infestation fact for the seeded arm and a value-0 beacon for the hop arms. Relays and killers are kept apart because in a killers-only swarm the nearest killer is always one hop from a pest, so the chain would never be used. A killer clears a pest of full severity in one minute (`FAST_TREATMENT`): the results below were measured when treatment cleared a pest at once, and the simulation's default rate of one severity per hour is slower than these pests grow. With 400 relays the chain from a pest to the nearest killer has a median depth of three hops.
+`RELAYED_KILLERS` in `src/swarm_field/experiments/pests.py`: a 32 × 32 field of 10 m cells without obstacles, 400 stationary relay scouts on a jittered lattice, 8 killers on a lattice of their own, and a 20 m radio. A mock source on every infested cell (`PestSourceBroadcast`) stands in for the explorer that found the pest. It sends the pest's infestation fact for the seeded arm and a value-0 beacon for the hop arms. Since the claims were added (see "The seeded arm with claims" below), the seeded arm's killers leave a pest to a closer killer that claimed it, and its relays pass on those claims; the arm without them is `seeded no yield`. Relays and killers are kept apart because in a killers-only swarm the nearest killer is always one hop from a pest, so the chain would never be used. A killer clears a pest of full severity in one minute (`FAST_TREATMENT`): the results below were measured when treatment cleared a pest at once, and the simulation's default rate of one severity per hour is slower than these pests grow. With 400 relays the chain from a pest to the nearest killer has a median depth of three hops.
 
 The main outcome is `infested`: the infested cells averaged over the run after a one-hour warm-up. It counts both how many pests stay and how long. The number of treated pests is a poor outcome here, because pests from the last twenty minutes of a run are still open whatever the swarm does.
 
@@ -116,7 +116,7 @@ The main outcome is `infested`: the infested cells averaged over the run after a
 
 ### Hop tuned against the shared cell
 
-20 seeds per arm, on the same seeds. "Paired" is the difference in infested cells to the seeded arm, with its standard error. The 15/h runs last 3 hours, the 30/h runs 2 hours, so that no killer runs out of treatment consumable.
+20 seeds per arm, on the same seeds. "Paired" is the difference in infested cells to the seeded arm, with its standard error. The seeded arm here is the one without claims, now `seeded no yield`. The 15/h runs last 3 hours, the 30/h runs 2 hours, so that no killer runs out of treatment consumable.
 
 | Arm | Infested, 15 pests/h | Paired | Infested, 30 pests/h | Paired | Cells moved per treatment, 15/h | Messages per robot and hour, 15/h |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -124,12 +124,28 @@ The main outcome is `infested`: the infested cells averaged over the run after a
 | `hop repel` | 7.08 ± 0.40 | −0.96 ± 0.60 | 15.24 ± 1.14 | −0.54 ± 1.12 | 9.6 | 1392 |
 | **`hop tuned`** | **6.60 ± 0.61** | **−1.44 ± 0.68** | **14.19 ± 0.90** | **−1.59 ± 1.01** | **9.2** | **1382** |
 
-- **The hop field beats the shared cell.** `hop tuned` leaves fewer infested cells than the seeded arm at both loads, about 2 standard errors at 15/h and 1.6 at 30/h. Its killers move half as far per treatment, its robots receive 28 % fewer messages, and a run simulates about six times faster, because relays send one beacon instead of their memory.
+- **The hop field beats the shared cell without claims.** `hop tuned` leaves fewer infested cells than the seeded arm at both loads, about 2 standard errors at 15/h and 1.6 at 30/h. Its killers move half as far per treatment, its robots receive 28 % fewer messages, and a run simulates about six times faster, because relays send one beacon instead of their memory.
 - **The distance weight and the escape add to `hop repel`.** Paired against `hop repel`, `hop tuned` leaves 0.48 ± 0.46 fewer infested cells at 15/h and 1.05 ± 0.52 fewer at 30/h, where more pests stand close together.
 
 These runs predate the `BeaconMemory` that forgets stale beacons and keeps the robot's own sightings apart from its peers' reports. Rerun at 15/h, 78 of the 80 hop runs give identical results with it, and the other two differ by 0.02 infested cells.
 
 They also predate the escape's time window and speed-aware progress (see the escape section). Rerun at 15/h on the same 20 seeds with it, `hop tuned` leaves 6.57 ± 0.51 infested cells against 6.60 ± 0.61, and the other arms are unchanged. On the two obstacle fields of `tests/benchmark_obstacles.py`, 8 paired seeds each, it leaves +0.50 ± 0.93 infested cells on the small field and +1.38 ± 1.24 on the large one, both within their standard error.
+
+### The seeded arm with claims
+
+The results above compare the hop method with a seeded arm whose killers do not coordinate: its relays gossip only pest facts, and the TREAT seeder discounts a pest a peer heads for to 20 % of an attraction worth at most one cell of travel, which hardly changes a killer's choice. In addition, a killer's sighting of a nearby peer overwrote that peer's status in memory, so the targets of nearby killers were lost. On the obstacle fields this made several seeded killers treat the same pest at once: on the small field 141 of about 230 treatment jobs overlapped another killer's on the same pest, against 22 of 178 for `hop tuned`, and since a dose is charged per treatment job, seeded killers ran out of consumable.
+
+Three changes make the seeded arm coordinate. Memory keeps a peer's target and objective from its last status when a newer sighting arrives. With `PestScenario.treat_yield`, the TREAT seeder leaves out a pest that a closer killer claimed within the last two minutes (`TreatSeeder.yield_to_closer`), and a killer standing on a pest that a killer with a lower id already treats waits (`TreatInfestation.yield_to_treating_peer`). With `KnowledgeSharing.INFESTATIONS_AND_TARGETS`, relays pass on the peers that report a target, the killers, so claims travel beyond one radio range; passing on every peer instead, about 270 per message, cost 36 % more run time for the same effect. The seeded arm of `pest_response_configurations` now has all three.
+
+12 paired seeds, 3 h, on the obstacle fields of `tests/benchmark_obstacles.py` (6 killers at 18 pests/h on 32 × 32, 18 killers at 48 pests/h on 64 × 64):
+
+| Arm | Infested, small | Paired to no yield | Infested, large | Paired to no yield | Doses per treated pest, large |
+| --- | --- | --- | --- | --- | --- |
+| `seeded no yield` | 13.53 ± 1.43 | 0 | 33.16 ± 1.85 | 0 | 1.44 |
+| `seeded` (claims) | 9.17 ± 1.19 | −4.36 ± 1.18 | 21.01 ± 1.17 | −12.15 ± 1.51 | 1.10 |
+| `hop tuned` | 11.32 ± 0.76 | −2.22 ± 0.95 | 31.72 ± 1.31 | −1.44 ± 1.56 | 1.03 |
+
+With claims, the seeded arm beats `hop tuned` on both obstacle fields, by about 2 infested cells on the small one and 11 on the large one. The open-field results above were measured with the seeded arm without claims and have not been rerun, so the comparison of the two methods there is open.
 
 ### Shuttles, the distance weight and the escape
 

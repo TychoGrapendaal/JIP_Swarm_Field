@@ -131,17 +131,36 @@ Just below 1, so that the battery behaviour can still outbid it to save the robo
 
 
 class TreatInfestation:
-    """The pest-response behaviour: follow the TREAT field and treat on arrival."""
+    """The pest-response behaviour: follow the TREAT field and treat on arrival.
+
+    With ``yield_to_treating_peer``, a killer standing on a pest that a peer with a lower id
+    reports, within ``claim_fresh_for``, to be treating on that same cell does not join in: it
+    proposes nothing until the pest is cleared, so two killers do not spend two doses on one
+    pest.
+
+    Attributes:
+        yield_to_treating_peer: Whether to leave a pest to a peer already treating it.
+        claim_fresh_for: How old a peer's report may be to count.
+    """
 
     name: str = "treat-infestation"
 
-    def __init__(self, seeder: str = TreatSeeder.name) -> None:
+    def __init__(
+        self,
+        seeder: str = TreatSeeder.name,
+        yield_to_treating_peer: bool = False,
+        claim_fresh_for: Time = 30 * TimeUnit.SECOND,
+    ) -> None:
         self._seeder: str = seeder
+        self.yield_to_treating_peer: bool = yield_to_treating_peer
+        self.claim_fresh_for: Time = claim_fresh_for
 
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
         position = ctx.self_state.position
         here = ctx.memory.infestation_at(position)
         if here is not None and here.severity > 0:
+            if self.yield_to_treating_peer and self._peer_treats(ctx, position):
+                return ()
             treat = Treat(position)
             return (ActionCandidate(treat, TREAT_SCORE, self.name, position, _TREAT),)
 
@@ -158,6 +177,17 @@ class TreatInfestation:
         # The more pests are left per killer already known, the more this robot is needed.
         score = 1 / (1 + math.exp(-(num_pests - num_killers)))
         return (ActionCandidate(FollowField(self._seeder), score, self.name, None, _TREAT),)
+
+    def _peer_treats(self, ctx: DecisionContext, cell: CellId) -> bool:
+        """Whether a peer with a lower id freshly reports treating ``cell`` from that cell."""
+        for peer in ctx.memory.peers():
+            if peer.peer is None or peer.peer >= ctx.self_state.robot_id:
+                continue
+            if ctx.time - peer.observed_at > self.claim_fresh_for:
+                continue
+            if peer.cell == cell and peer.target == cell and peer.objective is _TREAT:
+                return True
+        return False
 
 
 _REGROUP_SCORE = 0.85

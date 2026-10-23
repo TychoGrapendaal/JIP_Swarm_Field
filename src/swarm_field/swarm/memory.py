@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import chain
 from math import exp
 from typing import Protocol, cast
@@ -155,12 +155,15 @@ class KnowledgeSnapshot:
         infestation = cast(list[InfestationObservation], self.infestation.facts.tolist())
         return chain(self.crops, terrain, infestation, self.peers)
 
-    def only_infestations(self) -> KnowledgeSnapshot:
-        """This snapshot with its infestation facts alone, the other parts empty.
+    def only_infestations(self, with_targets: bool = False) -> KnowledgeSnapshot:
+        """This snapshot with its infestation facts alone, or also its peers that have a target.
 
         The empty parts are the same objects every time, so a receiver skips them as merged.
         """
-        return KnowledgeSnapshot(terrain=_NO_TERRAIN, infestation=self.infestation, peers=())
+        peers: tuple[PeerObservation, ...] = ()
+        if with_targets:
+            peers = tuple(peer for peer in self.peers if peer.target is not None)
+        return KnowledgeSnapshot(terrain=_NO_TERRAIN, infestation=self.infestation, peers=peers)
 
 
 _NO_TERRAIN = TerrainColumns(
@@ -495,13 +498,20 @@ class AgentMemory:
         self.version += len(stored)
 
     def _merge_peers(self, facts: Iterable[PeerObservation]) -> None:
-        """Merge peer facts; anonymous sightings and sightings of the robot itself are ignored."""
+        """Merge peer facts; anonymous sightings and sightings of the robot itself are ignored.
+
+        A peer's own status reports its goal: the target it heads for and the objective. A
+        sighting by another robot says where the peer is, and at most which cell it steps into
+        next, so a newer sighting keeps the goal of the last status rather than erasing it.
+        """
         for fact in facts:
             peer = fact.peer
             if peer is None or peer == self._robot_id:
                 continue
             known = self._peers.get(peer)
             if known is None or fact.observed_at > known.observed_at:
+                if fact.source != peer and known is not None and known.objective is not None:
+                    fact = replace(fact, target=known.target, objective=known.objective)
                 self._peers[peer] = fact
                 self._peers_last_stored = self._next_version()
 

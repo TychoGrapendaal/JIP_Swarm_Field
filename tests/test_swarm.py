@@ -246,6 +246,20 @@ def test_treat_infestation_follows_the_field_to_a_known_pest_and_treats_it_on_th
     assert proposed_at((3, 3)) == [Treat((3, 3))]
 
 
+def test_a_yielding_killer_waits_on_a_pest_a_lower_id_peer_already_treats() -> None:
+    behavior = TreatInfestation(yield_to_treating_peer=True)
+
+    def proposed_with_peer(peer: int) -> list[Intent]:
+        memory = AgentMemory(5, _FIELD)
+        memory.merge([*_sensed(0), _treating_peer(peer, (3, 3), (3, 3), observed_at=1)])
+        self_state = replace(_perception().self_state, robot_id=5, position=(3, 3))
+        ctx = DecisionContext(time=1, self_state=self_state, sensed=[], memory=memory)
+        return [c.action for c in behavior.propose(ctx)]
+
+    assert proposed_with_peer(2) == []
+    assert proposed_with_peer(9) == [Treat((3, 3))]
+
+
 def test_a_winning_follow_field_becomes_a_step_along_the_field() -> None:
     agent = _agent([_FieldFollower(_FixedTargetSeeder.name, 0.5)], [_FixedTargetSeeder()])
 
@@ -456,6 +470,7 @@ def test_the_agent_broadcasts_its_cell_and_the_winners_target_and_objective() ->
             {InfestationObservation, TerrainObservation, PeerObservation},
         ),
         (KnowledgeSharing.INFESTATIONS, {InfestationObservation}),
+        (KnowledgeSharing.INFESTATIONS_AND_TARGETS, {InfestationObservation}),
         (KnowledgeSharing.NOTHING, None),
     ],
 )
@@ -531,3 +546,45 @@ def test_treat_seeder_discounts_only_a_pest_a_peer_is_heading_for_to_treat() -> 
 
     assert pest_seed_value(AgentObjective.TREAT) == pytest.approx(-0.2)
     assert pest_seed_value(AgentObjective.EXPLORE) == pytest.approx(-1.0)
+
+
+def _pest(cell: CellId) -> InfestationObservation:
+    return InfestationObservation(
+        cell=cell, confidence=1.0, observed_at=0, source=1, severity=1.0, pest=None
+    )
+
+
+def _treating_peer(peer: int, cell: CellId, target: CellId, observed_at: int) -> PeerObservation:
+    return PeerObservation(
+        cell=cell,
+        confidence=1.0,
+        observed_at=observed_at,
+        source=peer,
+        peer=peer,
+        body=BodyType.KILLER,
+        target=target,
+        objective=AgentObjective.TREAT,
+    )
+
+
+def test_a_yielding_treat_seeder_leaves_a_pest_to_a_closer_fresh_claimant() -> None:
+    memory = AgentMemory(1, _FIELD)
+    memory.merge([_pest((5, 5)), _pest((9, 0)), _treating_peer(2, (6, 6), (5, 5), observed_at=0)])
+    seeder = TreatSeeder(yield_to_closer=True)
+
+    near_the_claimant = {seed.cell for seed in seeder.seeds(memory, (0, 0), 0)}
+    closer_than_it = {seed.cell for seed in seeder.seeds(memory, (5, 4), 0)}
+    after_the_claim_aged = {seed.cell for seed in seeder.seeds(memory, (0, 0), TimeUnit.HOUR)}
+
+    assert near_the_claimant == {(9, 0)}
+    assert closer_than_it == {(5, 5), (9, 0)}
+    assert after_the_claim_aged == {(5, 5), (9, 0)}
+
+
+def test_a_yielding_treat_seeder_keeps_every_pest_when_all_are_claimed() -> None:
+    memory = AgentMemory(1, _FIELD)
+    memory.merge([_pest((5, 5)), _treating_peer(2, (6, 6), (5, 5), observed_at=0)])
+
+    (seed,) = TreatSeeder(yield_to_closer=True).seeds(memory, (0, 0), 0)
+
+    assert seed.cell == (5, 5)
