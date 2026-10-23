@@ -168,7 +168,7 @@ class RobotSpec:
     v_max: float
     battery: float
     radio_range: float
-    spare_batteries: int | None = None
+    spare_batteries: int = 0
 
 
 @dataclass

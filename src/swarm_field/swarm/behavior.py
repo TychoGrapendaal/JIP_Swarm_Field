@@ -24,6 +24,7 @@ from swarm_field.contracts import (
 from swarm_field.swarm.capabilities import CapabilitySet, capabilities_for
 from swarm_field.swarm.explore import ExploreConfig, ExploreSeeder, revisit_worths
 from swarm_field.swarm.memory import MemoryView
+from swarm_field.swarm.recharge import RechargeConfig
 from swarm_field.swarm.seeder import (
     BatteryRequestSeeder,
     RegroupSeeder,
@@ -372,7 +373,6 @@ class SupplyBattery:
             peer
             for peer in ctx.memory.peers()
             if peer.peer is not None
-            and peer.battery is not None
             and peer.body in (BodyType.SCOUT, BodyType.KILLER)
             and peer.battery <= self.low_battery_threshold
             and 0 <= ctx.time - peer.observed_at <= self.observation_ttl
@@ -386,7 +386,7 @@ class SupplyBattery:
         if eligible_here:
             recipient = min(
                 eligible_here,
-                key=lambda peer: (peer.battery or 0.0, peer.peer or -1),
+                key=lambda peer: (peer.battery, peer.peer or -1),
             )
             if recipient.peer is None:
                 return ()
@@ -399,7 +399,7 @@ class SupplyBattery:
                 ),
             )
 
-        lowest_battery = min(peer.battery or 0.0 for peer in eligible)
+        lowest_battery = min(peer.battery for peer in eligible)
         urgency = 1.0 - lowest_battery / self.low_battery_threshold
         score = 0.5 + (self.max_travel_score - 0.5) * max(0.0, min(1.0, urgency))
         return (
@@ -421,9 +421,16 @@ class ReturnToDock:
 
     name: str = "return-to-dock"
 
-    def __init__(self, seeder: str = "dock", *, docks: tuple[CellId, ...] = ()) -> None:
+    def __init__(
+        self,
+        seeder: str = "dock",
+        *,
+        docks: tuple[CellId, ...] = (),
+        recharge_config: RechargeConfig | None = None,
+    ) -> None:
         self._seeder = seeder
         self._docks = frozenset(docks)
+        self._recharge_config = recharge_config or RechargeConfig()
 
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
         profile = ctx.capabilities
@@ -432,17 +439,15 @@ class ReturnToDock:
 
         position = ctx.self_state.position
         at_dock = position in self._docks
-        if at_dock and (
-            ctx.self_state.battery < 1.0
-            or (
-                ctx.self_state.body is BodyType.BATTERY
-                and ctx.self_state.spare_batteries < profile.spare_battery_capacity
-            )
-        ):
+        needs_spares = (
+            ctx.self_state.body is BodyType.BATTERY
+            and ctx.self_state.spare_batteries < profile.spare_battery_capacity
+        )
+        if at_dock and (ctx.self_state.battery < 1.0 or needs_spares):
             return (
                 ActionCandidate(
                     action=Charge(),
-                    score=0.99,
+                    score=self._recharge_config.dock_priority,
                     source=self.name,
                     target=position,
                     objective=AgentObjective.RECHARGE,
@@ -452,19 +457,27 @@ class ReturnToDock:
         if not self._docks:
             return ()
 
-        if ctx.self_state.body is BodyType.BATTERY:
-            needs_dock = ctx.self_state.battery <= 0.25 or ctx.self_state.spare_batteries <= 0
+        battery = ctx.self_state.battery
+        if battery <= self._recharge_config.critical_battery_threshold:
+            priority = self._recharge_config.critical_priority
+        elif battery <= self._recharge_config.low_battery_threshold:
+            span = (
+                self._recharge_config.low_battery_threshold
+                - self._recharge_config.critical_battery_threshold
+            )
+            urgency = (self._recharge_config.low_battery_threshold - battery) / span
+            priority = self._recharge_config.low_priority + urgency * (
+                self._recharge_config.critical_priority - self._recharge_config.low_priority
+            )
+        elif ctx.self_state.body is BodyType.BATTERY and ctx.self_state.spare_batteries <= 0:
+            priority = self._recharge_config.no_spares_priority
         else:
-            # A scout/killer stays available to the swarm while a support robot may still help;
-            # it heads to the dock only when the battery is nearly exhausted.
-            needs_dock = ctx.self_state.battery <= 0.10
-        if not needs_dock:
             return ()
 
         return (
             ActionCandidate(
                 action=FollowField(self._seeder),
-                score=0.95,
+                score=priority,
                 source=self.name,
                 target=None,
                 objective=AgentObjective.RECHARGE,

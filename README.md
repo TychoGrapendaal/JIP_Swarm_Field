@@ -103,6 +103,24 @@ uv run python -m studies.radio_range --ranges 50 150 300 --seeds 3 --hours 1
 
 See [`studies/README.md`](studies/README.md) for the list of studies and how to write one.
 
+## Integrated battery and live-field demonstrations
+
+The Issue #77 battery lifecycle adds simulated-time energy depletion, exclusive dock charging with
+FIFO queues, and explicit off-dock `DEAD_BATTERY` failures while preserving the current behaviour,
+arbitration, potential-field and discrete-event architecture. See
+[`docs/battery-lifecycle.md`](docs/battery-lifecycle.md) for policy and test details.
+
+The styled live simulation shows the actual runner-built swarm, selected robot's potential field,
+infestation, docks, radio links and battery telemetry in one interactive window. It does not save
+an animation by default:
+
+```bash
+uv run --with matplotlib python examples/field_simulation_demo.py
+```
+
+See [`docs/live-field-simulation-demo.md`](docs/live-field-simulation-demo.md) for controls and the
+components the view observes.
+
 ## Demonstrations
 
 > **Note:** The examples below are demonstration and visualization tools for the current world model and potential-field prototype. They are not the final swarm exploration or communication implementation.

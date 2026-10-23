@@ -60,8 +60,10 @@ from swarm_field.simulation import (
 from swarm_field.swarm import (
     AgentMemory,
     ArbiterConfig,
+    BatteryRequestSeeder,
     Behavior,
     ComposedAgent,
+    DockSeeder,
     ExploreConfig,
     ExploreField,
     ExploreSeeder,
@@ -69,9 +71,12 @@ from swarm_field.swarm import (
     FieldSeeder,
     KnowledgeSnapshot,
     Navigator,
+    RechargeConfig,
     Regroup,
     RegroupSeeder,
+    ReturnToDock,
     SharingConfig,
+    SupplyBattery,
     TreatInfestation,
     TreatSeeder,
     UtilityArbiter,
@@ -132,6 +137,38 @@ def _build_treat_infestation(params: dict[str, Any], rng: Random) -> TreatInfest
 def _build_treat_seeder(params: dict[str, Any], rng: Random) -> TreatSeeder:
     """Build the TREAT seeder. It has no parameters yet, so it takes none."""
     return TreatSeeder()
+
+
+@BEHAVIORS.register("supply-battery")
+def _build_supply_battery(params: dict[str, Any], rng: Random) -> SupplyBattery:
+    """Build battery support, following the battery-support seeder named by the spec."""
+    seeders: tuple[str, ...] = tuple(params.get("seeders", (BatteryRequestSeeder.name,)))
+    seeder = next((name for name in seeders if name == BatteryRequestSeeder.name), None)
+    if seeder is None:
+        raise ValueError("supply-battery needs the battery-support seeder")
+    return SupplyBattery(seeder)
+
+
+@BEHAVIORS.register("return-to-dock")
+def _build_return_to_dock(params: dict[str, Any], rng: Random) -> ReturnToDock:
+    """Build recharge behaviour with the scenario's docks and optional policy."""
+    docks: tuple[CellId, ...] = tuple(params.get("docks", ()))
+    recharge: RechargeConfig | None = params.get("recharge")
+    seeders: tuple[str, ...] = tuple(params.get("seeders", ("dock",)))
+    seeder = next((name for name in seeders if name == "dock"), "dock")
+    return ReturnToDock(seeder, docks=docks, recharge_config=recharge)
+
+
+@SEEDERS.register("battery-support")
+def _build_battery_request_seeder(params: dict[str, Any], rng: Random) -> BatteryRequestSeeder:
+    """Build the peer battery-request field seeder."""
+    return BatteryRequestSeeder()
+
+
+@SEEDERS.register("dock")
+def _build_dock_seeder(params: dict[str, Any], rng: Random) -> DockSeeder:
+    """Build fixed attraction seeds for the docks configured in the scenario."""
+    return DockSeeder(tuple(params.get("docks", ())))
 
 
 @BEHAVIORS.register("explore")
@@ -607,7 +644,9 @@ def build_run(
     agents: dict[RobotId, SwarmAgent] = {}
     for spec in scenario.robots:
         brain = config.brains_by_body.get(spec.body, config.brain)
-        agents[spec.robot_id] = build_agent(brain, spec.robot_id, scenario.field, rng, known)
+        agents[spec.robot_id] = build_agent(
+            brain, spec.robot_id, scenario.field, rng, known, docks=scenario.docks
+        )
 
     collector = MetricsCollector(config=config.metrics)
     collector.bind(world)
@@ -663,6 +702,8 @@ def build_agent(
     field: FieldGeometry,
     rng: Random,
     known: KnowledgeSnapshot | None = None,
+    *,
+    docks: tuple[CellId, ...] = (),
 ) -> ComposedAgent:
     """Resolve a ``BrainSpec`` into one assembled brain for one robot.
 
@@ -673,10 +714,9 @@ def build_agent(
     memory = AgentMemory(robot_id, field)
     if known is not None:
         memory.merge_snapshot(known)
-    behaviors: list[Behavior] = [
-        BEHAVIORS.build(name, _params_for(spec), rng) for name in spec.behaviors
-    ]
-    fields = build_field_provider(spec, memory, rng)
+    params = _params_for(spec, docks=docks)
+    behaviors: list[Behavior] = [BEHAVIORS.build(name, params, rng) for name in spec.behaviors]
+    fields = build_field_provider(spec, memory, rng, docks=docks)
     return ComposedAgent(
         robot_id=robot_id,
         behaviors=behaviors,
@@ -712,16 +752,22 @@ def terrain_map(world: WorldState) -> list[TerrainObservation]:
     return facts
 
 
-def _params_for(spec: BrainSpec) -> dict[str, Any]:
+def _params_for(spec: BrainSpec, *, docks: tuple[CellId, ...] = ()) -> dict[str, Any]:
     """The spec's shared parameters, with the seeders the spec names folded in.
 
     The seeders are a field of their own rather than parameters so that swapping one does not
     mean restating it, and so that ``BrainSpec.seeders`` is the only place the names are given.
     """
-    return {**spec.params, "seeders": spec.seeders}
+    return {**spec.params, "seeders": spec.seeders, "docks": docks}
 
 
-def build_field_provider(spec: BrainSpec, memory: AgentMemory, rng: Random) -> FieldProvider:
+def build_field_provider(
+    spec: BrainSpec,
+    memory: AgentMemory,
+    rng: Random,
+    *,
+    docks: tuple[CellId, ...] = (),
+) -> FieldProvider:
     """Build the potential fields of the navigator named by a spec, over the seeders it names.
 
     Every v1 body is a ground robot, so the potential field is planned over land the robot
@@ -733,7 +779,7 @@ def build_field_provider(spec: BrainSpec, memory: AgentMemory, rng: Random) -> F
     """
     if spec.navigator != "potential-field":
         raise ValueError(f"unknown navigator: {spec.navigator}")
-    params = _params_for(spec)
+    params = _params_for(spec, docks=docks)
     seeders: list[FieldSeeder] = [SEEDERS.build(name, params, rng) for name in spec.seeders]
     return FieldProvider(memory, flies=False, seeders=seeders)
 

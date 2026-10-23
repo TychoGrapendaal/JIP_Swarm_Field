@@ -50,6 +50,8 @@ class PestScenario:
         speed_mps_ground: The killers' speed.
         decision_interval: The time between two decisions of a robot.
         radio_range_m: How far a robot's broadcasts reach.
+        docks: The cells where robots recharge, one at a time each; robots return to one when
+            their battery runs low. Empty means none: a robot then fails once its battery runs out.
         pests_per_hour: How many pests spawn per hour, on average, on the free healthy cells.
         pest_period: The time between two pest updates (``WorldTick``).
         growth_rate: How much a pest's severity grows per pest update.
@@ -73,6 +75,7 @@ class PestScenario:
     speed_mps_ground: float = 0.1
     decision_interval: Time = TimeUnit.SECOND * 15
     radio_range_m: float = 300.0
+    docks: tuple[CellId, ...] = ((0, 0),)
     pests_per_hour: float = 15.0
     pest_period: Time = TimeUnit.MINUTE
     growth_rate: float = 0.05
@@ -156,18 +159,25 @@ class PestScenario:
             seed=self.seed,
             obstacles=obstacles,
             pest_dynamics=self.pest_dynamics(),
+            docks=self.docks,
         )
         params = {"explore": self.explore}
         explore = BrainSpec(
-            behaviors=("explore",), seeders=("explore",), params=params, arbiter=self.arbiter
+            behaviors=("explore", "return-to-dock"),
+            seeders=("explore", "dock"),
+            params=params,
+            arbiter=self.arbiter,
         )
         treat = BrainSpec(
-            behaviors=("treat-infestation",), seeders=("treat",), params={}, arbiter=self.arbiter
+            behaviors=("treat-infestation", "return-to-dock"),
+            seeders=("treat", "dock"),
+            params={},
+            arbiter=self.arbiter,
         )
         if self.killers_explore:
             treat = BrainSpec(
-                behaviors=("treat-infestation", "explore"),
-                seeders=("treat", "explore"),
+                behaviors=("treat-infestation", "explore", "return-to-dock"),
+                seeders=("treat", "explore", "dock"),
                 params=params,
                 arbiter=self.arbiter,
             )
