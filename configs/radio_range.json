@@ -1,0 +1,15 @@
+{
+  "name": "radio-range",
+  "scenario": "pests",
+  "seeds": [0, 1, 2],
+  "hours": 1,
+  "jobs": 6,
+  "parameters": {
+    "sample_period": 60000
+  },
+  "conditions": {
+    "radio-50": {"radio_range_m": 50},
+    "radio-150": {"radio_range_m": 150},
+    "radio-300": {"radio_range_m": 300}
+  }
+}
