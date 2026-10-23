@@ -2,13 +2,12 @@
 
 import csv
 import json
-from dataclasses import replace
 from pathlib import Path
 from random import Random
 
 import pytest
 
-from swarm_field.contracts import BodyType, FailureMode, FailureSpec, ScenarioId, Time
+from swarm_field.contracts import FailureMode, FailureSpec, ScenarioId, Time, TimeUnit
 from swarm_field.experiments import build_named_experiment
 from swarm_field.runner import (
     BrainSpec,
@@ -26,7 +25,7 @@ from swarm_field.runner import (
     sweep,
 )
 from swarm_field.simulation import MetricsConfig, build_scenario
-from swarm_field.swarm import ComposedAgent, SupplyBattery, TreatInfestation, TreatSeeder
+from swarm_field.swarm import Regroup, RegroupSeeder, TreatInfestation, TreatSeeder
 
 
 def _config(
@@ -189,6 +188,20 @@ def test_the_named_seeder_reaches_the_behaviour_and_the_field_provider() -> None
     assert agent.fields.field_for(TreatSeeder.name, (0, 0), 0) is None
 
 
+def test_a_spec_with_regroup_assembles_the_behaviour_and_its_seeder() -> None:
+    spec = BrainSpec(
+        behaviors=("treat-infestation", "regroup"),
+        seeders=("treat", "regroup"),
+        params={"rally-point": (5, 5), "regroup-silence": TimeUnit.MINUTE},
+    )
+    agent = build_agent(spec, 1, build_scenario(ScenarioId.S1).field, Random(0))
+
+    assert isinstance(agent.behaviors[1], Regroup)
+    # The rally point reaches the seeder, so the REGROUP field leads there with no peer known.
+    field = agent.fields.field_for(RegroupSeeder.name, (0, 0), 0)
+    assert field is not None
+
+
 def test_build_run_leaves_the_pest_dynamics_the_run_random_source() -> None:
     config = _config()
     ctx, _ = build_run(config)
@@ -249,7 +262,9 @@ def test_a_summary_row_records_how_the_run_was_set_up() -> None:
     assert row["horizon_ms"] == 30_000
     assert row["metrics_period_ms"] == 30_000
     assert row["robots"] == len(config.scenario.robots)
-    assert row["brain"] == "behaviors=treat-infestation seeders=treat navigator=potential-field"
+    assert row["brain"] == (
+        "behaviors=treat-infestation seeders=treat navigator=potential-field sharing=full"
+    )
     assert row["brains_by_body"] == ""
     assert row["failure_probability"] == 0.0
 
@@ -266,21 +281,3 @@ def test_the_metadata_names_a_robustness_condition_and_a_brain_per_body() -> Non
     assert pests.bodies == "KILLER=3 SCOUT=5"
     assert pests.brains_by_body.startswith("KILLER: behaviors=treat-infestation+explore")
     assert pests.robots_know_terrain
-
-
-def test_battery_support_behaviour_and_seeder_are_registered_in_runner() -> None:
-    config = _config(scenario=ScenarioId.S3, until=60_000)
-    battery_brain = BrainSpec(
-        behaviors=("supply-battery", "return-to-dock"),
-        seeders=("battery-support", "dock"),
-    )
-    config = replace(config, brains_by_body={BodyType.BATTERY: battery_brain})
-
-    context, _ = build_run(config)
-    battery_spec = next(spec for spec in config.scenario.robots if spec.body is BodyType.BATTERY)
-    agent = context.agents[battery_spec.robot_id]
-
-    assert isinstance(agent, ComposedAgent)
-    assert any(isinstance(behavior, SupplyBattery) for behavior in agent.behaviors)
-    # No peer report exists at assembly time, so the registered seeder correctly has no field yet.
-    assert agent.fields.field_for("battery-support", battery_spec.start, context.now) is None

@@ -26,6 +26,7 @@ from swarm_field.swarm.behavior import (
     FollowField,
     FollowSeederField,
     Intent,
+    Regroup,
     ReturnToDock,
     SupplyBattery,
     TreatInfestation,
@@ -33,7 +34,7 @@ from swarm_field.swarm.behavior import (
 from swarm_field.swarm.brain import ComposedAgent
 from swarm_field.swarm.capabilities import BODY_CAPABILITIES, CapabilitySet, capabilities_for
 from swarm_field.swarm.explore import ExploreConfig, ExploreSeeder
-from swarm_field.swarm.memory import AgentMemory, DecayConfig, MemoryView
+from swarm_field.swarm.memory import AgentMemory, DecayConfig, KnowledgeSnapshot, MemoryView
 from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.provider import FieldProvider
 from swarm_field.swarm.recharge import RechargeConfig
@@ -41,9 +42,11 @@ from swarm_field.swarm.seeder import (
     BatteryRequestSeeder,
     DockSeeder,
     FieldSeeder,
+    RegroupSeeder,
     SeededField,
     TreatSeeder,
 )
+from swarm_field.swarm.sharing import KnowledgeExchange, SharingConfig, SharingStrategy
 from swarm_field.swarm.steering import (
     QuadtreeSensing,
     Sensing,
@@ -75,13 +78,19 @@ __all__ = [
     "FollowField",
     "FollowSeederField",
     "Intent",
+    "KnowledgeExchange",
+    "KnowledgeSnapshot",
     "MemoryView",
     "Navigator",
     "QuadtreeSensing",
     "RechargeConfig",
+    "Regroup",
+    "RegroupSeeder",
     "ReturnToDock",
     "SeededField",
     "Sensing",
+    "SharingConfig",
+    "SharingStrategy",
     "Steerer",
     "SteeringConfig",
     "SupplyBattery",

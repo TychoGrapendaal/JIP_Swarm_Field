@@ -16,7 +16,7 @@ from __future__ import annotations
 import csv
 import json
 from collections import Counter
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from random import Random
@@ -69,9 +69,13 @@ from swarm_field.swarm import (
     ExploreSeeder,
     FieldProvider,
     FieldSeeder,
+    KnowledgeSnapshot,
     Navigator,
     RechargeConfig,
+    Regroup,
+    RegroupSeeder,
     ReturnToDock,
+    SharingConfig,
     SupplyBattery,
     TreatInfestation,
     TreatSeeder,
@@ -135,31 +139,35 @@ def _build_treat_seeder(params: dict[str, Any], rng: Random) -> TreatSeeder:
     return TreatSeeder()
 
 
-@BEHAVIORS.register("return-to-dock")
-def _build_return_to_dock(params: dict[str, Any], rng: Random) -> ReturnToDock:
-    """Build the shared dock-return behaviour from the scenario's dock configuration."""
-    recharge_config: RechargeConfig | None = params.get("recharge_config")
-    return ReturnToDock(docks=tuple(params.get("docks", ())), recharge_config=recharge_config)
-
-
 @BEHAVIORS.register("supply-battery")
 def _build_supply_battery(params: dict[str, Any], rng: Random) -> SupplyBattery:
-    """Build the battery-support behaviour using the seeder named by the brain spec."""
+    """Build battery support, following the battery-support seeder named by the spec."""
     seeders: tuple[str, ...] = tuple(params.get("seeders", (BatteryRequestSeeder.name,)))
-    if not seeders:
-        raise ValueError("supply-battery needs a seeder to follow")
-    return SupplyBattery(seeders[0])
+    seeder = next((name for name in seeders if name == BatteryRequestSeeder.name), None)
+    if seeder is None:
+        raise ValueError("supply-battery needs the battery-support seeder")
+    return SupplyBattery(seeder)
+
+
+@BEHAVIORS.register("return-to-dock")
+def _build_return_to_dock(params: dict[str, Any], rng: Random) -> ReturnToDock:
+    """Build recharge behaviour with the scenario's docks and optional policy."""
+    docks: tuple[CellId, ...] = tuple(params.get("docks", ()))
+    recharge: RechargeConfig | None = params.get("recharge")
+    seeders: tuple[str, ...] = tuple(params.get("seeders", ("dock",)))
+    seeder = next((name for name in seeders if name == "dock"), "dock")
+    return ReturnToDock(seeder, docks=docks, recharge_config=recharge)
 
 
 @SEEDERS.register("battery-support")
-def _build_battery_support_seeder(params: dict[str, Any], rng: Random) -> BatteryRequestSeeder:
-    """Build the seeder that attracts battery robots to recent low-battery peer reports."""
+def _build_battery_request_seeder(params: dict[str, Any], rng: Random) -> BatteryRequestSeeder:
+    """Build the peer battery-request field seeder."""
     return BatteryRequestSeeder()
 
 
 @SEEDERS.register("dock")
 def _build_dock_seeder(params: dict[str, Any], rng: Random) -> DockSeeder:
-    """Build the field that attracts a returning robot to configured charging docks."""
+    """Build fixed attraction seeds for the docks configured in the scenario."""
     return DockSeeder(tuple(params.get("docks", ())))
 
 
@@ -176,13 +184,29 @@ def _build_explore_seeder(params: dict[str, Any], rng: Random) -> ExploreSeeder:
     return ExploreSeeder(config)
 
 
+@BEHAVIORS.register("regroup")
+def _build_regroup(params: dict[str, Any], rng: Random) -> Regroup:
+    """Build the regroup behaviour, with the silence timeout under ``"regroup-silence"`` and the
+    rally point under ``"rally-point"``, if given."""
+    silence: Time = params.get("regroup-silence", 2 * TimeUnit.MINUTE)
+    rally_point: CellId | None = params.get("rally-point")
+    return Regroup(RegroupSeeder.name, silence, rally_point)
+
+
+@SEEDERS.register("regroup")
+def _build_regroup_seeder(params: dict[str, Any], rng: Random) -> RegroupSeeder:
+    """Build the REGROUP seeder, with the rally point under ``"rally-point"``, if given."""
+    rally_point: CellId | None = params.get("rally-point")
+    return RegroupSeeder(rally_point=rally_point)
+
+
 @dataclass(frozen=True)
 class BrainSpec:
     """How to assemble one robot's brain, by name.
 
     This is the data-driven assembly of architecture §A.4. Every brain gets a
-    ``UtilityArbiter`` with ``arbiter``; the communication strategy is fixed in
-    ``ComposedAgent``, so it has no registry entry.
+    ``UtilityArbiter`` with ``arbiter``, and shares its memory as ``sharing`` says; neither
+    has a registry entry.
 
     Attributes:
         behaviors: Registry names of the behaviors, combined at every decision point. Order
@@ -194,6 +218,7 @@ class BrainSpec:
         params: Per-part parameters, passed through to the named factory, e.g. an
             ``ExploreConfig`` under ``"explore"`` for the EXPLORE seeder.
         arbiter: The overrides and hysteresis of the robot's ``UtilityArbiter``.
+        sharing: What the robot broadcasts of its memory, and how often.
     """
 
     behaviors: tuple[str, ...] = ("treat-infestation",)
@@ -201,6 +226,7 @@ class BrainSpec:
     navigator: str = "potential-field"
     params: dict[str, Any] = field(default_factory=dict)
     arbiter: ArbiterConfig = field(default_factory=ArbiterConfig)
+    sharing: SharingConfig = field(default_factory=SharingConfig)
 
     def describe(self) -> str:
         """The parts of this brain by name, e.g. ``behaviors=explore seeders=explore``.
@@ -211,6 +237,7 @@ class BrainSpec:
             "behaviors=" + "+".join(self.behaviors),
             "seeders=" + "+".join(self.seeders),
             "navigator=" + self.navigator,
+            "sharing=" + self.sharing.describe(),
         ]
         if self.params:
             parts.append("params=" + "+".join(sorted(self.params)))
@@ -250,6 +277,13 @@ class ExperimentConfig:
     until: Time = TimeUnit.HOUR
     metrics: MetricsConfig = field(default_factory=MetricsConfig)
     decision_interval: Time = 5_000
+
+    def with_sharing(self, sharing: SharingConfig) -> ExperimentConfig:
+        """This experiment with every robot, whatever its body, sharing as ``sharing`` says."""
+        by_body: dict[BodyType, BrainSpec] = {}
+        for body, brain in self.brains_by_body.items():
+            by_body[body] = replace(brain, sharing=sharing)
+        return replace(self, brain=replace(self.brain, sharing=sharing), brains_by_body=by_body)
 
 
 @dataclass(frozen=True)
@@ -604,14 +638,14 @@ def build_run(
     scenario = config.scenario
     rng = Random(scenario.seed)
     world = build_world(scenario)
-    terrain: list[TerrainObservation] = []
+    known: KnowledgeSnapshot | None = None
     if config.robots_know_terrain:
-        terrain = terrain_map(world)
+        known = terrain_knowledge(world)
     agents: dict[RobotId, SwarmAgent] = {}
     for spec in scenario.robots:
         brain = config.brains_by_body.get(spec.body, config.brain)
         agents[spec.robot_id] = build_agent(
-            brain, spec.robot_id, scenario.field, rng, terrain, docks=scenario.docks
+            brain, spec.robot_id, scenario.field, rng, known, docks=scenario.docks
         )
 
     collector = MetricsCollector(config=config.metrics)
@@ -667,7 +701,7 @@ def build_agent(
     robot_id: RobotId,
     field: FieldGeometry,
     rng: Random,
-    terrain: Sequence[TerrainObservation] = (),
+    known: KnowledgeSnapshot | None = None,
     *,
     docks: tuple[CellId, ...] = (),
 ) -> ComposedAgent:
@@ -675,10 +709,11 @@ def build_agent(
 
     The robot's ``BodyType`` is not a parameter: ``ComposedAgent`` has no capability gate to
     apply it in, so a body gets its own brain through ``ExperimentConfig.brains_by_body``
-    instead (architecture §A.3). The robot's memory starts with ``terrain``.
+    instead (architecture §A.3). The robot's memory starts with what ``known`` holds.
     """
     memory = AgentMemory(robot_id, field)
-    memory.merge(terrain)
+    if known is not None:
+        memory.merge_snapshot(known)
     params = _params_for(spec, docks=docks)
     behaviors: list[Behavior] = [BEHAVIORS.build(name, params, rng) for name in spec.behaviors]
     fields = build_field_provider(spec, memory, rng, docks=docks)
@@ -689,7 +724,19 @@ def build_agent(
         fields=fields,
         navigator=Navigator(fields.quadtree),
         arbiter=UtilityArbiter(spec.arbiter),
+        sharing=spec.sharing,
     )
+
+
+def terrain_knowledge(world: WorldState) -> KnowledgeSnapshot:
+    """The terrain of every cell as a snapshot to start each robot's memory with.
+
+    It is merged once here, and every robot merges the snapshot, rather than each robot merging
+    the terrain fact by fact.
+    """
+    memory = AgentMemory(0, world.field)
+    memory.merge(terrain_map(world))
+    return memory.knowledge()
 
 
 def terrain_map(world: WorldState) -> list[TerrainObservation]:
@@ -706,7 +753,7 @@ def terrain_map(world: WorldState) -> list[TerrainObservation]:
 
 
 def _params_for(spec: BrainSpec, *, docks: tuple[CellId, ...] = ()) -> dict[str, Any]:
-    """The spec parameters plus its seeders and the authoritative scenario docks.
+    """The spec's shared parameters, with the seeders the spec names folded in.
 
     The seeders are a field of their own rather than parameters so that swapping one does not
     mean restating it, and so that ``BrainSpec.seeders`` is the only place the names are given.

@@ -42,3 +42,43 @@ uv run pyrefly check
 ```
 
 Do not mark checks green until the exploration-swarm test and local static checks complete successfully.
+
+
+# Issue #77 — Physical Battery Lifecycle on Updated Main
+
+## Scope
+
+This update applies the battery lifecycle to main commit `000e9bf` (including the updated swarm
+field/seeder and memory work) rather than replacing those algorithms with an older branch snapshot.
+
+## Changes
+
+- Enforced configured decision, movement, and treatment energy costs and prevented unaffordable
+  movement/treatment from starting.
+- Added simulated-time dock charging with one active robot per dock, FIFO waiting, charge completion,
+  and slot hand-off when the active robot finishes or stops charging.
+- Added `DEAD_BATTERY` handling for robots that reach zero charge away from a dock, including failure
+  metrics and stopping ordinary work. A depleted robot at a dock remains eligible to charge and recover.
+- Added `RechargeConfig` and wired `ReturnToDock` into the existing utility-arbitration and navigation
+  path through the registry-based runner.
+- Applied the PR #61 numeric-default feedback for peer battery observations, spare inventory, and
+  recharge duration. Built-in body capability profiles retain their explicit recharge durations and
+  BATTERY spare capacity.
+- Added battery lifecycle acceptance tests and the interactive `examples/field_simulation_demo.py`,
+  which visualizes the actual `LiveRun` architecture and does not write a GIF or video by default.
+- Updated the renderer robustness expectations to distinguish natural battery depletion in the S2
+  one-hour baseline (whose preset brain does not return to dock) from an injected all-robot failure.
+
+## Verification
+
+- Battery/world/runner/capability/swarm/metrics/robustness focused group: **134 passed**.
+- Renderer integration tests: **9 passed**; their test fixture uses a five-minute decision cadence
+  because these tests cover renderer/event-loop consistency, not controller performance.
+- Catalogue tests: **14 passed**; the `pests-large` replay-equivalence case was deselected because it
+  exceeded the available execution time when run individually.
+- `compileall`, `git diff --check`, the 15-minute live-field PNG preview, and ZIP integrity checks
+  passed.
+- The complete suite is not verified: broad runs timed out in long simulation tests without
+  reporting an assertion failure. The long `test_explore_swarm.py` and `pests-large` runs remain
+  unverified. Ruff and Pyrefly could not be run because their tools/dependencies were not available
+  in the offline environment; run the project's standard checks locally before merging.

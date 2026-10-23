@@ -51,6 +51,12 @@ Time the quadtree potential field against a plain Dijkstra over every cell, and 
 uv run python -m tests.benchmark_field --sizes 100 250 500
 ```
 
+Time how much of a pest run goes to knowledge sharing, at 10, 20 and 40 robots (not part of `pytest`):
+
+```bash
+uv run python -m tests.benchmark_sharing --cases 10x32 20x32 20x64 40x64
+```
+
 Compare variants and parameters of the EXPLORE seeder: five robots exploring a 32 × 32 field for three simulated hours, four seeds per variant, spread over processes (takes about ten minutes on 20 cores; not part of `pytest`). The results are in [`docs/explore.md`](docs/explore.md):
 
 ```bash
@@ -66,6 +72,24 @@ uv run python -m studies.radio_range --ranges 50 150 300 --seeds 3 --hours 1
 ```
 
 See [`studies/README.md`](studies/README.md) for the list of studies and how to write one.
+
+## Integrated battery and live-field demonstrations
+
+The Issue #77 battery lifecycle adds simulated-time energy depletion, exclusive dock charging with
+FIFO queues, and explicit off-dock `DEAD_BATTERY` failures while preserving the current behaviour,
+arbitration, potential-field and discrete-event architecture. See
+[`docs/battery-lifecycle.md`](docs/battery-lifecycle.md) for policy and test details.
+
+The styled live simulation shows the actual runner-built swarm, selected robot's potential field,
+infestation, docks, radio links and battery telemetry in one interactive window. It does not save
+an animation by default:
+
+```bash
+uv run --with matplotlib python examples/field_simulation_demo.py
+```
+
+See [`docs/live-field-simulation-demo.md`](docs/live-field-simulation-demo.md) for controls and the
+components the view observes.
 
 ## Demonstrations
 
@@ -160,53 +184,6 @@ uv run python examples/treat_infestation_demo.py
 ```
 
 A killer robot that already knows of three pests follows the TREAT field around a wall to each of them, treats it once, and then idles.
-
-### Live heterogeneous swarm field simulation (current integrated architecture)
-
-```bash
-uv run --with matplotlib python examples/field_simulation_demo.py
-```
-
-A live, interactive field view styled after the field/potential-map reference: the main field is
-shaded by the **actual potential field** for the focused robot, with obstacles, infestations,
-robot trails, target markers, radio links, radio range, battery levels, and a telemetry/event panel.
-The run is composed through `LiveRun` and `runner` using the existing `ComposedAgent`,
-`UtilityArbiter`, registered behaviours and seeders, field provider, potential-field navigator,
-world model, discrete-event loop, metrics, and range-based peer messaging. The Matplotlib layer
-only observes the running simulation; it does not control robot movement. It includes SCOUT,
-KILLER, and BATTERY roles, dock charging, pest dynamics, and timed battery support.
-
-Controls: **space/p** pause or resume, **s** step one simulation event, **+/-** change speed,
-**0** return to 1x, **h** hide the information panel, click a robot to focus its actual field, or
-click a walkable cell to inject an infestation. It opens a live window and does not write a GIF.
-To create a single static preview instead, run:
-
-```bash
-uv run --with matplotlib python examples/field_simulation_demo.py --preview docs/media/field_simulation_demo_preview.png --preview-minutes 15
-```
-
-Preview of the current scenario at 15 simulated minutes:
-
-![Live field simulation preview](docs/media/field_simulation_demo_preview.png)
-
-More details are in [`docs/live-field-simulation-demo.md`](docs/live-field-simulation-demo.md).
-
-### Physical battery lifecycle (Issue #77)
-
-```bash
-uv run --with matplotlib python examples/battery_lifecycle_demo.py
-```
-
-An animated, deterministic simulation demo of progressive dock charging, one charging robot per
-dock, FIFO waiters, BATTERY spare-stock replenishment, and a robot entering `DEAD_BATTERY` away
-from a dock. It shows the BATTERY robot completing a timed exchange with a low-charge peer. It
-opens the animation in an interactive Matplotlib window; it does not save a GIF. The lifecycle
-rules, configuration, and focused acceptance tests are documented in
-[`docs/battery-lifecycle.md`](docs/battery-lifecycle.md).
-
-Preview:
-
-![Battery lifecycle demo preview](docs/media/battery_lifecycle_demo_preview.png)
 
 ### Renderer demonstration (C.1)
 

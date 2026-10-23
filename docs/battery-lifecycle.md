@@ -22,7 +22,7 @@ charger and recover.
 A `Charge` action is effective only at a configured dock. Charging progresses in simulation time
 according to the robot body's `CapabilitySet.dock_recharge_seconds`; the duration is the time for a
 full charge from empty. Each dock has one active charging slot. Further requests are queued in FIFO
-order, with robot ID as a deterministic tie-breaker for requests at the same simulation timestamp.
+order of requests processed by the deterministic simulation event queue.
 When the active robot completes charging, leaves, or fails, the next eligible waiter can use the
 slot. Waiting robots do not gain charge while queued.
 
@@ -43,12 +43,12 @@ between a BATTERY robot and a co-located SCOUT/KILLER remains a separate timed o
 | `no_spares_priority` | `0.95` | BATTERY robot return priority with no spares |
 | `dock_priority` | `1.0` | Priority when a robot at the dock requests service |
 
-Pass an instance through the body-specific `build_agent(..., recharge_config=...)` constructor to
-tune the policy. The registry-based experiment runner can opt in with a `BrainSpec` containing the
-`"return-to-dock"` behaviour and `"dock"` seeder; the runner passes the configured scenario docks
-to both components. Behaviour scores are still selected by the existing `UtilityArbiter`; the
-potential field is built only after a movement intent wins. The `DecisionContext` does not use a
-potential field to score behaviours.
+For custom agent assembly, pass an instance to `ReturnToDock(..., recharge_config=...)`. With the
+registry-based experiment runner, put a `RechargeConfig` instance in `BrainSpec.params["recharge"]`,
+select the `"return-to-dock"` behaviour, and include the `"dock"` seeder. The runner passes the
+configured scenario docks to both components. Behaviour scores are still selected by the existing
+`UtilityArbiter`; the potential field is built only after a movement intent wins. The
+`DecisionContext` does not use a potential field to score behaviours.
 
 ## Failure metrics
 
@@ -58,17 +58,16 @@ normal metrics series and CSV/JSON exports.
 
 ## Visual demo
 
-From the repository root, run:
+The styled live field demo uses the same simulation and agent architecture while showing dock
+charging, low-battery support, infestations, potential fields, communication and telemetry in one
+window. Run it from the repository root:
 
 ```bash
-uv run --with matplotlib python examples/battery_lifecycle_demo.py
+uv run --with matplotlib python examples/field_simulation_demo.py
 ```
 
-The script uses the normal simulation loop and agent assembly, then plays the captured frames in an
-interactive Matplotlib window. It does not write a GIF or other animation file. The animation shows
-a configured dock, progressive charging, a waiting queue, BATTERY spare replenishment, and a KILLER
-that becomes `DEAD_BATTERY` away from the dock. The frame capture reads simulation state; it does not
-change agent decisions or world transitions. Close the Matplotlib window to finish the demo.
+It opens an interactive Matplotlib window and does not save a GIF or video. See
+[`live-field-simulation-demo.md`](live-field-simulation-demo.md) for controls and architecture details.
 
 ## Tests
 

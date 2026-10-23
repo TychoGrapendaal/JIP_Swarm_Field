@@ -38,6 +38,7 @@ class MetricsSample:
         worst_idleness_ms: The largest age of a crop cell in those samples.
         redundancy: The share of the robots' visits to a crop cell sensed less than
             ``MetricsConfig.fresh_age`` before, 0..1.
+        battery_failures: Number of robots that have failed from battery depletion by this sample.
     """
 
     time: Time

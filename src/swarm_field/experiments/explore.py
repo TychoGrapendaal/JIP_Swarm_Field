@@ -105,14 +105,9 @@ class ExploreScenario:
             pest_dynamics=PestDynamicsSpec(
                 spawn_probability=0.0, growth_rate=0.0, spread_probability=0.0
             ),
-            # This experiment measures exploration, so provide a dock at each robot's start.
-            # The physical battery model can now recycle scouts instead of leaving them stranded.
-            docks=tuple(self.starts()),
         )
         brain = BrainSpec(
-            behaviors=("explore", "return-to-dock"),
-            seeders=("explore", "dock"),
-            params={"explore": self.explore},
+            behaviors=("explore",), seeders=("explore",), params={"explore": self.explore}
         )
         return ExperimentConfig(
             label=label,

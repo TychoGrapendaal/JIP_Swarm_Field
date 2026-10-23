@@ -105,6 +105,12 @@ class Quadtree:
         self._version: int = 0
 
     @property
+    def hop_offsets(self) -> tuple[tuple[int, int], ...]:
+        """The ``(dx, dy)`` of every hop a robot may make, straight and, with 8-connectivity,
+        diagonal; see ``cell_neighbours`` for when a hop is allowed."""
+        return self._offsets
+
+    @property
     def version(self) -> int:
         """Counts the changes to the traversability; a new value whenever a cell changed.
 

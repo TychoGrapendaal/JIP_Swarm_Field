@@ -9,8 +9,6 @@ class RechargeConfig:
 
     Scores use the existing UtilityArbiter scale. The low-priority bid is just above the
     arbiter's default override threshold; the critical bid is the strongest possible bid.
-    ``low_battery_threshold`` initiates a dock return, while ``critical_battery_threshold``
-    ensures the robot abandons normal work before it is stranded.
     """
 
     low_battery_threshold: float = 0.25

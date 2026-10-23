@@ -18,7 +18,6 @@ from swarm_field.swarm.explore import ExploreSeeder
 from swarm_field.swarm.memory import AgentMemory
 from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.provider import FieldProvider
-from swarm_field.swarm.recharge import RechargeConfig
 from swarm_field.swarm.seeder import BatteryRequestSeeder, DockSeeder, TreatSeeder
 
 
@@ -29,7 +28,6 @@ def build_agent(
     *,
     docks: tuple[CellId, ...] = (),
     behaviors: list[Behavior] | None = None,
-    recharge_config: RechargeConfig | None = None,
 ) -> ComposedAgent:
     """Build a brain whose navigation and behaviours match ``body``.
 
@@ -46,13 +44,12 @@ def build_agent(
     seeders = [ExploreSeeder(), TreatSeeder(), BatteryRequestSeeder(), dock_seeder]
 
     if behaviors is None:
-        return_to_dock = ReturnToDock(docks=docks, recharge_config=recharge_config)
         if body is BodyType.SCOUT:
-            agent_behaviors: list[Behavior] = [ExploreField(), return_to_dock]
+            agent_behaviors: list[Behavior] = [ExploreField(), ReturnToDock(docks=docks)]
         elif body is BodyType.KILLER:
-            agent_behaviors = [TreatInfestation(), return_to_dock]
+            agent_behaviors = [TreatInfestation(), ReturnToDock(docks=docks)]
         else:
-            agent_behaviors = [SupplyBattery(), return_to_dock]
+            agent_behaviors = [SupplyBattery(), ReturnToDock(docks=docks)]
     else:
         agent_behaviors = behaviors
 

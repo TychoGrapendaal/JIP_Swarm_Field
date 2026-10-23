@@ -13,7 +13,14 @@ from typing import Protocol
 import numpy as np
 from scipy.spatial import KDTree
 
-from swarm_field.contracts import AgentObjective, BodyType, CellId, Time, TimeUnit
+from swarm_field.contracts import (
+    AgentObjective,
+    BodyType,
+    CellId,
+    PeerObservation,
+    Time,
+    TimeUnit,
+)
 from swarm_field.swarm.explore import ExploreSeeder as ExploreSeeder
 from swarm_field.swarm.field import GridPotentialField, Seed
 from swarm_field.swarm.memory import MemoryView
@@ -153,6 +160,69 @@ class TreatSeeder:
         for s, new_value in zip(seeds, new_values, strict=True):
             updated_seeds.append(Seed(s.cell, new_value))
         return updated_seeds
+
+
+class RegroupSeeder:
+    """Seeds the REGROUP field: draws the robot to where its peers were last known to be.
+
+    Each location of ``unsearched_peer_locations`` attracts by the memory's confidence in the
+    peer fact behind it, so the most recent contact attracts most. The rally point, if any,
+    attracts least and is never dropped, so it is where a robot ends up, and waits, once every
+    peer location turned out empty. Rebuilt once a minute, and whenever those locations change.
+
+    Attributes:
+        value_amplifier: The attraction of a peer location at full confidence, in cells.
+        rally_point: The cell every robot falls back to, or ``None`` for no fallback.
+    """
+
+    name: str = "regroup"
+    window_blocks: int = 2
+
+    def __init__(self, value_amplifier: float = 10.0, rally_point: CellId | None = None) -> None:
+        self._value_amplifier: float = value_amplifier
+        self.rally_point: CellId | None = rally_point
+
+    def field_key(self, memory: MemoryView, robot: CellId, now: Time) -> Hashable:
+        cells: set[CellId] = set()
+        for cell, _peer in unsearched_peer_locations(memory):
+            cells.add(cell)
+        return (now // TimeUnit.MINUTE, frozenset(cells))
+
+    def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
+        # One seed per cell: the most attractive of the peers pointing at it.
+        values: dict[CellId, float] = {}
+        for cell, peer in unsearched_peer_locations(memory):
+            if cell == self.rally_point:
+                continue
+            value = -self._value_amplifier * memory.confidence(peer, now)
+            values[cell] = min(value, values.get(cell, 0.0))
+
+        seeds: list[Seed] = []
+        for cell, value in values.items():
+            seeds.append(Seed(cell, value))
+        if self.rally_point is not None:
+            seeds.append(Seed(self.rally_point, 0.0))
+        return tuple(seeds)
+
+
+def unsearched_peer_locations(memory: MemoryView) -> list[tuple[CellId, PeerObservation]]:
+    """Every remembered peer's last known cell and announced target, unless searched since.
+
+    A location counts as searched once its cell was observed after the peer was reported there.
+    A peer still in that cell would have been sensed or heard at the same time, which refreshes
+    its fact, so a newer observation of the cell without a newer report means the peer has left.
+    """
+    last_seen = memory.last_observed_times()
+    locations: list[tuple[CellId, PeerObservation]] = []
+    for peer in memory.peers():
+        cells = [peer.cell]
+        if peer.target is not None:
+            cells.append(peer.target)
+        for cell in cells:
+            if last_seen[cell] > peer.observed_at:
+                continue
+            locations.append((cell, peer))
+    return locations
 
 
 class BatteryRequestSeeder:

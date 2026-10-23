@@ -98,16 +98,11 @@ class RobotDecision:
 
     def handle(self, ctx: SimulationContext) -> None:
         """Perceive, decide, act, deliver messages, and schedule the next decision."""
+        ctx.world.advance_to(self.time)
         if self._has_failed(ctx):
             # A failed robot does not come back, so it stops scheduling decisions entirely and
-            # the swarm carries on without it. A move already under way still completes, so the
-            # rest of the swarm does not have to cope with robots stranded mid-cell.
-            return
-
-        ctx.world.advance_to(self.time)
-        # Depletion may become terminal while advancing a committed move or another job. Do not
-        # let the just-failed robot make one more decision at this same timestamp.
-        if self._has_failed(ctx):
+            # the swarm carries on without it. Advancing the world before this check lets a move
+            # that exhausts its battery be settled before the robot can make another decision.
             return
         perception = Perception(
             time=self.time,

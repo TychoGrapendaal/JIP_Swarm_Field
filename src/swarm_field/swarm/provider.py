@@ -9,7 +9,12 @@ from collections.abc import Hashable, Iterable
 from dataclasses import dataclass
 
 from swarm_field.contracts import CellId, Time
-from swarm_field.swarm.field import Quadtree, build_grid_potential_field, traversable_cells
+from swarm_field.swarm.field import (
+    MixedGraph,
+    Quadtree,
+    solve_grid_potential_field,
+    traversable_cells,
+)
 from swarm_field.swarm.field.quadtree import can_enter
 from swarm_field.swarm.memory import AgentMemory
 from swarm_field.swarm.seeder import FieldSeeder, SeededField
@@ -55,6 +60,7 @@ class FieldProvider:
         self._seeders: dict[str, FieldSeeder] = {seeder.name: seeder for seeder in seeders}
         self.quadtree: Quadtree = Quadtree(traversable_cells(memory, flies))
         self._slots: dict[str, _CachedField] = {}
+        self._graphs: dict[int, MixedGraph] = {}
 
     def update_terrain(self, cells: Iterable[CellId]) -> None:
         """Re-read the given cells from the terrain, after new terrain facts about them."""
@@ -84,10 +90,23 @@ class FieldProvider:
         seeds = found.seeds(self._memory, robot, now)
         field: SeededField | None = None
         if seeds:
-            built = build_grid_potential_field(seeds, self.quadtree, robot, found.window_blocks)
+            graph = self._graph_around(robot, found.window_blocks)
+            built = solve_grid_potential_field(seeds, graph)
             field = SeededField(seeds, built)
         self._slots[seeder] = _CachedField(key=key, version=version, block=block, field=field)
         return field
+
+    def _graph_around(self, robot: CellId, window_blocks: int) -> MixedGraph:
+        """The search graph around the robot, kept per window size while it stays current.
+
+        The graph depends only on the terrain and the window, not on the seeds, so a robot that
+        stays in its block rebuilds a field without rebuilding the graph or its hops.
+        """
+        graph = self._graphs.get(window_blocks)
+        if graph is None or not graph.is_current_for(self.quadtree, robot, window_blocks):
+            graph = MixedGraph.around(self.quadtree, robot, window_blocks)
+            self._graphs[window_blocks] = graph
+        return graph
 
     def _block_of(self, robot: CellId) -> CellId:
         """The robot's block of ``max_leaf_side`` cells, the unit its field's window moves in."""
