@@ -13,20 +13,23 @@ from swarm_field.contracts import (
     FailureSpec,
     FieldGeometry,
     Idle,
+    MetricsSample,
     Move,
     Perception,
     PositionErrorSpec,
     RobotId,
     ScenarioId,
+    TimeUnit,
 )
-from swarm_field.experiments import build_named_experiment
-from swarm_field.runner import (
-    ExperimentConfig,
+from swarm_field.experiments import (
     RobustnessCase,
-    build_run,
+    RobustnessRunSpec,
+    Run,
+    build_named_experiment,
     default_robustness_cases,
-    robustness_sweep,
+    measure_robustness,
 )
+from swarm_field.runner import ExperimentConfig, build_run
 from swarm_field.simulation import (
     FailureCheck,
     FailureConfig,
@@ -285,37 +288,31 @@ def test_position_error_spec_rejects_a_negative_offset() -> None:
         PositionErrorSpec(max_offset=-1)
 
 
-def test_a_robustness_sweep_runs_every_case_from_the_same_seed() -> None:
-    cases = (
-        RobustnessCase(label="baseline"),
-        RobustnessCase(label="half-dead", failures=FailureSpec(period=1_000, probability=0.5)),
+def _final(case: RobustnessCase, until: int, seed: int = 101) -> MetricsSample:
+    """The last metrics sample of S2 under ``case``, for ``until`` milliseconds."""
+    spec = RobustnessRunSpec("S2", until / TimeUnit.HOUR, case, sample_period=30_000)
+    return measure_robustness(Run(case.label, spec, seed))
+
+
+def test_a_case_labels_its_run_and_keeps_its_seed() -> None:
+    half_dead = RobustnessCase(
+        label="half-dead", failures=FailureSpec(period=1_000, probability=0.5)
     )
 
-    runs = robustness_sweep(_s2(until=120_000), cases)
+    applied = half_dead.apply(_s2(until=120_000))
 
-    assert [run.label for run in runs] == ["S2/baseline", "S2/half-dead"]
-    assert {run.seed for run in runs} == {101}
+    assert applied.label == "S2/half-dead"
+    assert applied.scenario.seed == 101
+    assert applied.scenario.failures == half_dead.failures
 
 
 def test_failing_robots_show_up_as_fewer_active_robots() -> None:
-    baseline, failing = robustness_sweep(
-        _s2(until=120_000),
-        (
-            RobustnessCase(label="baseline"),
-            RobustnessCase(
-                label="always-dead", failures=FailureSpec(period=1_000, probability=1.0)
-            ),
-        ),
+    always_dead = RobustnessCase(
+        label="always-dead", failures=FailureSpec(period=1_000, probability=1.0)
     )
 
-    assert baseline.active_robots == 15
-    assert failing.active_robots == 0
-
-
-def test_a_baseline_sweep_keeps_every_robot() -> None:
-    (only,) = robustness_sweep(_s2(until=120_000), (RobustnessCase(label="baseline"),))
-
-    assert only.active_robots == 15
+    assert _final(RobustnessCase(label="baseline"), 120_000).active_robots == 15
+    assert _final(always_dead, 120_000).active_robots == 0
 
 
 def test_the_default_cases_include_a_baseline_and_perturb_one_axis_at_a_time() -> None:
@@ -328,27 +325,19 @@ def test_the_default_cases_include_a_baseline_and_perturb_one_axis_at_a_time() -
         assert faults != errors
 
 
-def test_a_robustness_sweep_is_reproducible() -> None:
+def test_a_robustness_run_is_reproducible() -> None:
     cases = default_robustness_cases(
         failure_probabilities=(0.01,), position_error_probabilities=(0.2,)
     )
 
-    first = robustness_sweep(_s2(until=60_000), cases)
-    second = robustness_sweep(_s2(until=60_000), cases)
-
-    assert [run.to_row() for run in first] == [run.to_row() for run in second]
+    for case in cases:
+        assert _final(case, 60_000) == _final(case, 60_000)
 
 
-def test_sweeping_every_failure_mode_keeps_the_baseline_intact() -> None:
-    failing = tuple(
-        RobustnessCase(
+def test_every_failure_mode_takes_every_robot_at_certainty() -> None:
+    for mode in FailureMode:
+        case = RobustnessCase(
             label=mode.name.lower(),
             failures=FailureSpec(period=1_000, probability=1.0, mode=mode),
         )
-        for mode in FailureMode
-    )
-    cases = (RobustnessCase(label="baseline"), *failing)
-
-    runs = robustness_sweep(_s2(until=60_000), cases)
-
-    assert [run.active_robots for run in runs] == [15, 0, 0, 0]
+        assert _final(case, 60_000).active_robots == 0

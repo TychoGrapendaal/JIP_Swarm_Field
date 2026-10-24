@@ -1,0 +1,16 @@
+{
+  "name": "seeded-vs-hop",
+  "scenario": "pests",
+  "seeds": [0, 1, 2, 3],
+  "hours": 3,
+  "jobs": 4,
+  "parameters": {
+    "metrics": {"period": 60000},
+    "robots": {"battery_capacity": 10.0},
+    "pests": {"treatment_doses": 100}
+  },
+  "conditions": {
+    "seeded": {},
+    "hop": {"swarm": {"seeded-killer": 0, "hop-killer": 3}}
+  }
+}

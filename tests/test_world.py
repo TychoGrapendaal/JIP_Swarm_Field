@@ -164,6 +164,25 @@ def test_treat_reduces_severity_over_time_and_consumes_one_dose() -> None:
     assert world.cell((1, 1)).infestation == 0.0
 
 
+def test_a_higher_treatment_rate_clears_a_pest_sooner() -> None:
+    world = WorldState(_field(), robots=[_robot()], treatment_rate=60.0)
+    world.cell((1, 1)).infestation = 0.8
+
+    world.apply_action(1, Treat(cell=(1, 1)), time=0)
+    world.advance_to(30 * TimeUnit.SECOND)
+
+    assert world.cell((1, 1)).infestation == pytest.approx(0.3)
+
+
+def test_a_killer_with_four_doses_spends_a_quarter_of_its_consumable_per_treatment() -> None:
+    world = WorldState(_field(), robots=[_robot()], treatment_doses=4)
+    world.cell((1, 1)).infestation = 0.8
+
+    world.apply_action(1, Treat(cell=(1, 1)), time=0)
+
+    assert world.robots[1].consumable == 0.75
+
+
 def test_last_treatment_dose_can_finish_after_consumable_reaches_zero() -> None:
     world = WorldState(_field(), robots=[_robot()])
     world.cell((1, 1)).infestation = 1.0

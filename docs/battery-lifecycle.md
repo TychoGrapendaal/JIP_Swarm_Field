@@ -22,9 +22,7 @@ moves again, and when decisions cost nothing its battery never drains to zero ei
 the same way unless a live BATTERY robot still carries a spare that could reach it. Without this
 rule a stranded robot would idle forever while still counted in `active_robots`.
 
-`PestScenario`, `ExploreScenario` and the presets have a dock at `(0, 0)` and give every robot
-`return-to-dock`, so robots recharge instead of running flat. `PestScenario.docks` and
-`ExploreScenario.docks` move it, add more, or remove them all.
+Every `SwarmScenario` has a dock at `(0, 0)`, and its explorers and seeded killers have `return-to-dock`, so they recharge instead of running flat. `MapConfig.docks` moves it, adds more, or removes them all. Hop killers keep no map, so they cannot follow the dock field and do not return yet. The catalogue's presets have the dock and `return-to-dock` too.
 
 ## Dock charging
 

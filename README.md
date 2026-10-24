@@ -17,7 +17,7 @@ See [`docs/high-level-world-model.md`](docs/high-level-world-model.md) for the c
 - A robot does not have the complete world state; facts outside its local observation range are unknown unless they are learned through messages or provided by the initial configuration.
 - Runs are reproducible: one seeded random source drives the world, a second drives fault injection, and `runner.py` builds every run from a `BrainSpec` so algorithms can be compared as configuration.
 - The B.3 range-based communication channel is implemented; higher-level belief sharing is still the algorithm’s responsibility, so distant infestation information only propagates when agents choose to send messages.
-- The body capability model defines the permitted actions and simulation assumptions for SCOUT, KILLER, and BATTERY robots. See [`docs/body-capabilities.md`](docs/body-capabilities.md) for the profiles, default behaviour assembly, and current limitations.
+- The body capability model defines the permitted actions and simulation assumptions for SCOUT, KILLER, and BATTERY robots. See [`docs/body-capabilities.md`](docs/body-capabilities.md) for the profiles, the capability gate, and current limitations.
 
 ## Requirements
 
@@ -45,27 +45,45 @@ Run all checks together:
 uv run ruff check . && uv run ruff format --check . && uv run pyrefly check && uv run pytest
 ```
 
-Time the quadtree potential field against a plain Dijkstra over every cell, and a robot's trip with one and with two fields (takes about two minutes; not part of `pytest`):
+## Studies
+
+`examples/` shows what the simulation and its tools can do; [`studies/`](studies/README.md) holds the experiments behind the report, one script per research question. A study runs fixed configurations with fixed seeds through `swarm_field.experiments.Experiment` (a tutorial is [`docs/experiments.md`](docs/experiments.md)), which runs them in parallel and writes their results and tables to a new folder `output/<date>_<time>_<name>/`, which git ignores:
 
 ```bash
-uv run python -m tests.benchmark_field --sizes 100 250 500
+uv run python -m studies.radio_range --ranges 50 150 300 --seeds 3 --hours 1
 ```
 
-Time how much of a pest run goes to knowledge sharing, at 10, 20 and 40 robots (not part of `pytest`):
+Compare the four pest responses on the two fields with obstacles:
 
 ```bash
-uv run python -m tests.benchmark_sharing --cases 10x32 20x32 20x64 40x64
+uv run python -m studies.benchmark_obstacles --seeds 12
 ```
 
-Compare variants and parameters of the EXPLORE seeder: five robots exploring a 32 × 32 field for three simulated hours, four seeds per variant, spread over processes (takes about ten minutes on 20 cores; not part of `pytest`). The results are in [`docs/explore.md`](docs/explore.md):
+Compare variants and parameters of the EXPLORE seeder: five robots exploring a 32 × 32 field for three simulated hours, four seeds per variant, spread over processes (takes about ten minutes on 20 cores). The results are in [`docs/explore.md`](docs/explore.md):
 
 ```bash
 uv run python -m studies.explore_variants --size 32 --hours 3 --seeds 4 --jobs 20
 ```
 
+Two studies time the code rather than the swarm, and print their table instead of writing to `output/`.
+
+Time the quadtree potential field against a plain Dijkstra over every cell, and a robot's trip with one and with two fields (takes about two minutes):
+
+```bash
+uv run python -m studies.benchmark_field --sizes 100 250 500
+```
+
+Time how much of a pest run goes to knowledge sharing, at 10, 20 and 40 robots:
+
+```bash
+uv run python -m studies.benchmark_sharing --cases 10x32 20x32 20x64 40x64
+```
+
+See [`studies/README.md`](studies/README.md) for the list of studies and how to write one.
+
 ## Running an experiment from a JSON file
 
-To run an experiment without writing code, describe it in a JSON file and run that file. [`configs/`](configs/) has three to copy: `pests.json` (one setup), `radio_range.json` (several conditions compared over the same seeds) and `explore.json`.
+To run an experiment without writing code, describe it in a JSON file and run that file. [`configs/`](configs/) has four to copy: `pests.json` (one setup), `radio_range.json` (several conditions compared over the same seeds), `seeded_vs_hop.json` (the map-based seeded killers against the hop-based killers, switched by the robot counts in `swarm`) and `explore.json`.
 
 ```bash
 uv run python -m swarm_field.experiments.from_json configs/radio_range.json
@@ -78,30 +96,20 @@ uv run python -m swarm_field.experiments.from_json configs/radio_range.json
   "seeds": [0, 1, 2],
   "hours": 1,
   "jobs": 6,
-  "parameters": {"sample_period": 60000},
+  "parameters": {"swarm": {"explorer": 5, "seeded-killer": 3}},
   "conditions": {
-    "radio-50": {"radio_range_m": 50},
-    "radio-300": {"radio_range_m": 300}
+    "radio-50": {"robots": {"radio_range_m": 50}},
+    "radio-300": {"robots": {"radio_range_m": 300}}
   }
 }
 ```
 
-- `scenario` is `pests` or `explore`; every run starts from its defaults.
-- `parameters` changes them for every run, and each entry of `conditions` (optional) changes them further for one condition. Every condition runs with every seed, labelled `CONDITION/SEED`.
-- A parameter has the name and unit of the field of `PestScenario` or `ExploreScenario` it sets, so times are in milliseconds; `explore` and `arbiter` take an object of `ExploreConfig` and `ArbiterConfig` fields. List them all with their defaults with `uv run python -m swarm_field.experiments.from_json --list pests`. An unknown name is an error rather than silently ignored.
-- `hours` sets every run's length, and `jobs` how many runs go at once: more is faster but takes more memory.
+- `scenario` is a ready scenario: `pests`, `explore`, `river-small`, `rivers-large` or `relayed-killers`. Every run starts from it.
+- `parameters` changes it for every run, and each entry of `conditions` (optional) changes it further for one condition. Every condition runs with every seed.
+- Parameters come in groups: `map`, `pests`, `robots` and `metrics` take the fields of `MapConfig`, `PestConfig`, `RobotConfig` and `MetricsConfig` (see [`docs/experiments.md`](docs/experiments.md)), with their names and units, so times are in milliseconds. `explore` takes the explorers' `ExploreConfig` fields, and `swarm` the number of robots of each preset by name (`explorer`, `relay`, `seeded-killer`, `hop-killer`); a count of 0 leaves a preset out, which is how a condition switches the killers' navigation, as in `seeded_vs_hop.json`. Hop killers cannot find a dock yet, so give them a large `robots.battery_capacity` and `pests.treatment_doses` for a fair comparison. List them all with their values with `uv run python -m swarm_field.experiments.from_json --list pests`. An unknown name is an error rather than silently ignored.
+- `hours` sets every run's length in whole hours, `warmup_hours` how much of it is left out of the infested cells (0 by default), and `jobs` how many runs go at once (one per CPU by default).
 
-The run prints the mean of a few measures per condition and writes every run's metrics series, one summary row per run and a copy of the JSON file to `runs/NAME/` (or `--out`).
-
-## Studies
-
-`examples/` shows what the simulation and its tools can do; [`studies/`](studies/README.md) holds the experiments behind the report, one script per research question. A study runs fixed configurations with fixed seeds and writes every run's series and a summary row per run under `runs/<study>/`:
-
-```bash
-uv run python -m studies.radio_range --ranges 50 150 300 --seeds 3 --hours 1
-```
-
-See [`studies/README.md`](studies/README.md) for the list of studies and how to write one.
+Every run is measured with `measure_pest_response`. The run prints one row per condition, and writes every run's result, the table and a copy of the JSON file to a new folder in `output/`.
 
 ## Integrated battery and live-field demonstrations
 
@@ -125,42 +133,6 @@ components the view observes.
 
 > **Note:** The examples below are demonstration and visualization tools for the current world model and potential-field prototype. They are not the final swarm exploration or communication implementation.
 
-### Small WorldState demonstration
-
-```bash
-uv run python examples/worldstate_demo.py
-```
-
-Terminal-based demonstration of the core `WorldState`. It shows field-cell state, multiple robots sharing a cell, different robot speeds, direct target-cell movement, obstacles, local observations, infestation, and treatment actions.
-
-### Simple animated field-cell demonstration
-
-```bash
-uv run --with matplotlib python examples/simple_world_sim.py
-```
-
-A small animated visualization showing the coarse-grained field representation, multi-cell obstacles, infested areas, and direct cell-to-cell robot movement.
-
-### Hundreds-of-robots potential-field proof of concept
-
-```bash
-uv run --with matplotlib python examples/mass_swarm_visualization.py
-```
-
-The main large-scale visualization. It demonstrates hundreds of robots moving through a coarse-grained field using a simple local potential-field controller. Known infestations provide attraction, known obstacles provide repulsion, and a small random component provides a basic exploration baseline. Robots move directly toward selected target cells at their own speeds, and multiple robots can occupy the same cell.
-
-The mass-swarm demo defaults to 300 robots. Try 500 or more:
-
-```bash
-uv run --with matplotlib python examples/mass_swarm_visualization.py --robots 500 --seed 7
-```
-
-For an even larger test:
-
-```bash
-uv run --with matplotlib python examples/mass_swarm_visualization.py --robots 1000 --seed 7
-```
-
 ### Exploration demonstration (#41)
 
 ```bash
@@ -181,7 +153,7 @@ Both demos take the console's `--seed`, `--hours`, `--speed` (default 40, twenty
 uv run python examples/pest_demo.py
 ```
 
-Five scouts explore and three killers explore and treat a field with a river and two rocks, while pests appear at random free cells over time. Every robot is a real `ComposedAgent` with a `UtilityArbiter`: scouts follow the EXPLORE field with a mock behaviour that always bids 0.5, and killers weigh it against `TreatInfestation` on the TREAT field. Robots share their memory and status only within radio range. The panel shows what each killer is doing and how many pests it knows of. `--killers-treat-only` leaves the explore behaviour out of the killers, so they wait until they hear of a pest. The panel also shows the measures of `MetricsCollector`: infested cells, detection latency, coverage, idleness and redundancy. `--radio`, `--pests-per-hour`, `--spread`, `--scouts` and `--killers` change the setup, and `--save videos/pests.mp4` records a video. The killers' time per goal is weighted by simulated time, so pausing or changing the speed does not change it. `PestScenario` in `swarm_field.experiments` describes the run, and `swarm_field.runner` assembles and runs it.
+Five explorers explore and three killers treat a field with a river and two rocks, while pests appear at random free cells over time. Every robot is a real `ComposedAgent` with a `UtilityArbiter`: explorers follow the EXPLORE field, and seeded killers treat the pests they know of with `TreatInfestation` on the TREAT field. `--hop` makes the killers hop killers, which follow the hop beacons every robot relays from the explorer that sees a pest. Robots share their memory and status only within radio range. The panel shows what each killer is doing and how many pests it knows of. The panel also shows the measures of `MetricsCollector`: infested cells, detection latency, coverage, idleness and redundancy. `--radio`, `--pests-per-hour`, `--spread`, `--explorers` and `--killers` change the setup, and `--save videos/pests.mp4` records a video. The killers' time per goal is weighted by simulated time, so pausing or changing the speed does not change it. `SwarmScenario` in `swarm_field.experiments` describes the run, and `swarm_field.runner` assembles and runs it.
 
 ### Wall-following steering demonstration
 
@@ -190,44 +162,6 @@ uv run --with matplotlib python examples/steering_demo.py
 ```
 
 A single land robot running the reactive A.3 `Steerer` towards a target across an obstacle wall, drawing the cells it visited. The steerer is the mapless policy: gradient alignment towards the goal, and a committed right-hand wall-follow whenever that heading is blocked. In the brain it is the fallback behind `Navigator.step_towards`, which prefers a potential field over the robot's believed terrain. See [`docs/navigation-module.md`](docs/navigation-module.md) §11.1 and [`docs/robot-memory-and-navigation.md`](docs/robot-memory-and-navigation.md).
-
-### Event-driven robot decision demonstration (B.1 / issue #4)
-
-```bash
-uv run --with matplotlib python examples/robot_decision_demo.py
-```
-
-An animated demonstration of the real discrete-event robot loop. A scripted robot is scheduled as a `RobotDecision` event and repeatedly goes through `Perceive → Decide → Act → Re-queue` at a fixed decision interval. The visualization shows the robot moving between cells, its current action, the last decision time, and the next event waiting in the queue.
-
-Write animation frames as PNGs instead of opening a window:
-
-```bash
-uv run --with matplotlib python examples/robot_decision_demo.py --frames 200 --save frames
-```
-
-This demo is specifically intended to make the event-driven behavior added in issue #4 visible; it is separate from the higher-level swarm behavior demonstrations.
-
-### Treat-infestation demonstration
-
-```bash
-uv run python examples/treat_infestation_demo.py
-```
-
-A killer robot that already knows of three pests follows the TREAT field around a wall to each of them, treats it once, and then idles.
-
-### Renderer demonstration (C.1)
-
-```bash
-uv run --with matplotlib python examples/renderer_demo.py
-```
-
-Draws a running scenario through the `Renderer` port: each `WorldState.snapshot` is rendered as read-only data, covering the field cells (crop growth, infestation severity, obstacles), the robots, and their movement targets. The demo runs an all-scout roster over a fully cropped field with infestation patches of different severities.
-
-Write frames as PNGs instead of opening a window:
-
-```bash
-uv run --with matplotlib python examples/renderer_demo.py --frames 60 --save frames
-```
 
 ### Scenario viewer: the interactive console (C.1)
 
@@ -265,13 +199,13 @@ The interactions flow through the typed `Command` port: `InjectInfestation` is a
 | `--save PATH` | Run to the horizon without a window, into a `.gif`, an `.mp4` (needs [ffmpeg](https://ffmpeg.org/)) or, for any other path, a directory of PNG frames. | a window |
 | `--record PATH` | When the run ends, write its recording to `PATH`. | |
 | `--replay PATH` | Play back a recording instead of starting a new run. | |
-| `--out DIR` | When the run ends, write its metrics series and a summary row to `DIR`. | |
+| `--out DIR` | When the run ends, write its metrics series to `DIR`. | |
 
 Each flag controls one thing, which is why there are several: `--scenario`, `--seed` and `--replay` choose the run; `--hours` sets how long it lasts and `--speed` how much of it one frame shows; and the run can produce three different outputs, which can be combined:
 
 - `--save` is what the run looks like: a video or PNG frames.
 - `--record` is what the user did: a small JSON `CommandLog` with the scenario, the seed, the time the run ended and every injected pest with its simulation time. A run is a function of its seed, so this is enough to replay it exactly, and to render it again later at another speed. Pause, step and speed changes are not recorded, because they change how the run is shown, not what happens in it.
-- `--out` is what the run measured: the metrics series as CSV and JSON, and a summary row in the same format as the sweeps below.
+- `--out` is what the run measured: the metrics series as `metrics.csv` and `metrics.json`.
 
 A replay takes its scenario, seed and length from the recording, so combining `--replay` with `--scenario`, `--seed`, `--hours` or `--record` is refused. During a replay, pausing, stepping, changing the speed and inspecting still work, but injecting is disabled so the run stays the recorded one.
 
@@ -311,60 +245,26 @@ Drawing a frame takes roughly a tenth of a second, so a long run at a low speed 
 
 ### Scenario catalogue
 
-Every scenario has a name, and every script that runs scenarios takes them by that name: the presets `S1` to `S5` of the scenario builder, and the hand-built experiments `explore` (`ExploreScenario`, scouts monitoring a field) and `pests` (`PestScenario`, scouts and killers while pests keep appearing). `swarm_field.experiments.build_named_experiment(name, seed, until)` turns a name and a seed into the `ExperimentConfig` the runner runs, labelled `NAME/SEED`. Each scenario keeps its own horizon unless one is given: an hour for the presets, three hours for `explore` and `pests`. `scenario_names()` lists them, and `tests/test_catalogue.py` checks that every one of them reproduces its run exactly from the same seed.
+Every scenario has a name, and every script that runs scenarios takes them by that name: the presets `S1` to `S5` of the scenario builder, and the hand-built experiments `explore` (`EXPLORE`, explorers monitoring a field) and `pests` (`PESTS`, explorers and seeded killers while pests keep appearing), both a `SwarmScenario`. `swarm_field.experiments.build_named_experiment(name, seed, until)` turns a name and a seed into the `ExperimentConfig` the runner runs, labelled `NAME/SEED`. Each scenario keeps its own horizon unless one is given: an hour for the presets, three hours for `explore` and `pests`. `scenario_names()` lists them, and `tests/test_catalogue.py` checks that every one of them reproduces its run exactly from the same seed.
 
-### Seeded scenario sweep with metrics (B.5)
+### Running many configurations
+
+A batch of runs, every configuration with every seed, goes through `swarm_field.experiments.Experiment`, which runs them in parallel and writes their results to a new folder in `output/`; the tutorial is [`docs/experiments.md`](docs/experiments.md). The robustness demo is one:
 
 ```bash
-uv run python examples/metrics_sweep_demo.py
+uv run python examples/robustness_demo.py --scenario pests --hours 1 --seeds 3
 ```
 
-Runs the cross product of three scenarios and two seeds, and prints one row per run followed by a full metrics series. Each run is reproducible from its seed: the same seed and configuration produce the same series. `--scenarios` takes any names of the catalogue:
+It runs every failure mode and position-error rate against one scenario of the catalogue, and `--render CONDITION` writes PNG frames of one condition instead:
 
 ```bash
-uv run python examples/metrics_sweep_demo.py --scenarios S2 explore pests --hours 1
-```
-
-Every summary row also records how its run was set up (`RunMetadata`): the horizon, the decision and sampling intervals, the field, the robots per body type, each brain by its parts, whether robots started with the terrain map, the pest dynamics, and the failure and position-error settings. These columns follow the result columns, so a row can be traced back to its setup without the script that produced it. Brain parameters such as an `ExploreConfig` are named but not spelled out.
-
-Write the summary table and every run's series to a directory (CSV and JSON):
-
-```bash
-uv run python examples/metrics_sweep_demo.py --out runs/sweep
-```
-
-### Rendering a sweep (C.1 over B.5)
-
-Both sweep demos take a `Renderer` and draw the run on every metric tick, so a batch run can be watched instead of only tabulated:
-
-```bash
-uv run --with matplotlib python examples/metrics_sweep_demo.py --render
 uv run --with matplotlib python examples/robustness_demo.py --render failure-offline-0.005
 ```
 
-Frames land in `runs/frames` (override with `--render-out`), one PNG per metric tick, with the current metrics in the title. In a robustness run a lost robot is drawn hollow and grey, so the frames show the swarm shrinking rather than only reporting it. Rendering only reads ground truth: the same run with and without a renderer produces an identical metrics series.
-
-The ticks come from the metrics cadence rather than a render clock, because the runner drives the event loop to completion and there is nothing left to animate afterwards. For a window on a run you steer yourself — pause, step, speed, injection — use the scenario viewer.
-
-### Robustness sweep: robot failure and position error (B.5)
-
-```bash
-uv run python examples/robustness_demo.py
-```
-
-Runs one scenario under a baseline and then one fault at a time: three failure modes at two rates, and two position-error rates. Every condition runs from the same seed, and faults draw from a random source separate from the world's, so a condition and its baseline see identical pest dynamics and the difference in the metrics is attributable to the fault.
-
-```bash
-uv run python examples/robustness_demo.py --scenario S5 --hours 3
-uv run python examples/robustness_demo.py --scenario pests --hours 1
-uv run python examples/robustness_demo.py --out runs/robustness
-```
-
-**Previously observed baseline:** `active_robots` and `energy/m²` responded to the injected faults while the pest dynamics remained unaffected. The reported outcome metrics (`coverage`, `targets_remaining`, `detection_latency`) were flat for the older treat-only setup, where robots did not actively explore. The body-specific behaviour assembly now changes that setup, so rerun the sweep before treating those outcome metrics as a result for the current development branch. [`docs/research/robustness.md`](docs/research/robustness.md) explains the original experiment and its limitations.
 
 ## Current demonstration limitations
 
-- The default body-specific assembly gives SCOUT robots the `ExploreField` behaviour, KILLER robots the `TreatInfestation` behaviour, and BATTERY robots the `SupplyBattery` behaviour. These are the current simulation behaviours, not a guarantee of optimal coverage or pest-control performance.
+- An experiment builds every brain from a `BrainSpec`, whose parts the runner registers: explorers run `ExploreBehaviour`, and killers `TreatInfestation` or the hop method. The dock and battery behaviours, `ReturnToDock` and `SupplyBattery`, are not registered yet, so only a `ComposedAgent` built by hand uses them. These are the current simulation behaviours, not a guarantee of optimal coverage or pest-control performance.
 - Goal-directed navigation uses potential fields over the robot's believed terrain, with a reactive wall-follow as its fallback. A wrong obstacle belief can therefore still lead to a wrong route; there is no general observation-based recovery from it yet.
 - Coarse-grained infestation dynamics are implemented as a scheduled `WorldTick`; the current model supports severity growth, neighbour spread, and stochastic spawning.
 - Sensing is local and body-specific. Robots do not receive the complete world state; observations beyond their sensing footprints depend on information being shared through communication.

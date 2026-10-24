@@ -40,13 +40,9 @@ body type. If no permitted candidate remains, the agent emits `Idle`.
 | `Charge` | Yes, at a dock | Yes, at a dock | Yes, at a dock |
 | `Idle` | Yes | Yes | Yes |
 
-## Default behaviour assembly
+## Brains for each body
 
-Use `swarm_field.swarm.build_agent(robot_id, body, field, docks=...)` to assemble a default brain:
-
-- **SCOUT:** an exploration behaviour with a flying `FieldProvider`, plus a return-to-dock behaviour.
-- **KILLER:** an infestation-targeting behaviour plus a return-to-dock behaviour.
-- **BATTERY:** a low-battery peer-seeking behaviour plus a return-to-dock behaviour.
+An experiment builds each robot's brain from a `BrainSpec` with `swarm_field.runner.build_agent`, which resolves the behaviours and seeders the spec names from the runner's registries. The registries hold the explore and pest-response parts. `ReturnToDock` and `SupplyBattery`, with their seeders `DockSeeder` and `BatteryRequestSeeder`, are not registered yet, so only a `ComposedAgent` built by hand uses them, as `tests/test_capabilities.py` does.
 
 Each brain owns its own `AgentMemory`, field provider, navigator and capability profile. `WorldState`
 produces role-specific observations and validates actions again at the simulation boundary.

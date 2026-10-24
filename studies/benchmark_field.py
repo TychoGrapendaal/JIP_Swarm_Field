@@ -1,6 +1,6 @@
 """Benchmark: the quadtree potential field against a plain Dijkstra over every cell.
 
-Run it with ``uv run python -m tests.benchmark_field``, optionally with ``--sizes 100 250 500``,
+Run it with ``uv run python -m studies.benchmark_field``, optionally with ``--sizes 100 250 500``,
 ``--repeats 3`` or ``--seed 0``. It is not a pytest module: the plain Dijkstra over a 500 x 500
 field takes seconds per build, too slow for the test suite.
 

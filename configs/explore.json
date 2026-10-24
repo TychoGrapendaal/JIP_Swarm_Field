@@ -5,9 +5,8 @@
   "hours": 1,
   "jobs": 3,
   "parameters": {
-    "width": 32,
-    "height": 32,
-    "robots": 5,
-    "explore": {"revisit_age": 1680000, "block_side": 8}
+    "map": {"size": 32},
+    "swarm": {"explorer": 5},
+    "explore": {"block_side": 8}
   }
 }

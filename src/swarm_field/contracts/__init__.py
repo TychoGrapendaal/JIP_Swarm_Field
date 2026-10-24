@@ -30,7 +30,7 @@ from swarm_field.contracts.ids import (
     Time,
     TimeUnit,
 )
-from swarm_field.contracts.messages import Message, MessageKind
+from swarm_field.contracts.messages import Beacon, BeaconKind, Message, MessageKind
 from swarm_field.contracts.metrics import MetricsSample
 from swarm_field.contracts.navigation import Vector2
 from swarm_field.contracts.observations import (
@@ -46,6 +46,7 @@ from swarm_field.contracts.scenario import (
     FailureMode,
     FailureSpec,
     PestDynamicsSpec,
+    PestSourceSpec,
     PositionErrorSpec,
     RobotSpec,
     ScenarioConfig,
@@ -58,6 +59,8 @@ __all__ = [
     "Action",
     "AgentInspection",
     "AgentObjective",
+    "Beacon",
+    "BeaconKind",
     "BodyType",
     "CellId",
     "CellState",
@@ -85,6 +88,7 @@ __all__ = [
     "PeerObservation",
     "Perception",
     "PestDynamicsSpec",
+    "PestSourceSpec",
     "PestType",
     "PositionErrorSpec",
     "Renderer",

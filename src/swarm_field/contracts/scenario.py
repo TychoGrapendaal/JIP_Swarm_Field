@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 
 from swarm_field.contracts.ids import BodyType, CellId, CropType, RobotId, TimeUnit
+from swarm_field.contracts.messages import MessageKind
 from swarm_field.contracts.world import FieldGeometry
 
 
@@ -62,14 +63,20 @@ class EnergySpec:
         per_metre: Battery fraction consumed per metre travelled.
         per_decision: Battery fraction consumed per decision point.
         treat_per_action: Battery fraction consumed by a ``Treat`` action.
+        capacity: How many standard charges a battery holds; every drain is divided by it. A
+            standard charge lasts a body's endurance in travel, so a large capacity keeps
+            robots from running empty in a run about something else.
     """
 
     per_metre: float = 0.0
     per_decision: float = 0.0
     treat_per_action: float = 0.0
+    capacity: float = 1.0
 
     def __post_init__(self) -> None:
-        """Validate that no term is negative."""
+        """Validate that no term is negative and that the capacity is positive."""
+        if self.capacity <= 0.0:
+            raise ValueError("battery capacity must be positive")
         for name, value in (
             ("per_metre", self.per_metre),
             ("per_decision", self.per_decision),
@@ -121,6 +128,36 @@ class FailureSpec:
             raise ValueError("failure period must be positive")
         if not 0.0 <= self.probability <= 1.0:
             raise ValueError("failure probability must be between 0 and 1")
+
+
+@dataclass(frozen=True)
+class PestSourceSpec:
+    """A mock source on every pest, standing in for an explorer hovering above it.
+
+    Every ``period`` each infested cell broadcasts its infestation to the robots within
+    ``radio_range_m`` of the cell, so robots learn of a pest without a robot having found it.
+    An infinite range tells every robot at once, which is an oracle.
+
+    Attributes:
+        period: Time between two broadcasts in simulation milliseconds.
+        radio_range_m: How far a source's broadcast reaches.
+        kinds: What a source sends: ``KNOWLEDGE``, the pest's infestation fact, for robots
+            that keep a map, and ``BEACON``, a hop value of 0 on the pest, for robots that
+            relay beacons.
+    """
+
+    period: int = 15 * TimeUnit.SECOND
+    radio_range_m: float = 0.0
+    kinds: frozenset[MessageKind] = frozenset({MessageKind.KNOWLEDGE, MessageKind.BEACON})
+
+    def __post_init__(self) -> None:
+        """Validate the supported parameter ranges."""
+        if self.period <= 0:
+            raise ValueError("pest source period must be positive")
+        if self.radio_range_m < 0.0:
+            raise ValueError("pest source range must not be negative")
+        if not self.kinds or not self.kinds <= {MessageKind.KNOWLEDGE, MessageKind.BEACON}:
+            raise ValueError("a pest source sends KNOWLEDGE, BEACON or both")
 
 
 @dataclass(frozen=True)
@@ -187,6 +224,11 @@ class ScenarioConfig:
         energy: Parameters for the battery model the simulation drains.
         failures: Recurring chance that a robot fails, for robustness runs.
         position_error: Recurring chance that a robot mislocates itself, for robustness runs.
+        pest_sources: Mock sources broadcasting every pest, or ``None`` for none.
+        treatment_rate: How much infestation severity one treating robot removes per hour; at
+            1.0 a pest of full severity takes an hour.
+        treatment_doses: How many treatments a killer's full consumable holds; each treatment
+            uses ``1 / treatment_doses`` of it.
     """
 
     field: FieldGeometry
@@ -200,3 +242,6 @@ class ScenarioConfig:
     energy: EnergySpec = EnergySpec()
     failures: FailureSpec = FailureSpec()
     position_error: PositionErrorSpec = PositionErrorSpec()
+    pest_sources: PestSourceSpec | None = None
+    treatment_rate: float = 1.0
+    treatment_doses: int = 10

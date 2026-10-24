@@ -3,6 +3,8 @@
 from collections.abc import Hashable, Sequence
 from dataclasses import replace
 
+import pytest
+
 from swarm_field.contracts import (
     AgentObjective,
     BodyType,
@@ -35,11 +37,13 @@ from swarm_field.swarm import (
     FieldSeeder,
     FollowField,
     Intent,
+    KnowledgeSharing,
     KnowledgeSnapshot,
     MemoryView,
     Navigator,
     Regroup,
     RegroupSeeder,
+    SharingConfig,
     TreatInfestation,
     TreatSeeder,
 )
@@ -224,6 +228,7 @@ def test_sensed_terrain_reaches_memory_and_the_quadtree() -> None:
     agent.decide(_perception(sensed=[wall]))
 
     assert wall in list(agent.memory.records())
+    assert agent.fields.quadtree is not None
     assert not agent.fields.quadtree.is_traversable((1, 1))
 
 
@@ -239,6 +244,20 @@ def test_treat_infestation_follows_the_field_to_a_known_pest_and_treats_it_on_th
 
     assert proposed_at((0, 0)) == [FollowField(TreatSeeder.name)]
     assert proposed_at((3, 3)) == [Treat((3, 3))]
+
+
+def test_a_yielding_killer_waits_on_a_pest_a_lower_id_peer_already_treats() -> None:
+    behavior = TreatInfestation(yield_to_treating_peer=True)
+
+    def proposed_with_peer(peer: int) -> list[Intent]:
+        memory = AgentMemory(5, _FIELD)
+        memory.merge([*_sensed(0), _treating_peer(peer, (3, 3), (3, 3), observed_at=1)])
+        self_state = replace(_perception().self_state, robot_id=5, position=(3, 3))
+        ctx = DecisionContext(time=1, self_state=self_state, sensed=[], memory=memory)
+        return [c.action for c in behavior.propose(ctx)]
+
+    assert proposed_with_peer(2) == []
+    assert proposed_with_peer(9) == [Treat((3, 3))]
 
 
 def test_a_winning_follow_field_becomes_a_step_along_the_field() -> None:
@@ -443,6 +462,36 @@ def test_the_agent_broadcasts_its_cell_and_the_winners_target_and_objective() ->
     assert agent.inspect().current_target == (5, 5)
 
 
+@pytest.mark.parametrize(
+    ("sharing", "shared_kinds"),
+    [
+        (
+            KnowledgeSharing.EVERYTHING,
+            {InfestationObservation, TerrainObservation, PeerObservation},
+        ),
+        (KnowledgeSharing.INFESTATIONS, {InfestationObservation}),
+        (KnowledgeSharing.INFESTATIONS_AND_TARGETS, {InfestationObservation}),
+        (KnowledgeSharing.NOTHING, None),
+    ],
+)
+def test_the_sharing_level_selects_the_broadcast_facts(
+    sharing: KnowledgeSharing, shared_kinds: set[type] | None
+) -> None:
+    agent = _agent([])
+    agent.exchange.config = SharingConfig(facts=sharing)
+
+    decision = agent.decide(_perception())
+
+    knowledge = [m for m in decision.outbox if m.kind is MessageKind.KNOWLEDGE]
+    assert decision.outbox[0].kind is MessageKind.STATUS
+    if shared_kinds is None:
+        assert knowledge == []
+    else:
+        (message,) = knowledge
+        assert isinstance(message.payload, KnowledgeSnapshot)
+        assert {type(fact) for fact in message.payload.facts()} == shared_kinds
+
+
 def test_battery_body_status_broadcast_includes_its_current_battery_level() -> None:
     agent = _agent([])
     base_state = _perception(sensed=[]).self_state
@@ -499,7 +548,7 @@ def _memory_with_a_pest_and_a_killer_heading_for_it(
 def test_the_treat_field_leaves_a_pest_to_a_closer_killer_heading_for_it() -> None:
     def seeds_from_next_to_it(killer_cell: CellId, objective: AgentObjective) -> int:
         memory = _memory_with_a_pest_and_a_killer_heading_for_it(killer_cell, objective)
-        return len(TreatSeeder().seeds(memory, (6, 6), 0))
+        return len(TreatSeeder(yield_to_closer=True).seeds(memory, (6, 6), 0))
 
     assert seeds_from_next_to_it((5, 4), AgentObjective.TREAT) == 0
     assert seeds_from_next_to_it((0, 0), AgentObjective.TREAT) == 1
@@ -523,14 +572,14 @@ def test_of_two_killers_on_one_cell_only_the_lower_id_keeps_their_pest() -> None
             objective=AgentObjective.TREAT,
         )
         memory.merge([pest, heading])
-        return len(TreatSeeder().seeds(memory, (6, 6), 0))
+        return len(TreatSeeder(yield_to_closer=True).seeds(memory, (6, 6), 0))
 
     assert seeds_of(robot=1, peer=2) == 1
     assert seeds_of(robot=2, peer=1) == 0
 
 
 def test_treat_infestation_bids_above_exploring_for_a_pest_left_to_it_and_not_otherwise() -> None:
-    behavior = TreatInfestation()
+    behavior = TreatInfestation(yield_to_treating_peer=True)
 
     def bids_from_next_to_it(killer_cell: CellId) -> list[float]:
         memory = _memory_with_a_pest_and_a_killer_heading_for_it(killer_cell, AgentObjective.TREAT)
@@ -541,3 +590,36 @@ def test_treat_infestation_bids_above_exploring_for_a_pest_left_to_it_and_not_ot
     assert bids_from_next_to_it((5, 4)) == []
     (bid,) = bids_from_next_to_it((0, 0))
     assert 0.8 <= bid < 0.9
+
+
+def _pest(cell: CellId) -> InfestationObservation:
+    return InfestationObservation(
+        cell=cell, confidence=1.0, observed_at=0, source=1, severity=1.0, pest=None
+    )
+
+
+def _treating_peer(peer: int, cell: CellId, target: CellId, observed_at: int) -> PeerObservation:
+    return PeerObservation(
+        cell=cell,
+        confidence=1.0,
+        observed_at=observed_at,
+        source=peer,
+        peer=peer,
+        body=BodyType.KILLER,
+        target=target,
+        objective=AgentObjective.TREAT,
+    )
+
+
+def test_a_yielding_treat_seeder_leaves_a_pest_to_a_closer_fresh_claimant() -> None:
+    memory = AgentMemory(1, _FIELD)
+    memory.merge([_pest((5, 5)), _pest((9, 0)), _treating_peer(2, (6, 6), (5, 5), observed_at=0)])
+    seeder = TreatSeeder(yield_to_closer=True)
+
+    near_the_claimant = {seed.cell for seed in seeder.seeds(memory, (0, 0), 0)}
+    closer_than_it = {seed.cell for seed in seeder.seeds(memory, (5, 4), 0)}
+    after_the_claim_aged = {seed.cell for seed in seeder.seeds(memory, (0, 0), TimeUnit.HOUR)}
+
+    assert near_the_claimant == {(9, 0)}
+    assert closer_than_it == {(5, 5), (9, 0)}
+    assert after_the_claim_aged == {(5, 5), (9, 0)}
