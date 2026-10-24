@@ -74,6 +74,7 @@ What a robot broadcasts follows from who listens. Every preset says what the swa
 | `decision_interval` | The time between two decisions, 15 s. |
 | `knows_terrain` | Whether robots start with the map. In the obstacle scenarios they do not, and learn obstacles by sensing. |
 | `lattice_starts` | Each group of robots starts on a jittered lattice of its own over the field, from the seed. Otherwise all robots start side by side along the bottom row. |
+| `battery_capacity` | How many standard charges every battery holds, 1 by default. A standard charge lasts a body's endurance in travel, 30 minutes for a scout, and no robot charges yet, so moving explorers run empty after about 80 minutes. A large capacity, e.g. `1000`, keeps them going for a whole run. |
 
 ```python
 from dataclasses import replace

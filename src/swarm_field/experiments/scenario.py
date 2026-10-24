@@ -32,6 +32,7 @@ from random import Random
 from swarm_field.contracts import (
     BodyType,
     CellId,
+    EnergySpec,
     MessageKind,
     PestDynamicsSpec,
     PestSourceSpec,
@@ -118,6 +119,9 @@ class RobotConfig:
             own over the whole field, instead of all side by side along the bottom row.
         lattice_jitter: How far a lattice start may move from its slot's centre, as a fraction
             of the lattice pitch.
+        battery_capacity: How many standard charges every robot's battery holds; a standard
+            charge lasts a body's endurance in travel, 30 minutes for a scout. A large capacity,
+            e.g. ``1000``, keeps robots from running empty, since none of them charges yet.
     """
 
     speed_mps_drone: float = 2.0
@@ -127,11 +131,14 @@ class RobotConfig:
     knows_terrain: bool = True
     lattice_starts: bool = False
     lattice_jitter: float = 0.3
+    battery_capacity: float = 1.0
 
     def __post_init__(self) -> None:
         """Validate the supported parameter ranges."""
         if not 0.0 <= self.lattice_jitter < 0.5:
             raise ValueError("lattice jitter must be at least 0 and below half a pitch")
+        if self.battery_capacity <= 0.0:
+            raise ValueError("battery capacity must be positive")
 
     def speed_of(self, body: BodyType) -> float:
         """The top speed of a robot of ``body``: the drone speed for scouts, else ground."""
@@ -366,6 +373,7 @@ class SwarmScenario:
             pest_sources=self.pest_sources(),
             treatment_rate=self.pests.treatment_rate,
             treatment_doses=self.pests.treatment_doses,
+            energy=EnergySpec(capacity=self.robots.battery_capacity),
         )
         relaying = self.relaying()
         brains: list[BrainSpec] = []

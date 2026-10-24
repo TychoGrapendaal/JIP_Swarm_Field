@@ -45,11 +45,13 @@ class EnergyConfig:
         per_decision: Battery fraction consumed per decision point, for sensing, deciding and
             transmitting.
         treat_per_action: Battery fraction consumed by a ``Treat`` action.
+        capacity: How many standard charges a battery holds; every drain is divided by it.
     """
 
     per_metre: float = 0.0
     per_decision: float = 0.0
     treat_per_action: float = 0.0
+    capacity: float = 1.0
 
     @classmethod
     def from_spec(cls, spec: EnergySpec) -> "EnergyConfig":
@@ -58,6 +60,7 @@ class EnergyConfig:
             per_metre=spec.per_metre,
             per_decision=spec.per_decision,
             treat_per_action=spec.treat_per_action,
+            capacity=spec.capacity,
         )
 
 
@@ -636,12 +639,14 @@ class WorldState:
         robot.replacing_battery_for: RobotId | None = None
         robot.replacement_complete_at: Time | None = None
 
-    @staticmethod
-    def _spend(robot: RobotState, amount: float) -> None:
-        """Draw ``amount`` of battery, never below empty, and record it as spent."""
+    def _spend(self, robot: RobotState, amount: float) -> None:
+        """Draw ``amount`` of a standard charge, never below empty, and record it as spent.
+
+        A battery of ``capacity`` standard charges loses ``amount / capacity`` of its charge.
+        """
         if amount <= 0.0:
             return
-        drawn = min(robot.battery, amount)
+        drawn = min(robot.battery, amount / self.energy.capacity)
         robot.battery -= drawn
         robot.energy_spent += drawn
 

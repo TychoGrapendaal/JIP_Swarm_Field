@@ -63,14 +63,20 @@ class EnergySpec:
         per_metre: Battery fraction consumed per metre travelled.
         per_decision: Battery fraction consumed per decision point.
         treat_per_action: Battery fraction consumed by a ``Treat`` action.
+        capacity: How many standard charges a battery holds; every drain is divided by it. A
+            standard charge lasts a body's endurance in travel, so a large capacity keeps
+            robots from running empty in a run about something else.
     """
 
     per_metre: float = 0.0
     per_decision: float = 0.0
     treat_per_action: float = 0.0
+    capacity: float = 1.0
 
     def __post_init__(self) -> None:
-        """Validate that no term is negative."""
+        """Validate that no term is negative and that the capacity is positive."""
+        if self.capacity <= 0.0:
+            raise ValueError("battery capacity must be positive")
         for name, value in (
             ("per_metre", self.per_metre),
             ("per_decision", self.per_decision),
