@@ -47,11 +47,10 @@ from swarm_field.experiments import (
 from swarm_field.simulation import MetricsConfig
 from swarm_field.swarm import ExploreConfig
 from swarm_field.swarm.explore import revisit_worths
-from swarm_field.visualization import MatplotlibRenderer
+from swarm_field.visualization import DEFAULT_TRAIL_LENGTH, MatplotlibRenderer
 
 DEFAULT_SPEED = 40.0
 """Twenty simulated seconds per frame."""
-TRAIL_LENGTH = 30
 
 
 def parse_args() -> argparse.Namespace:
@@ -111,7 +110,7 @@ def main() -> None:
         overlay=staleness,
         overlay_label="worth of a visit, 0 until the revisit age",
         panel=panel,
-        trail_length=TRAIL_LENGTH,
+        trail_length=DEFAULT_TRAIL_LENGTH,
         show_targets=True,
     )
     if args.save is None:

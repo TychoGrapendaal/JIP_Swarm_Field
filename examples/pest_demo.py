@@ -43,11 +43,10 @@ from swarm_field.experiments import (
     RobotPreset,
     SwarmScenario,
 )
-from swarm_field.visualization import MatplotlibRenderer
+from swarm_field.visualization import DEFAULT_TRAIL_LENGTH, MatplotlibRenderer
 
 DEFAULT_SPEED = 40.0
 """Twenty simulated seconds per frame."""
-TRAIL_LENGTH = 30
 GOAL_LABELS: dict[str | None, str] = {
     "treat-infestation": "treat",
     "treat-hop": "treat",
@@ -138,7 +137,7 @@ def main() -> None:
         MatplotlibRenderer((12.0, 8.0), show_targets=False),
         speed=args.speed,
         panel=panel,
-        trail_length=TRAIL_LENGTH,
+        trail_length=DEFAULT_TRAIL_LENGTH,
         show_targets=True,
     )
     if args.save is None:

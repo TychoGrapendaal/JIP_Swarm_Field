@@ -479,8 +479,8 @@ class WorldState:
         distance_m = self._distance_m(robot.position, target)
         return max(1, ceil(distance_m / robot.speed_mps * TimeUnit.SECOND))
 
-    def public_states(self) -> list[RobotPublicState]:
-        """Return ground-truth robot state for visualization."""
+    def public_states(self, time: Time) -> list[RobotPublicState]:
+        """Return ground-truth robot state for visualization, each robot where it is at ``time``."""
         return [
             RobotPublicState(
                 robot_id=robot.robot_id,
@@ -492,6 +492,7 @@ class WorldState:
                 target=robot.move_target,
                 current_action=robot.current_action,
                 failed=robot.failed,
+                point=self.continuous_position(robot.robot_id, time),
             )
             for robot in sorted(self.robots.values(), key=lambda item: item.robot_id)
         ]
@@ -510,7 +511,7 @@ class WorldState:
             time=time,
             field=self.field,
             cells=cells,
-            robots=self.public_states(),
+            robots=self.public_states(time),
             metrics=metrics,
         )
 

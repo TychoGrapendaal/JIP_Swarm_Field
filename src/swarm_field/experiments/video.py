@@ -8,11 +8,11 @@ each to ``video/<arm>_seed<seed>.mp4`` in an experiment's folder, next to its ``
     results = experiment.run(runs_for(specs, seeds=range(12)), measure_pest_response)
     record_videos(experiment.directory, runs_for({"hop-tuned": specs["hop-tuned"]}, seeds=[0]))
 
-A video steps its run as ``measure_pest_response`` does, one decision interval per frame, and
-draws the ground truth with ``MatplotlibRenderer``: pests in red, from light at a new pest to dark
-at a full one, killers as big red dots with their trails and targets, relays as small grey dots,
-and a side panel with the time and the measures so far. An mp4 needs
-ffmpeg on the ``PATH``.
+A video steps its run as ``measure_pest_response`` does, one decision interval at a time, with
+``FRAMES_PER_STEP`` frames per interval, and draws the ground truth with ``MatplotlibRenderer``:
+pests in red, from light at a new pest to dark at a full one, killers as big red dots with
+short trails and their targets, explorers as blue dots, relays as small grey dots, and a side
+panel with the time and the measures so far. An mp4 needs ffmpeg on the ``PATH``.
 """
 
 from __future__ import annotations
@@ -45,10 +45,12 @@ logger = logging.getLogger(__name__)
 VIDEO_FOLDER = "video"
 """The folder of an experiment that holds its videos."""
 FPS = 16
-"""Frames per second: one frame is one decision interval, so 15 s of a run is 1/16 s of video."""
-TRAIL_LENGTH = 20
-"""How many past cells of each robot are drawn."""
+"""Frames per second of a video."""
+FRAMES_PER_STEP = 3
+"""Frames drawn per decision interval: at 15 s per interval, one frame shows 5 s of the run, and
+one second of video 80 s."""
 RELAY_STYLE = RobotStyle("slategray", size=40.0, alpha=0.6, label="relay")
+EXPLORER_STYLE = RobotStyle("#0050ff", size=60.0, label="explorer")
 KILLER_STYLE = RobotStyle("red", size=160.0, label="killer")
 
 
@@ -65,6 +67,8 @@ def record_videos(
     runs: Sequence[Run[PestRunSpec]],
     processes: int | None = None,
     fps: int = FPS,
+    frames_per_step: int = FRAMES_PER_STEP,
+    explorer_targets: bool = False,
 ) -> list[Path]:
     """Run every run again and render it into a video in ``directory``, in parallel processes.
 
@@ -74,6 +78,9 @@ def record_videos(
         runs: The runs to film, e.g. from ``runs_for`` with the arms and seeds to look at.
         processes: How many processes, or ``None`` for one per CPU.
         fps: Frames per second of the videos.
+        frames_per_step: Frames drawn per decision interval; more plays the runs slower.
+        explorer_targets: Whether to draw the targets of the explorers and relays too, not
+            only the killers'.
 
     Returns:
         Where each run's video was written, in the order of ``runs``.
@@ -82,13 +89,26 @@ def record_videos(
         ValueError: If two runs share a name.
     """
     logger.info("Recording %d videos into %s", len(runs), directory / VIDEO_FOLDER)
-    results = run_in_parallel(runs, _VideoRecorder(directory, fps), processes)
+    results = run_in_parallel(
+        runs, _VideoRecorder(directory, fps, frames_per_step, explorer_targets), processes
+    )
     return [result.result for result in results]
 
 
-def record_video(run: Run[PestRunSpec], path: Path, fps: int = FPS) -> PestResponse:
-    """Run ``run``, render one frame per decision interval into ``path``, and measure it.
+def record_video(
+    run: Run[PestRunSpec],
+    path: Path,
+    fps: int = FPS,
+    frames_per_step: int = FRAMES_PER_STEP,
+    explorer_targets: bool = False,
+) -> PestResponse:
+    """Run ``run``, render ``frames_per_step`` frames per decision interval into ``path``, and
+    measure it.
 
+    The frames within an interval split it evenly, and robots glide between cells. A dashed line
+    leads from each killer to its target, and from every other robot too with
+    ``explorer_targets``. The run is measured only at the end of each
+    interval, as in ``measure_pest_response``, so the frames in between change nothing.
     A ``.gif`` is written with Pillow, an ``.mp4`` with ffmpeg, and any other path becomes a
     directory of PNG frames.
 
@@ -101,7 +121,7 @@ def record_video(run: Run[PestRunSpec], path: Path, fps: int = FPS) -> PestRespo
     import matplotlib.pyplot as plt
 
     measured = MeasuredPestRun(run)
-    styles = {BodyType.KILLER: KILLER_STYLE}
+    styles = {BodyType.KILLER: KILLER_STYLE, BodyType.SCOUT: EXPLORER_STYLE}
     scenario = run.config.scenario
     if scenario.count(RELAY.name) > 0 and scenario.count(EXPLORER.name) == 0:
         styles[BodyType.SCOUT] = RELAY_STYLE
@@ -109,21 +129,30 @@ def record_video(run: Run[PestRunSpec], path: Path, fps: int = FPS) -> PestRespo
         (12.0, 8.0), show_targets=False, show_metrics=False, body_styles=styles
     )
     panel = SidePanel(renderer)
-    trails = RobotTrails(TRAIL_LENGTH)
+    trails = RobotTrails()
 
     def draw_frame(index: int) -> None:
         # The animation draws its first frame twice, so a frame advances only to its own time.
-        if measured.live.now < (index + 1) * measured.step:
-            measured.advance()
+        interval, part = divmod(index, frames_per_step)
+        if part == frames_per_step - 1:
+            if measured.live.now < (interval + 1) * measured.step:
+                measured.advance()
+        else:
+            moment = interval * measured.step + (part + 1) * measured.step // frames_per_step
+            if measured.live.now < moment:
+                measured.live.advance_to(moment)
         snapshot = measured.live.snapshot()
         renderer.render(snapshot)
         draw_cell_overlay(renderer.axes, snapshot, pest_overlay(snapshot), "Reds")
         renderer.axes.set_title(f"{run.name}  |  {_clock(snapshot.time, measured.live.horizon)}")
         trails.update_and_draw(renderer.axes, snapshot)
-        draw_targets(renderer.axes, snapshot, measured.live.targets())
+        targets = measured.live.targets()
+        if not explorer_targets:
+            targets = {robot: cell for robot, cell in targets.items() if robot in measured.killers}
+        draw_targets(renderer.axes, snapshot, targets)
         panel.show(panel_lines(measured, snapshot))
 
-    save_frames(renderer.figure, draw_frame, measured.steps, path, fps=fps)
+    save_frames(renderer.figure, draw_frame, measured.steps * frames_per_step, path, fps=fps)
     plt.close(renderer.figure)
     logger.info("Wrote the video of %s to %s", run.name, path)
     return measured.response()
@@ -185,14 +214,18 @@ def panel_lines(measured: MeasuredPestRun, snapshot: WorldSnapshot) -> list[str]
 class _VideoRecorder:
     """Films one run into its video in an experiment's folder; it pickles, for the workers."""
 
-    def __init__(self, directory: Path, fps: int) -> None:
+    def __init__(
+        self, directory: Path, fps: int, frames_per_step: int, explorer_targets: bool
+    ) -> None:
         self._directory: Path = directory
         self._fps: int = fps
+        self._frames_per_step: int = frames_per_step
+        self._explorer_targets: bool = explorer_targets
 
     def __call__(self, run: Run[PestRunSpec]) -> Path:
         """Record the video of ``run`` and return where it went."""
         path = video_path(self._directory, run)
-        record_video(run, path, self._fps)
+        record_video(run, path, self._fps, self._frames_per_step, self._explorer_targets)
         return path
 
 

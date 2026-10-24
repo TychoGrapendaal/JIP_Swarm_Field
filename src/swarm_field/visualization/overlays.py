@@ -4,7 +4,7 @@ Each piece draws into the axes or figure of a ``MatplotlibRenderer`` after it re
 from data handed in by the caller, so none of them knows the simulation or the algorithm:
 
 - a cell overlay: one value from 0 to 1 per cell, e.g. how stale each cell is;
-- trails: the last cells each robot stood on;
+- trails: the last cells each robot stood on, up to where it is now;
 - targets: a dashed line from each robot to the cell it is heading for;
 - lines, arrows and markers: any of them between points of the field, e.g. a planned route, the
   pull on a robot, or what a robot knows;
@@ -59,9 +59,10 @@ def draw_targets(axes: Axes, snapshot: WorldSnapshot, targets: Mapping[RobotId, 
         if target is None:
             continue
         color = BODY_COLORS[robot.body]
+        x, y = robot.drawn_at()
         axes.plot(
-            [robot.position[0] + 0.5, target[0] + 0.5],
-            [robot.position[1] + 0.5, target[1] + 0.5],
+            [x, target[0] + 0.5],
+            [y, target[1] + 0.5],
             color=color,
             linestyle="--",
             linewidth=0.8,
@@ -170,14 +171,21 @@ def draw_arrows(axes: Axes, arrows: Sequence[Arrow]) -> None:
         )
 
 
+DEFAULT_TRAIL_LENGTH = 3
+"""How many past cells of each robot a trail keeps, unless told otherwise."""
+
+
 class RobotTrails:
     """Remembers the last cells each robot stood on, and draws them as lines.
+
+    Each line runs through the robot's last cells and ends where the robot is drawn, so it
+    follows a robot gliding between two cells.
 
     Attributes:
         length: How many past cells of each robot are kept and drawn.
     """
 
-    def __init__(self, length: int) -> None:
+    def __init__(self, length: int = DEFAULT_TRAIL_LENGTH) -> None:
         self.length: int = length
         self._trails: dict[RobotId, deque[CellId]] = {}
 
@@ -189,6 +197,9 @@ class RobotTrails:
                 trail.append(robot.position)
             xs = [cell[0] + 0.5 for cell in trail]
             ys = [cell[1] + 0.5 for cell in trail]
+            x, y = robot.drawn_at()
+            xs.append(x)
+            ys.append(y)
             axes.plot(xs, ys, color=BODY_COLORS[robot.body], alpha=0.5, linewidth=1)
 
 

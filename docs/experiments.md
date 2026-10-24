@@ -334,13 +334,14 @@ The video goes to `video/hop-tuned_seed0.mp4` in the experiment's folder. Its na
 
 ### What a video shows
 
-One frame is one decision interval (15 s), and a video plays at 16 frames per second (`fps`), so a 3-hour run is 720 frames, a 45-second video. The frames are drawn with `MatplotlibRenderer`:
+A video draws three frames per decision interval (`frames_per_step`), so one frame shows 5 s of the run, and plays at 16 frames per second (`fps`): one second of video is 80 s of the run, and a 3-hour run is 2,160 frames, a 135-second video. Robots glide between cells as they move. The run is measured only at the end of each interval, as in `measure_pest_response`, so the frames in between do not change it. The frames are drawn with `MatplotlibRenderer`:
 
 | Mark | Meaning |
 | --- | --- |
 | red cells | Pests, light red at a new one and dark at a full one. |
-| big red dots | Killers, with a line along their last 20 cells and a dashed line to their target. |
-| small grey dots | Relays. |
+| big red dots | Killers, with a line along their last 3 cells and a dashed line to their target. |
+| blue dots | Explorers, in a swarm with explorers, with a line along their last 3 cells. `explorer_targets=True` also draws their targets. |
+| small grey dots | Relays, in a swarm of relays without explorers. |
 | dark grey cells | Obstacles. |
 | side panel | The run's setup, the infested cells now, the pests treated so far and their mean response, the killers by goal, and the doses used. |
 
@@ -349,7 +350,7 @@ The panel's measures are those of `measure_pest_response` (`MeasuredPestRun`), s
 ### Requirements and time
 
 - An `.mp4` needs [ffmpeg](https://ffmpeg.org/) on the `PATH` (`sudo apt install ffmpeg`).
-- Drawing a frame takes about 0.3 s, on top of the simulation. One 3-hour video on the small field takes about 4 minutes, and the large field is slower. Film a few runs, not every seed.
+- Drawing a frame takes about 0.3 s, on top of the simulation. One 3-hour video on the small field takes about 11 minutes, and the large field is slower. Film a few runs, not every seed; `frames_per_step=1` draws a third of the frames.
 - To try a video on its own, without a batch, `record_video(run, path)` films one run to any path: `.mp4`, `.gif`, or a directory of PNG frames. It returns the run's `PestResponse`.
 
 ## Example: the obstacle benchmark

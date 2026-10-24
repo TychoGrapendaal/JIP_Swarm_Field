@@ -16,6 +16,7 @@ from swarm_field.visualization.matplotlib_renderer import (
     save_frames,
 )
 from swarm_field.visualization.overlays import (
+    DEFAULT_TRAIL_LENGTH,
     Arrow,
     CellOverlay,
     Marker,
@@ -32,6 +33,7 @@ from swarm_field.visualization.overlays import (
 from swarm_field.visualization.renderer import TextRenderer
 
 __all__ = [
+    "DEFAULT_TRAIL_LENGTH",
     "Arrow",
     "CellOverlay",
     "FrameWriter",

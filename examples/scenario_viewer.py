@@ -38,13 +38,12 @@ from swarm_field.console import (
 from swarm_field.contracts import CommandLog, Time, TimeUnit
 from swarm_field.experiments import LiveRun, build_named_experiment, scenario_names
 from swarm_field.simulation import write_metrics_csv, write_metrics_json
-from swarm_field.visualization import MatplotlibRenderer
+from swarm_field.visualization import DEFAULT_TRAIL_LENGTH, MatplotlibRenderer
 
 DEFAULT_SCENARIO = "S2"
 DEFAULT_SEED = 101
 DEFAULT_SPEED = 4.0
 METRICS_PERIOD_MS = TimeUnit.MINUTE
-TRAIL_LENGTH = 30
 
 
 def parse_args() -> argparse.Namespace:
@@ -111,7 +110,7 @@ def main() -> None:
         run,
         MatplotlibRenderer(show_targets=False),
         speed=args.speed,
-        trail_length=TRAIL_LENGTH,
+        trail_length=DEFAULT_TRAIL_LENGTH,
         show_targets=True,
     )
 

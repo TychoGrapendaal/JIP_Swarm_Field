@@ -271,8 +271,11 @@ class MeasuredPestRun:
         return self.live.now + self.step > self.live.horizon
 
     def advance(self) -> None:
-        """Advance the run by one decision interval, and sample it."""
-        now = self.live.now + self.step
+        """Advance the run to the end of its current decision interval, and sample it.
+
+        A video may have advanced ``live`` part of the way already, to draw a frame in between.
+        """
+        now = (self.live.now // self.step + 1) * self.step
         self.live.advance_to(now)
         self.tracker.sample(self.live, now)
 
