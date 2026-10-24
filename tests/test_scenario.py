@@ -14,6 +14,7 @@ from swarm_field.experiments import (
     RIVERS_LARGE,
     SEEDED_KILLER,
     CustomPreset,
+    ExplorerPreset,
     LiveRun,
     MapConfig,
     SeededKillerPreset,
@@ -21,7 +22,7 @@ from swarm_field.experiments import (
     pest_response_configurations,
 )
 from swarm_field.runner import BrainSpec
-from swarm_field.swarm import BeaconConfig, KnowledgeSharing
+from swarm_field.swarm import BeaconConfig, ExploreConfig, KnowledgeSharing
 
 _OPEN = SwarmScenario(map=MapConfig(size=16, obstacles=()), until=TimeUnit.MINUTE)
 
@@ -151,3 +152,21 @@ def test_the_pest_responses_keep_the_number_of_killers() -> None:
         assert configured.killers == RELAYED_KILLERS.killers
         assert configured.count(RELAY.name) == RELAYED_KILLERS.count(RELAY.name)
     assert configurations["hop-tuned"].count(HOP_KILLER.name) == RELAYED_KILLERS.killers
+
+
+def test_explorers_revisit_after_half_the_time_their_swarm_needs_to_sweep_the_field() -> None:
+    # 256 free cells, 4 explorers; a 10 m move at 2 m/s takes 5 s, a step a whole 15 s interval.
+    scenario = _OPEN.add_robots(EXPLORER, 4).add_robots(SEEDED_KILLER, 1)
+    sweep = 256 * 15 * TimeUnit.SECOND // 4
+
+    assert scenario.sweep_time() == sweep
+    assert scenario.brain(EXPLORER).params["explore"].revisit_age == sweep // 2
+    assert scenario.add_robots(EXPLORER, 4).sweep_time() == sweep // 2
+
+
+def test_an_explorer_without_revisit_sweeps_keeps_its_own_revisit_age() -> None:
+    fixed = ExplorerPreset(explore=ExploreConfig(revisit_age=TimeUnit.HOUR), revisit_sweeps=None)
+
+    scenario = _OPEN.add_robots(fixed, 4)
+
+    assert scenario.brain(fixed).params["explore"].revisit_age == TimeUnit.HOUR

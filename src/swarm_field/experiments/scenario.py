@@ -52,10 +52,12 @@ from swarm_field.experiments.presets import (
     EXPLORER,
     RELAY,
     SEEDED_KILLER,
+    ExplorerPreset,
     HopKillerPreset,
     Relaying,
     RobotPreset,
     SeededKillerPreset,
+    SwarmContext,
     hop_beacon_variants,
 )
 from swarm_field.runner import BrainSpec, ExperimentConfig
@@ -254,9 +256,31 @@ class SwarmScenario:
                 merged = merged.merge(group.preset.needs(hop_cells))
         return merged
 
+    def sweep_time(self) -> Time:
+        """How long the explorers need to visit every free cell once, if they split it evenly.
+
+        A robot moves one cell per decision at most, so a step takes the move rounded up to
+        whole decision intervals. The explorers are the robots of an ``ExplorerPreset``; without
+        any, the sweep time is 0.
+        """
+        explorers = 0
+        for group in self.swarm:
+            if isinstance(group.preset, ExplorerPreset):
+                explorers += group.count
+        if explorers == 0:
+            return 0
+        interval = self.robots.decision_interval
+        move = math.ceil(self.map.cell_size / self.robots.speed_mps_drone * TimeUnit.SECOND)
+        step = math.ceil(move / interval) * interval
+        return self.map.free_cells() * step // explorers
+
+    def context(self) -> SwarmContext:
+        """What this swarm tells each of its presets when the preset builds a brain."""
+        return SwarmContext(self.relaying(), self.arbiter, self.sweep_time())
+
     def brain(self, preset: RobotPreset) -> BrainSpec:
         """The brain of a robot of ``preset`` in this swarm."""
-        return preset.brain(self.relaying(), self.arbiter)
+        return preset.brain(self.context())
 
     def starts(self) -> list[CellId]:
         """The robots' starting cells, side by side from ``(0, 0)``, skipping obstacles.
@@ -375,10 +399,10 @@ class SwarmScenario:
             treatment_doses=self.pests.treatment_doses,
             energy=EnergySpec(capacity=self.robots.battery_capacity),
         )
-        relaying = self.relaying()
+        context = self.context()
         brains: list[BrainSpec] = []
         for group in self.swarm:
-            brain = group.preset.brain(relaying, self.arbiter)
+            brain = group.preset.brain(context)
             brains.extend([brain] * group.count)
         default = BrainSpec()
         by_robot: dict[RobotId, BrainSpec] = {}

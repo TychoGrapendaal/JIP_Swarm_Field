@@ -85,7 +85,10 @@ def build_scenario(args: argparse.Namespace, config: ExploreConfig) -> SwarmScen
 def main() -> None:
     args = parse_args()
     config = ExploreConfig(spread_peers=not args.no_discount, block_side=args.block_side)
-    run = LiveRun.from_config(build_scenario(args, config).into_experiment())
+    scenario = build_scenario(args, config)
+    # The explorers' revisit age comes from the swarm's sweep time.
+    config = ExplorerPreset(explore=config).explore_config(scenario.sweep_time())
+    run = LiveRun.from_config(scenario.into_experiment())
     monitorable = np.ones((args.size, args.size), dtype=np.bool_)
 
     def staleness(snapshot: WorldSnapshot) -> NDArray[np.float64]:

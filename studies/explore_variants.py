@@ -99,7 +99,7 @@ class ExploreRunSpec:
         )
         preset: RobotPreset = RANDOM_WAYPOINT
         if variant.explore is not None:
-            preset = ExplorerPreset(explore=variant.explore)
+            preset = ExplorerPreset(explore=variant.explore, revisit_sweeps=None)
         return replace(field.add_robots(preset, self.robots), until=end, seed=seed)
 
 

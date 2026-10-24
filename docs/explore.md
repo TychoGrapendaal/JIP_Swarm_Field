@@ -64,7 +64,7 @@ The defaults are the ones that did best in the benchmark below.
 
 | Parameter | Default | Meaning |
 | --- | --- | --- |
-| `revisit_age` | 28 min | How long a cell is worth nothing after an observation. |
+| `revisit_age` | 28 min | How long a cell is worth nothing after an observation. An explorer built from `ExplorerPreset` sets it to half its swarm's sweep time instead (see "The revisit age from the sweep time"). |
 | `beta` | 64 | Cells of travel a fully stale cell or block is worth. |
 | `rebuild_period` | 5 min | Longest drift of the other blocks' worths between rebuilds. |
 | `block_side` | 8 | The side of a block in cells. |
@@ -172,10 +172,47 @@ The revisit age with saturating values and the block max (32 × 32, four seeds; 
 | 28 min | 44.9 | 20.4 | 57.5 | 183.4 | 88.4 | 332.7 |
 | 56 min | 43.0 | 27.7 | 73.6 | 167.8 | 85.4 | 324.7 |
 
+## The revisit age from the sweep time
+
+A revisit age that suits one swarm does not suit another. With 20 explorers on the 32 × 32 river field and the 28-minute default, the explorers keep the field almost all fresh: only 40 to 60 of its cells are stale at a time, in 3 or 4 of its 16 blocks. Every explorer then heads for those blocks, and 12 to 25 % of them stand idle with no stale cell to go to, so the swarm moves as a flock. The peer discount cannot spread them, since it divides the worth of the few targets there are but cannot add any.
+
+The revisit age should therefore follow the time the swarm needs to sweep its field once, if every explorer visits new cells:
+
+$$S = \frac{C \cdot t_\text{step}}{n}, \qquad t_\text{step} = \left\lceil \frac{d / v}{\Delta t} \right\rceil \Delta t, \qquad A = k \cdot S$$
+
+| Symbol | Meaning |
+| --- | --- |
+| $S$ | The sweep time: how long the explorers need to visit every free cell once (`SwarmScenario.sweep_time`). |
+| $C$ | The free cells of the field. |
+| $n$ | The explorers: the robots of an `ExplorerPreset`. |
+| $t_\text{step}$ | The time an explorer needs per cell. A robot moves one cell per decision at most, so a move is rounded up to whole decision intervals. |
+| $d$ | The side of a cell. |
+| $v$ | The explorers' speed. |
+| $\Delta t$ | The decision interval. |
+| $A$ | The revisit age. |
+| $k$ | The revisit age in sweep times (`ExplorerPreset.revisit_sweeps`, `REVISIT_SWEEPS` = 0.5 by default). |
+
+The default fits this rule: five explorers on 32 × 32 cells, with 10 s per cell, sweep the field in 34 minutes, and 28 minutes is 0.8 sweeps. To choose $k$, explorers ran alone on the river field of `river_and_rocks` with flying explorers, for 4 h, two seeds each, idleness measured over the last 2 h. The mean idleness in minutes, by $k$:
+
+| Setup | $S$ (min) | $k$ = 0.25 | 0.5 | 0.8 | 1.2 | 2 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 32 × 32, 5 explorers | 47.4 | **12.9** | 13.3 | 18.4 | 30.2 | 37.3 |
+| 32 × 32, 10 explorers | 23.7 | **6.6** | 7.9 | 8.8 | 12.2 | 17.5 |
+| 32 × 32, 20 explorers | 11.8 | **2.7** | 3.2 | 3.5 | 5.6 | 9.2 |
+| 32 × 32, 40 explorers | 5.9 | 1.8 | 1.7 | **1.6** | 2.2 | 4.2 |
+| 64 × 64, 20 explorers | 49.5 | **15.8** | 17.9 | 18.4 | 22.7 | 35.2 |
+| 32 × 32, 20 explorers, 5 s decisions | 4.0 | **1.3** | 1.4 | 1.5 | 1.6 | 3.5 |
+
+The setups span eight times the explorers, four times the area and a third of the step time, and at $k \le 0.8$ the mean idleness is 0.23 to 0.39 sweep times in every one of them: the sweep time is the right scale. From 0.25 to 0.8 the idleness is flat, and it climbs from 1.2 on. The worst idleness argues against the lowest values: with 40 explorers, 0.25 leaves the worst cell waiting 5.8 sweep times, against 2.7 to 3.2 at 0.8 to 1.2. At $k$ = 0.5 the mean idleness is within 15 % of the best in every setup, and the worst idleness is one to two sweep times but for 40 explorers (4.4), so it is the default.
+
+In the pest study of `studies/explorer_hop_killers.py` (20 explorers, 4 killers), going from the fixed 28 minutes to a revisit age of a little over half a sweep time spread the explorers over 12 of the 16 blocks instead of 4 to 6, and cut the mean idleness from 10.6 to 3.3 minutes and the seeded killers' infested cells from 7.9 to 5.1.
+
+`ExplorerPreset(revisit_sweeps=None)` keeps the revisit age of its `explore`, as `studies/explore_variants.py` does to compare fixed revisit ages.
+
 ## What is not done
 
 - **The behaviour's bid.** `ExploreBehaviour` (see [`explore-behaviour.md`](./explore-behaviour.md)) scores EXPLORE from memory, but an explorer has no other behaviour, so the bid never competes with anything yet. The random-waypoint baseline of `studies/baselines.py` follows its seeder with `FollowSeederField`, a fixed bid of 0.5.
 - **Results recorded before the move to the runner.** The tables above were measured with `CoverageTracker`, which no longer exists, and with a perfect pool that shared every sensed fact instantly. The experiments now share over the channel, and the "no sharing" variants are a radio range of 0, which also turns off the peer discount. The tables need a re-run with `studies/explore_variants.py`.
 - **Holes on large fields.** On 64 × 64 cells the worst idleness stays above 300 minutes. Uncapped linear growth fixed most of it (see "Earlier value rules") but was left out to keep the rule simple.
-- **Choosing the revisit age.** It should grow with the time the swarm needs to sweep its field, which depends on the field and the number of robots; it is a fixed parameter for now, and the swarm-size experiment is still to do.
+- **Redundancy with a 3 × 3 footprint.** A scout senses the 3 × 3 cells around it, and `MetricsCollector` counts every sensed cell other than the robot's last one as a visit. Nearly every such cell was sensed a step before, so the redundancy is close to 1 for any swarm, and the redundancy figures above, measured when a robot sensed only its own cell, cannot be compared with new runs. The measure needs a new definition for a footprint.
 - **Decisions while moving.** Robots decide every 2.5 s while a move takes 10 to 14 s. The navigator then sees no progress for three ticks and hands over to the steerer, whose moves the simulation ignores while the robot is moving. This is harmless but wasted work.

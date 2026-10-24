@@ -44,6 +44,7 @@ from swarm_field.experiments.presets import (
     EXPLORER,
     HOP_KILLER,
     RELAY,
+    REVISIT_SWEEPS,
     SEEDED_KILLER,
     CustomPreset,
     ExplorerPreset,
@@ -52,6 +53,7 @@ from swarm_field.experiments.presets import (
     RelayPreset,
     RobotPreset,
     SeededKillerPreset,
+    SwarmContext,
     hop_beacon_variants,
 )
 from swarm_field.experiments.robustness import (
@@ -85,6 +87,7 @@ __all__ = [
     "PESTS",
     "RELAY",
     "RELAYED_KILLERS",
+    "REVISIT_SWEEPS",
     "RIVERS_LARGE",
     "RIVER_SMALL",
     "SEEDED_KILLER",
@@ -109,6 +112,7 @@ __all__ = [
     "Run",
     "RunResult",
     "SeededKillerPreset",
+    "SwarmContext",
     "SwarmScenario",
     "arm_name",
     "build_named_experiment",

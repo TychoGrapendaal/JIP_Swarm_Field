@@ -17,7 +17,8 @@ with other ones, e.g. ``HopKillerPreset(beacons=...)``. ``CustomPreset`` takes a
 What a robot broadcasts depends on who listens. Every preset says what the swarm has to relay
 for it (``Relaying``): hop killers need every robot to relay their beacons, seeded killers need
 the relays to pass on the pests. ``SwarmScenario`` merges what its presets need, and hands the
-result to every preset that builds its brain.
+result to every preset that builds its brain (``SwarmContext``), with the time the swarm's
+explorers need to sweep the field, from which explorers set their revisit age.
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ import math
 from dataclasses import dataclass, field, replace
 from typing import Protocol
 
-from swarm_field.contracts import BodyType
+from swarm_field.contracts import BodyType, Time
 from swarm_field.runner import BrainSpec
 from swarm_field.swarm import (
     ArbiterConfig,
@@ -41,6 +42,11 @@ from swarm_field.swarm import (
     TreatInfestation,
     TreatSeeder,
 )
+
+REVISIT_SWEEPS = 0.5
+"""An explorer's revisit age in sweep times of its swarm. From 0.25 to 0.8 the mean idleness
+stays within 15 % of its best for 5 to 40 explorers, on 32 x 32 and 64 x 64 fields; see
+``docs/explore.md``."""
 
 _PEST_FACTS_ORDER = (
     KnowledgeSharing.NOTHING,
@@ -80,6 +86,23 @@ class Relaying:
         return Relaying(beacons, pest_facts)
 
 
+@dataclass(frozen=True)
+class SwarmContext:
+    """What a swarm tells each of its presets when the preset builds a robot's brain.
+
+    Attributes:
+        relaying: What the swarm's robots relay, merged from what all its presets need.
+        arbiter: The overrides and hysteresis of the presets' ``UtilityArbiter``.
+        sweep_time: How long the swarm's explorers need to visit every free cell once, if they
+            split the field evenly; 0 without explorers. ``ExplorerPreset`` sets its revisit
+            age from it.
+    """
+
+    relaying: Relaying
+    arbiter: ArbiterConfig
+    sweep_time: Time
+
+
 class RobotPreset(Protocol):
     """A kind of robot: its name, its body, what the swarm relays for it, and its brain."""
 
@@ -95,8 +118,8 @@ class RobotPreset(Protocol):
         """What the swarm has to relay for this robot, with hops of ``hop_cells`` cells."""
         ...
 
-    def brain(self, relaying: Relaying, arbiter: ArbiterConfig) -> BrainSpec:
-        """The robot's brain in a swarm that relays ``relaying``."""
+    def brain(self, swarm: SwarmContext) -> BrainSpec:
+        """The robot's brain in ``swarm``."""
         ...
 
 
@@ -104,14 +127,19 @@ class RobotPreset(Protocol):
 class ExplorerPreset:
     """An explorer: the explore behaviour on the EXPLORE field, sharing all it knows.
 
-    In a swarm with beacons it relays them too, and is the source of the pests it sees.
+    In a swarm with beacons it relays them too, and is the source of the pests it sees. Its
+    revisit age is ``revisit_sweeps`` times the swarm's sweep time, so a swarm of any size on
+    any field keeps enough of the field stale to spread over.
 
     Attributes:
         explore: The parameters of its EXPLORE field.
+        revisit_sweeps: Its revisit age in sweep times of its swarm (``SwarmContext``), or
+            ``None`` to keep the revisit age of ``explore``.
         name: The preset's name.
     """
 
     explore: ExploreConfig = field(default_factory=ExploreConfig)
+    revisit_sweeps: float | None = REVISIT_SWEEPS
     name: str = "explorer"
 
     @property
@@ -121,14 +149,20 @@ class ExplorerPreset:
     def needs(self, hop_cells: float) -> Relaying:
         return Relaying()
 
-    def brain(self, relaying: Relaying, arbiter: ArbiterConfig) -> BrainSpec:
+    def brain(self, swarm: SwarmContext) -> BrainSpec:
         return BrainSpec(
             behaviors=("explore",),
             seeders=(ExploreSeeder.name,),
-            params={"explore": self.explore},
-            arbiter=arbiter,
-            beacons=relaying.beacons,
+            params={"explore": self.explore_config(swarm.sweep_time)},
+            arbiter=swarm.arbiter,
+            beacons=swarm.relaying.beacons,
         )
+
+    def explore_config(self, sweep_time: Time) -> ExploreConfig:
+        """Its EXPLORE parameters in a swarm that sweeps its field in ``sweep_time``."""
+        if self.revisit_sweeps is None:
+            return self.explore
+        return replace(self.explore, revisit_age=round(self.revisit_sweeps * sweep_time))
 
 
 @dataclass(frozen=True)
@@ -150,14 +184,14 @@ class RelayPreset:
     def needs(self, hop_cells: float) -> Relaying:
         return Relaying()
 
-    def brain(self, relaying: Relaying, arbiter: ArbiterConfig) -> BrainSpec:
+    def brain(self, swarm: SwarmContext) -> BrainSpec:
         return BrainSpec(
             behaviors=(),
             seeders=(),
-            arbiter=arbiter,
-            sharing=SharingConfig(facts=relaying.pest_facts),
-            beacons=relaying.beacons,
-            keeps_map=relaying.pest_facts is not KnowledgeSharing.NOTHING,
+            arbiter=swarm.arbiter,
+            sharing=SharingConfig(facts=swarm.relaying.pest_facts),
+            beacons=swarm.relaying.beacons,
+            keeps_map=swarm.relaying.pest_facts is not KnowledgeSharing.NOTHING,
         )
 
 
@@ -186,14 +220,14 @@ class SeededKillerPreset:
     def needs(self, hop_cells: float) -> Relaying:
         return Relaying(pest_facts=self._pest_facts())
 
-    def brain(self, relaying: Relaying, arbiter: ArbiterConfig) -> BrainSpec:
+    def brain(self, swarm: SwarmContext) -> BrainSpec:
         return BrainSpec(
             behaviors=(TreatInfestation.name,),
             seeders=(TreatSeeder.name,),
             params={"treat_window_blocks": self.window_blocks, "treat_yield": self.claims},
-            arbiter=arbiter,
+            arbiter=swarm.arbiter,
             sharing=SharingConfig(facts=self._pest_facts()),
-            beacons=relaying.beacons,
+            beacons=swarm.relaying.beacons,
         )
 
     def _pest_facts(self) -> KnowledgeSharing:
@@ -226,20 +260,20 @@ class HopKillerPreset:
             beacons = hop_beacon_variants(hop_cells)["hop-tuned"]
         return Relaying(beacons=beacons)
 
-    def brain(self, relaying: Relaying, arbiter: ArbiterConfig) -> BrainSpec:
+    def brain(self, swarm: SwarmContext) -> BrainSpec:
         """Its brain, on the beacons the swarm relays, which are the ones it needs.
 
         Raises:
             ValueError: If the swarm relays no beacons, which ``SwarmScenario`` never does.
         """
-        if relaying.beacons is None:
+        if swarm.relaying.beacons is None:
             raise ValueError("a hop killer needs a swarm that relays beacons")
         return BrainSpec(
             behaviors=(TreatByBeacon.name,),
             seeders=(HopField.name,),
-            arbiter=arbiter,
+            arbiter=swarm.arbiter,
             sharing=SharingConfig(facts=KnowledgeSharing.NOTHING),
-            beacons=relaying.beacons,
+            beacons=swarm.relaying.beacons,
             keeps_map=False,
         )
 
@@ -266,7 +300,7 @@ class CustomPreset:
     def needs(self, hop_cells: float) -> Relaying:
         return Relaying(beacons=self.brain_spec.beacons, pest_facts=self.pest_facts)
 
-    def brain(self, relaying: Relaying, arbiter: ArbiterConfig) -> BrainSpec:
+    def brain(self, swarm: SwarmContext) -> BrainSpec:
         return self.brain_spec
 
 
