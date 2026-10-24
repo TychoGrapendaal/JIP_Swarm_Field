@@ -21,6 +21,7 @@ from matplotlib.patches import Circle
 
 from swarm_field.contracts import (
     BodyType,
+    CellId,
     CropType,
     EnergySpec,
     FieldGeometry,
@@ -35,7 +36,21 @@ from swarm_field.contracts import (
 from swarm_field.simulation import SimulationContext, SimulationLoop, WorldState, build_world
 from swarm_field.simulation.event import MetricSample, RobotDecision
 from swarm_field.simulation.metrics import MetricsConfig
-from swarm_field.swarm import ReturnToDock, SupplyBattery, TreatInfestation, build_agent
+from swarm_field.swarm import (
+    AgentMemory,
+    BatteryRequestSeeder,
+    Behavior,
+    ComposedAgent,
+    DockSeeder,
+    ExploreSeeder,
+    FieldProvider,
+    Navigator,
+    ReturnToDock,
+    SupplyBattery,
+    TreatInfestation,
+    TreatSeeder,
+    capabilities_for,
+)
 
 BODY_COLOURS = {
     BodyType.SCOUT: "#168aad",
@@ -154,7 +169,7 @@ def _make_context() -> tuple[SimulationContext, BatteryDemoCapture]:
     world = build_world(config)
     capture = BatteryDemoCapture(world)
     agents: dict[RobotId, SwarmAgent] = {
-        robot.robot_id: build_agent(
+        robot.robot_id: _build_agent(
             robot.robot_id,
             robot.body,
             field,
@@ -178,6 +193,30 @@ def _make_context() -> tuple[SimulationContext, BatteryDemoCapture]:
         renderer=capture,
     )
     return context, capture
+
+
+def _build_agent(
+    robot_id: RobotId,
+    body: BodyType,
+    field: FieldGeometry,
+    *,
+    docks: tuple[CellId, ...],
+    behaviors: list[Behavior],
+) -> ComposedAgent:
+    """A brain of ``behaviors`` for one robot, with every seeder they may follow and the
+    navigation and capability gate of ``body``."""
+    memory = AgentMemory(robot_id, field)
+    capabilities = capabilities_for(body)
+    seeders = [ExploreSeeder(), TreatSeeder(), BatteryRequestSeeder(), DockSeeder(docks)]
+    fields = FieldProvider(memory, flies=capabilities.can_fly, seeders=seeders)
+    return ComposedAgent(
+        robot_id=robot_id,
+        behaviors=behaviors,
+        memory=memory,
+        fields=fields,
+        navigator=Navigator(fields.quadtree),
+        capabilities=capabilities,
+    )
 
 
 def _status(robot: RobotFrame) -> str:

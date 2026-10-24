@@ -53,6 +53,7 @@ from swarm_field.experiments import LiveRun, cropped_cells
 from swarm_field.runner import BrainSpec, ExperimentConfig
 from swarm_field.simulation import MetricsConfig
 from swarm_field.swarm import ArbiterConfig, ExploreConfig
+from swarm_field.swarm.seeder import SeededField
 from swarm_field.visualization.matplotlib_renderer import cell_rgba_image
 
 if TYPE_CHECKING:
@@ -61,8 +62,6 @@ if TYPE_CHECKING:
     from matplotlib.colors import Colormap
     from matplotlib.figure import Figure
     from matplotlib.text import Text
-
-    from swarm_field.swarm.seeder import SeededField
 
 FIELD_WIDTH = 40
 FIELD_HEIGHT = 30
@@ -507,6 +506,9 @@ class FieldSimulationConsole(InteractiveConsole):
         try:
             field = agent.fields.field_for(seeder, robot_state.position, self.time)
         except KeyError:
+            return chosen, seeder, None
+        if not isinstance(field, SeededField):
+            # A hop field gives a heading, not a field over the cells, so there is none to draw.
             return chosen, seeder, None
         return chosen, seeder, field
 

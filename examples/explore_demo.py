@@ -36,14 +36,21 @@ from swarm_field.console import (
     show_window,
 )
 from swarm_field.contracts import CellId, Time, TimeUnit, WorldSnapshot
-from swarm_field.experiments import ExploreScenario, LiveRun, river_and_rocks
+from swarm_field.experiments import (
+    EXPLORE,
+    ExplorerPreset,
+    LiveRun,
+    MapConfig,
+    SwarmScenario,
+    river_and_rocks,
+)
+from swarm_field.simulation import MetricsConfig
 from swarm_field.swarm import ExploreConfig
 from swarm_field.swarm.explore import revisit_worths
-from swarm_field.visualization import MatplotlibRenderer
+from swarm_field.visualization import DEFAULT_TRAIL_LENGTH, MatplotlibRenderer
 
 DEFAULT_SPEED = 40.0
 """Twenty simulated seconds per frame."""
-TRAIL_LENGTH = 30
 
 
 def parse_args() -> argparse.Namespace:
@@ -57,30 +64,31 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def build_scenario(args: argparse.Namespace, config: ExploreConfig) -> ExploreScenario:
+def build_scenario(args: argparse.Namespace, config: ExploreConfig) -> SwarmScenario:
     """The scenario of the command line; idleness is measured over the second half of the run."""
     obstacles: tuple[CellId, ...] = ()
     if args.obstacles:
         obstacles = river_and_rocks(args.size)
-    scenario = ExploreScenario(
-        width=args.size,
-        height=args.size,
-        robots=args.robots,
-        obstacles=obstacles,
-        explore=config,
-        sample_period=20 * TimeUnit.SECOND,
+    scenario = (
+        EXPLORE.without_robots()
+        .with_map(MapConfig(size=args.size, obstacles=obstacles))
+        .add_robots(ExplorerPreset(explore=config), args.robots)
     )
     if args.seed is not None:
         scenario = replace(scenario, seed=args.seed)
     if args.hours is not None:
         scenario = replace(scenario, until=int(args.hours * TimeUnit.HOUR))
-    return replace(scenario, measure_from=scenario.until // 2)
+    metrics = MetricsConfig(period=20 * TimeUnit.SECOND, measure_from=scenario.until // 2)
+    return scenario.with_metrics(metrics)
 
 
 def main() -> None:
     args = parse_args()
     config = ExploreConfig(spread_peers=not args.no_discount, block_side=args.block_side)
-    run = LiveRun.from_config(build_scenario(args, config).into_experiment())
+    scenario = build_scenario(args, config)
+    # The explorers' revisit age comes from the swarm's sweep time.
+    config = ExplorerPreset(explore=config).explore_config(scenario.sweep_time())
+    run = LiveRun.from_config(scenario.into_experiment())
     monitorable = np.ones((args.size, args.size), dtype=np.bool_)
 
     def staleness(snapshot: WorldSnapshot) -> NDArray[np.float64]:
@@ -105,7 +113,7 @@ def main() -> None:
         overlay=staleness,
         overlay_label="worth of a visit, 0 until the revisit age",
         panel=panel,
-        trail_length=TRAIL_LENGTH,
+        trail_length=DEFAULT_TRAIL_LENGTH,
         show_targets=True,
     )
     if args.save is None:

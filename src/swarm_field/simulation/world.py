@@ -45,11 +45,13 @@ class EnergyConfig:
         per_decision: Battery fraction consumed per decision point, for sensing, deciding and
             transmitting.
         treat_per_action: Battery fraction consumed by a ``Treat`` action.
+        capacity: How many standard charges a battery holds; every drain is divided by it.
     """
 
     per_metre: float = 0.0
     per_decision: float = 0.0
     treat_per_action: float = 0.0
+    capacity: float = 1.0
 
     @classmethod
     def from_spec(cls, spec: EnergySpec) -> "EnergyConfig":
@@ -58,6 +60,7 @@ class EnergyConfig:
             per_metre=spec.per_metre,
             per_decision=spec.per_decision,
             treat_per_action=spec.treat_per_action,
+            capacity=spec.capacity,
         )
 
 
@@ -113,6 +116,10 @@ class WorldState:
     Cells represent patches of field, not individual plants. Obstacles are represented by
     marking one or more cells as blocked, so a river can occupy several adjacent cells.
     Robot occupancy is intentionally unrestricted: many robots may share one cell.
+
+    Attributes:
+        treatment_rate: How much infestation severity one treating robot removes per hour.
+        treatment_doses: How many treatments a killer's full consumable holds.
     """
 
     def __init__(
@@ -121,6 +128,8 @@ class WorldState:
         robots: Iterable[RobotState] = (),
         docks: Iterable[CellId] = (),
         energy: EnergyConfig | None = None,
+        treatment_rate: float = 1.0,
+        treatment_doses: int = 10,
     ) -> None:
         """Create the field, fixed charging docks, and any initial robots."""
         if field.width <= 0 or field.height <= 0:
@@ -137,6 +146,12 @@ class WorldState:
         self._charging_slots: dict[CellId, RobotId] = {}
         self._charging_queues: dict[CellId, list[RobotId]] = {dock: [] for dock in self.docks}
         self.energy: EnergyConfig = energy if energy is not None else EnergyConfig()
+        if treatment_rate <= 0:
+            raise ValueError("treatment_rate must be positive")
+        self.treatment_rate: float = treatment_rate
+        if treatment_doses <= 0:
+            raise ValueError("treatment_doses must be positive")
+        self.treatment_doses: int = treatment_doses
         self.cells: dict[CellId, CellState] = {
             (x, y): CellState(
                 crop=None,
@@ -369,7 +384,7 @@ class WorldState:
         # Every decision incurs its configured cost, including decisions while a committed move
         # is underway. Travel was paid up front, so a move may finish if the decision drains the
         # remaining battery; depletion is settled after arrival.
-        can_pay_decision = robot.battery + 1e-12 >= self.energy.per_decision
+        can_pay_decision = self._affords(robot, self.energy.per_decision)
         self._spend(robot, self.energy.per_decision)
         if robot.move_target is not None:
             return robot.move_arrival_at
@@ -404,7 +419,7 @@ class WorldState:
         elif isinstance(action, Treat):
             self._stop_charging(robot, time)
             self._stop_battery_replacement(robot)
-            if robot.battery + 1e-12 < self.energy.treat_per_action:
+            if not self._affords(robot, self.energy.treat_per_action):
                 self._stop_treatment(robot)
                 robot.current_action = Idle()
             else:
@@ -444,8 +459,9 @@ class WorldState:
                 elapsed = max(0, time - robot.treatment_updated_at)
                 cell = self.cells.get(robot.treating_cell)
                 if cell is not None and elapsed > 0:
-                    # A severity of 1.0 takes one simulated hour to treat completely.
-                    cell.infestation = max(0.0, cell.infestation - elapsed / TimeUnit.HOUR)
+                    # At a rate of 1.0, a severity of 1.0 takes one simulated hour to treat.
+                    treated = self.treatment_rate * elapsed / TimeUnit.HOUR
+                    cell.infestation = max(0.0, cell.infestation - treated)
                 robot.treatment_updated_at = time
                 if cell is None or cell.infestation <= 0.0:
                     self._stop_treatment(robot)
@@ -505,8 +521,8 @@ class WorldState:
         distance_m = self._distance_m(robot.position, target)
         return max(1, ceil(distance_m / robot.speed_mps * TimeUnit.SECOND))
 
-    def public_states(self) -> list[RobotPublicState]:
-        """Return ground-truth robot state for visualization."""
+    def public_states(self, time: Time) -> list[RobotPublicState]:
+        """Return ground-truth robot state for visualization, each robot where it is at ``time``."""
         return [
             RobotPublicState(
                 robot_id=robot.robot_id,
@@ -518,6 +534,7 @@ class WorldState:
                 target=robot.move_target,
                 current_action=robot.current_action,
                 failed=robot.failed,
+                point=self.continuous_position(robot.robot_id, time),
             )
             for robot in sorted(self.robots.values(), key=lambda item: item.robot_id)
         ]
@@ -536,7 +553,7 @@ class WorldState:
             time=time,
             field=self.field,
             cells=cells,
-            robots=self.public_states(),
+            robots=self.public_states(time),
             metrics=metrics,
         )
 
@@ -559,7 +576,7 @@ class WorldState:
         duration = self.movement_duration(robot.robot_id, target)
         travel_cost = self._travel_cost(robot, self._distance_m(robot.position, target))
         # Do not partially debit a movement and then start an action the robot cannot fund.
-        if robot.battery + 1e-12 < travel_cost:
+        if not self._affords(robot, travel_cost):
             robot.current_action = Idle()
             return None
 
@@ -589,7 +606,7 @@ class WorldState:
                 robot.treatment_updated_at = None
                 robot.current_action = Idle()
                 return
-            robot.consumable = max(0.0, robot.consumable - 0.1)
+            robot.consumable = max(0.0, robot.consumable - 1 / self.treatment_doses)
             robot.treating_cell = target
         robot.treatment_updated_at = time
 
@@ -807,7 +824,7 @@ class WorldState:
         if robot.failed or robot.position in self.docks or robot.move_target is not None:
             return
         empty = robot.battery <= 0.0
-        stranded = robot.battery + 1e-12 < self._travel_cost(robot, self.field.cell_size)
+        stranded = not self._affords(robot, self._travel_cost(robot, self.field.cell_size))
         if empty or (stranded and not self._battery_supply_left()):
             self.fail_robot(robot.robot_id, FailureMode.DEAD_BATTERY, time=time)
 
@@ -845,18 +862,25 @@ class WorldState:
         robot.replacing_battery_for: RobotId | None = None
         robot.replacement_complete_at: Time | None = None
 
-    @staticmethod
-    def _spend(robot: RobotState, amount: float) -> None:
-        """Draw ``amount`` of battery, never below empty, and record it as spent."""
+    def _spend(self, robot: RobotState, amount: float) -> None:
+        """Draw ``amount`` of a standard charge, never below empty, and record it as spent.
+
+        A battery of ``capacity`` standard charges loses ``amount / capacity`` of its charge.
+        """
         if amount <= 0.0:
             return
-        drawn = min(robot.battery, amount)
+        drawn = min(robot.battery, amount / self.energy.capacity)
         robot.battery -= drawn
         robot.energy_spent += drawn
 
+    def _affords(self, robot: RobotState, amount: float) -> bool:
+        """Whether ``robot``'s battery holds ``amount`` of a standard charge, as ``_spend``
+        draws it."""
+        return robot.battery + 1e-12 >= amount / self.energy.capacity
+
     def _travel_cost(self, robot: RobotState, distance_m: float) -> float:
-        """The battery a move of ``distance_m`` costs ``robot``: its travel time against its
-        body's endurance, plus the energy model's cost per metre."""
+        """The standard charge a move of ``distance_m`` costs ``robot``: its travel time against
+        its body's endurance, plus the energy model's cost per metre."""
         from swarm_field.swarm.capabilities import capabilities_for
 
         duration = max(1, ceil(distance_m / robot.speed_mps * TimeUnit.SECOND))

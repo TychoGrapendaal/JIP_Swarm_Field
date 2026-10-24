@@ -40,7 +40,7 @@ def test_cell_rgba_image_encodes_crop_infestation_and_obstacle() -> None:
     image = cell_rgba_image(snapshot)
 
     assert image[0][0] == pytest.approx((0.35, 0.35, 0.35, 1.0))
-    assert image[0][1] == pytest.approx((0.25, 0.60, 0.25, 1.0))
+    assert image[0][1] == pytest.approx((0.47, 0.72, 0.47, 1.0))
     assert image[1][0] == pytest.approx((0.85, 0.80, 0.68, 1.0))
     assert image[1][1] == pytest.approx((0.85, 0.10, 0.05, 1.0))
 

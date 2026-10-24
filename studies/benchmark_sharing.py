@@ -1,10 +1,10 @@
 """Benchmark: how much of a pest run's wall time goes to knowledge sharing.
 
-Run it with ``uv run python -m tests.benchmark_sharing``, optionally with ``--cases 10x32 20x32
+Run it with ``uv run python -m studies.benchmark_sharing``, optionally with ``--cases 10x32 20x32
 20x64 40x64`` (robots x field side), ``--minutes 10``, ``--radio 300`` or ``--strategy
 periodic``. It is not a pytest module: a run takes seconds to minutes.
 
-Every case is a ``PestScenario`` with seed 0, three killers per ten robots, and every robot
+Every case is a ``SwarmScenario`` with seed 0, three killers per ten robots, and every robot
 sharing as ``--strategy`` says. Sharing is the time spent in ``KnowledgeExchange`` (merging what
 a robot hears, and picking what it broadcasts) and in reading the terrain it learned back into
 its quadtree. It is measured by wrapping those methods with a timer rather than with a profiler,
@@ -14,13 +14,19 @@ which would slow the many small calls of the rest of the run more than the vecto
 import argparse
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import wraps
 from time import perf_counter
 from typing import Any
 
 from swarm_field.contracts import TimeUnit
-from swarm_field.experiments import PestScenario
+from swarm_field.experiments import (
+    EXPLORER,
+    SEEDED_KILLER,
+    MapConfig,
+    RobotConfig,
+    SwarmScenario,
+)
 from swarm_field.runner import ExperimentConfig, build_run
 from swarm_field.simulation import SimulationLoop
 from swarm_field.swarm import (
@@ -114,13 +120,11 @@ def pest_config(
 ) -> ExperimentConfig:
     """The pest scenario of ``case``, with every robot sharing as ``sharing`` says."""
     killers = case.robots * 3 // 10
-    scenario = PestScenario(
-        size=case.size,
-        scouts=case.robots - killers,
-        killers=killers,
-        radio_range_m=radio,
+    scenario = replace(
+        SwarmScenario(map=MapConfig(size=case.size), robots=RobotConfig(radio_range_m=radio))
+        .add_robots(EXPLORER, case.robots - killers)
+        .add_robots(SEEDED_KILLER, killers),
         until=int(minutes * TimeUnit.MINUTE),
-        seed=0,
     )
     return scenario.into_experiment(f"{case.robots}x{case.size}").with_sharing(sharing)
 

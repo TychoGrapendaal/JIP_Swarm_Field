@@ -8,11 +8,12 @@ the ``visualization`` package) does not require matplotlib to be installed.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from swarm_field.contracts import BodyType, CellState, WorldSnapshot
+from swarm_field.contracts import BodyType, CellState, RobotId, RobotPublicState, WorldSnapshot
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
@@ -27,11 +28,31 @@ BODY_COLORS: dict[BodyType, str] = {
     BodyType.BATTERY: "goldenrod",
 }
 
+
+@dataclass(frozen=True)
+class RobotStyle:
+    """How the robots of one body are drawn.
+
+    Attributes:
+        color: The marker colour.
+        size: The marker area in points squared.
+        alpha: The marker opacity, from 0 to 1.
+        label: The legend name, or ``None`` for the body's name.
+    """
+
+    color: str
+    size: float = 26.0
+    alpha: float = 1.0
+    label: str | None = None
+
+
 _OBSTACLE_RGB: RGB = (0.35, 0.35, 0.35)
 _BARE_SOIL_RGB: RGB = (0.85, 0.80, 0.68)
-_CROP_RGB: RGB = (0.25, 0.60, 0.25)
+_CROP_RGB: RGB = (0.47, 0.72, 0.47)
 _INFESTATION_RGB: RGB = (0.85, 0.10, 0.05)
 _FAILED_COLOR = "dimgray"
+_OUTLINE_SHADE = 0.55
+"""How dark a robot's outline is: its colour with each channel scaled by this."""
 
 
 def cell_rgba_image(snapshot: WorldSnapshot) -> list[list[RGBA]]:
@@ -90,14 +111,17 @@ class MatplotlibRenderer:
         axes: The single axes the snapshot is drawn on.
         show_targets: Whether to draw a line from each robot to its movement target.
         show_metrics: Whether to write the snapshot's metrics into the title.
+        body_styles: How each body's robots are drawn; a body without a style is drawn in its
+            ``BODY_COLORS`` colour.
         show_grid: Whether to draw thin lines between the cells, so the grid is visible.
     """
 
     def __init__(
         self,
         figsize: tuple[float, float] = (9.0, 7.0),
-        show_targets: bool = True,
+        show_targets: bool = False,
         show_metrics: bool = True,
+        body_styles: Mapping[BodyType, RobotStyle] | None = None,
         show_grid: bool = True,
     ) -> None:
         import matplotlib.pyplot as plt
@@ -107,10 +131,24 @@ class MatplotlibRenderer:
         self.figure, self.axes = plt.subplots(figsize=figsize)
         self.show_targets: bool = show_targets
         self.show_metrics: bool = show_metrics
+        self.body_styles: dict[BodyType, RobotStyle] = {}
+        for body in BodyType:
+            self.body_styles[body] = RobotStyle(BODY_COLORS[body])
+        if body_styles is not None:
+            self.body_styles.update(body_styles)
         self.show_grid: bool = show_grid
 
-    def render(self, snapshot: WorldSnapshot) -> None:
-        """Redraw the axes from ``snapshot``."""
+    def render(
+        self,
+        snapshot: WorldSnapshot,
+        positions: Mapping[RobotId, tuple[float, float]] | None = None,
+    ) -> None:
+        """Redraw the axes from ``snapshot``.
+
+        A robot is drawn where the snapshot says it is, gliding between two cells while it moves.
+        ``positions`` places robots at other points of the field, in cells; a robot missing from
+        it is drawn where the snapshot says.
+        """
         field = snapshot.field
         self.axes.clear()
         self.axes.imshow(
@@ -119,7 +157,7 @@ class MatplotlibRenderer:
             interpolation="none",
             extent=(0, field.width, 0, field.height),
         )
-        self._draw_robots(snapshot)
+        self._draw_robots(snapshot, positions or {})
         self.axes.set_aspect("equal")
         self.axes.set_xlim(0, field.width)
         self.axes.set_ylim(0, field.height)
@@ -141,7 +179,7 @@ class MatplotlibRenderer:
         self.axes.set_xticks(range(width + 1), minor=True)
         self.axes.set_yticks(range(height + 1), minor=True)
         self.axes.tick_params(which="minor", length=0)
-        self.axes.grid(which="minor", color="black", linewidth=0.3, alpha=0.35)
+        self.axes.grid(which="minor", color="black", linewidth=0.3, alpha=0.35, linestyle="--")
         self.axes.set_axisbelow(True)
 
     def _title(self, snapshot: WorldSnapshot) -> str:
@@ -159,47 +197,75 @@ class MatplotlibRenderer:
             f"coverage={sample.coverage:.3f} active={sample.active_robots}"
         )
 
-    def _draw_robots(self, snapshot: WorldSnapshot) -> None:
-        """Scatter live robots by body type, failed ones hollow, and link each to its target."""
+    def _draw_robots(
+        self, snapshot: WorldSnapshot, positions: Mapping[RobotId, tuple[float, float]]
+    ) -> None:
+        """Scatter live robots by body type, failed ones hollow, and link each to its target.
+
+        A live robot's circle is filled in its colour at the style's opacity, with an opaque
+        outline in a darker shade of that colour, so it stands out from the field.
+        """
+        from matplotlib.colors import to_rgb, to_rgba
+
         for body in BodyType:
+            style = self.body_styles[body]
             robots = [robot for robot in snapshot.robots if robot.body is body]
             live = [robot for robot in robots if not robot.failed]
             dead = [robot for robot in robots if robot.failed]
+            name = style.label if style.label is not None else body.name
             for group, color, filled in (
-                (live, BODY_COLORS[body], True),
+                (live, style.color, True),
                 (dead, _FAILED_COLOR, False),
             ):
                 if not group:
                     continue
+                points = [_robot_point(robot, positions) for robot in group]
+                if filled:
+                    red, green, blue = to_rgb(color)
+                    face: RGBA | str = to_rgba(color, style.alpha)
+                    edge: RGBA = (
+                        red * _OUTLINE_SHADE,
+                        green * _OUTLINE_SHADE,
+                        blue * _OUTLINE_SHADE,
+                        1.0,
+                    )
+                    width = 1.2
+                else:
+                    face = "none"
+                    edge = to_rgba(color, style.alpha)
+                    width = 1.4
                 self.axes.scatter(
-                    [robot.position[0] + 0.5 for robot in group],
-                    [robot.position[1] + 0.5 for robot in group],
-                    s=26,
-                    color=color,
-                    facecolors=color if filled else "none",
-                    edgecolors=color,
-                    linewidths=1.4,
-                    label=f"{body.name} ({len(group)})",
+                    [point[0] for point in points],
+                    [point[1] for point in points],
+                    s=style.size,
+                    facecolors=face,
+                    edgecolors=edge,
+                    linewidths=width,
+                    label=f"{name} ({len(group)})",
                     zorder=2 if filled else 1,
                 )
             if self.show_targets:
                 for robot in live:
                     if robot.target is not None:
                         self.axes.plot(
-                            [
-                                robot.position[0] + 0.5,
-                                robot.target[0] + 0.5,
-                            ],
-                            [
-                                robot.position[1] + 0.5,
-                                robot.target[1] + 0.5,
-                            ],
-                            color=BODY_COLORS[body],
+                            [robot.drawn_at()[0], robot.target[0] + 0.5],
+                            [robot.drawn_at()[1], robot.target[1] + 0.5],
+                            color=style.color,
                             linewidth=0.8,
                             alpha=0.6,
                         )
         if snapshot.robots:
             self.axes.legend(loc="upper right", markerscale=1.5)
+
+
+def _robot_point(
+    robot: RobotPublicState, positions: Mapping[RobotId, tuple[float, float]]
+) -> tuple[float, float]:
+    """Where a robot is drawn: its given position, else where the snapshot says it is."""
+    point = positions.get(robot.robot_id)
+    if point is None:
+        return robot.drawn_at()
+    return point
 
 
 class FrameWriter:

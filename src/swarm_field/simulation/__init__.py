@@ -13,6 +13,7 @@ from swarm_field.simulation.event import (
     FailureConfig,
     MetricSample,
     PestDynamicsConfig,
+    PestSourceBroadcast,
     RobotDecision,
     WorldTick,
 )
@@ -39,6 +40,7 @@ __all__ = [
     "MetricsCollector",
     "MetricsConfig",
     "PestDynamicsConfig",
+    "PestSourceBroadcast",
     "RobotDecision",
     "RobotState",
     "SimulationContext",

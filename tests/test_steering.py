@@ -5,8 +5,8 @@ truth, ``GridSensing`` answers the steerer's proximity questions from that world
 ``Harness`` integrates ``Move`` the way the future Act stage would.
 """
 
-from swarm_field.contracts import Idle, Move
-from swarm_field.swarm import Steerer, SteeringConfig
+from swarm_field.contracts import Direction, Idle, Move, Terrain, TerrainObservation
+from swarm_field.swarm import SensedSurroundings, Steerer, SteeringConfig
 from tests.nav_harness import GridSensing, GridWorld, Harness, crop_field, drive
 
 
@@ -151,3 +151,19 @@ def test_steering_is_deterministic() -> None:
     assert harnesses[0].position == (5, 4)
     assert harnesses[1].position == (5, 4)
     assert traces[0] == traces[1]
+
+
+def test_sensed_surroundings_know_only_the_last_sensing() -> None:
+    surroundings = SensedSurroundings(width=5, height=5)
+    rock = TerrainObservation(
+        cell=(3, 2), confidence=1.0, observed_at=0, source=1, terrain=Terrain.OBSTACLE
+    )
+
+    surroundings.sense([rock])
+    blocked_east = not surroundings.clear((2, 2), Direction.E)
+    blocked_north_east = not surroundings.clear((2, 2), Direction.NE)
+    blocked_edge = not surroundings.clear((0, 0), Direction.W)
+    surroundings.sense([])
+
+    assert (blocked_east, blocked_north_east, blocked_edge) == (True, True, True)
+    assert surroundings.clear((2, 2), Direction.E)

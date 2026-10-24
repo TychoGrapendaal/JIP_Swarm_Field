@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import chain
 from math import exp
 from typing import Protocol, cast
@@ -155,6 +155,25 @@ class KnowledgeSnapshot:
         infestation = cast(list[InfestationObservation], self.infestation.facts.tolist())
         return chain(self.crops, terrain, infestation, self.peers)
 
+    def only_infestations(self, with_targets: bool = False) -> KnowledgeSnapshot:
+        """This snapshot with its infestation facts alone, or also its peers that have a target.
+
+        The empty parts are the same objects every time, so a receiver skips them as merged.
+        """
+        peers: tuple[PeerObservation, ...] = ()
+        if with_targets:
+            peers = tuple(peer for peer in self.peers if peer.target is not None)
+        return KnowledgeSnapshot(terrain=_NO_TERRAIN, infestation=self.infestation, peers=peers)
+
+
+_NO_TERRAIN = TerrainColumns(
+    cells=np.empty(0, dtype=np.intp),
+    observed_at=np.empty(0, dtype=np.float64),
+    facts=np.empty(0, dtype=np.object_),
+    terrain=np.empty(0, dtype=np.int8),
+)
+"""No terrain facts, for a snapshot that shares none."""
+
 
 class CellFacts:
     """The newest fact per cell of one kind, as flat arrays over the field.
@@ -237,16 +256,23 @@ class AgentMemory:
     """One robot's facts about the field and its peers, merged from its own sensing and peers.
 
     Crop, terrain, infestation and named peer facts are stored. Anonymous peer sightings and
-    sightings of the robot itself are ignored.
+    sightings of the robot itself are ignored. A memory that keeps no map stores only peer
+    facts, for a robot that steers by beacons and its own sensing alone.
 
     Attributes:
+        keeps_map: Whether crop, terrain and infestation facts are stored.
         version: How many facts memory has stored so far. It grows whenever a merge stores
             something, so two equal versions mean the same memory.
     """
 
     def __init__(
-        self, robot_id: RobotId, field: FieldGeometry, decay: DecayConfig | None = None
+        self,
+        robot_id: RobotId,
+        field: FieldGeometry,
+        decay: DecayConfig | None = None,
+        keeps_map: bool = True,
     ) -> None:
+        self.keeps_map: bool = keeps_map
         self._robot_id: RobotId = robot_id
         self._field: FieldGeometry = field
         self._decay: DecayConfig = DecayConfig()
@@ -281,10 +307,15 @@ class AgentMemory:
 
         A fact replaces the stored one only if it is strictly newer, so on a tie the robot
         keeps what it already knows. Terrain is static, so a newer terrain fact that repeats
-        the stored terrain is not stored either.
+        the stored terrain is not stored either. Without ``keeps_map``, crop, terrain and
+        infestation facts are dropped.
         """
         for fact in facts:
             match fact:
+                case CropObservation() | TerrainObservation() | InfestationObservation() if (
+                    not self.keeps_map
+                ):
+                    pass
                 case CropObservation():
                     self._merge_crops((fact,))
                 case TerrainObservation():
@@ -309,6 +340,10 @@ class AgentMemory:
                 ``snapshot`` that is the very part merged then is skipped: what memory learned
                 since is only newer, so it would store nothing.
         """
+        if not self.keeps_map:
+            if merged_before is None or snapshot.peers is not merged_before.peers:
+                self._merge_peers(snapshot.peers)
+            return
         if merged_before is None or snapshot.terrain is not merged_before.terrain:
             self._merge_terrain_columns(snapshot.terrain)
         if merged_before is None or snapshot.infestation is not merged_before.infestation:
@@ -463,13 +498,20 @@ class AgentMemory:
         self.version += len(stored)
 
     def _merge_peers(self, facts: Iterable[PeerObservation]) -> None:
-        """Merge peer facts; anonymous sightings and sightings of the robot itself are ignored."""
+        """Merge peer facts; anonymous sightings and sightings of the robot itself are ignored.
+
+        A peer's own status reports its goal: the target it heads for and the objective. A
+        sighting by another robot says where the peer is, and at most which cell it steps into
+        next, so a newer sighting keeps the goal of the last status rather than erasing it.
+        """
         for fact in facts:
             peer = fact.peer
             if peer is None or peer == self._robot_id:
                 continue
             known = self._peers.get(peer)
             if known is None or fact.observed_at > known.observed_at:
+                if fact.source != peer and known is not None and known.objective is not None:
+                    fact = replace(fact, target=known.target, objective=known.objective)
                 self._peers[peer] = fact
                 self._peers_last_stored = self._next_version()
 

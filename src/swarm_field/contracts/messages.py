@@ -7,7 +7,7 @@ The simulation's channel reads only the header (sender, time) to decide delivery
 from dataclasses import dataclass
 from enum import Enum, auto
 
-from swarm_field.contracts.ids import RobotId, Time
+from swarm_field.contracts.ids import CellId, RobotId, Time
 
 
 class MessageKind(Enum):
@@ -18,14 +18,42 @@ class MessageKind(Enum):
 
     Attributes:
         HELLO: A placeholder, to test that messages are delivered.
-        KNOWLEDGE: What a robot shares of its memory, in a shape the algorithm owns.
+        KNOWLEDGE: What a robot shares of its memory, in a shape the algorithm owns, or a tuple
+            of facts from a mock source.
         STATUS: A robot's report of itself: a ``PeerObservation`` with its cell, body, remaining
             battery fraction, and optional target/objective.
+        BEACON: A robot's hop values, as a tuple of ``Beacon``s, one per kind.
     """
 
     HELLO = auto()
     KNOWLEDGE = auto()
     STATUS = auto()
+    BEACON = auto()
+
+
+class BeaconKind(Enum):
+    """What a beacon marks.
+
+    ``TREAT`` beacons guide killers to a pest, and robots relay them.
+    """
+
+    TREAT = auto()
+
+
+@dataclass(frozen=True)
+class Beacon:
+    """A hop value of one kind, which robots relay to guide each other.
+
+    Attributes:
+        kind: What the beacon marks.
+        value: How far the marked place is, in hops: whole hops, or distances in radio ranges
+            with metric hops. 0 is the place itself.
+        cell: Where the value holds: the sender's cell, or the marked cell for a source.
+    """
+
+    kind: BeaconKind
+    value: float
+    cell: CellId
 
 
 @dataclass(frozen=True)

@@ -6,6 +6,7 @@ when the brain is assembled. The brain asks the provider for the winning seeder'
 name, and only the provider calls the seeder, whenever its cached field no longer answers.
 """
 
+import math
 from collections.abc import Hashable
 from dataclasses import dataclass
 from typing import Protocol
@@ -81,6 +82,12 @@ class TreatSeeder:
     heading for, to treat it, attracts less. Rebuilt once a minute, and whenever the infested
     cells or the peers' targets change.
 
+    With ``yield_to_closer``, a cell is left out altogether when a peer heading for it is closer
+    to it than the robot, by straight-line distance from the peer's reported cell: the closer
+    claimant keeps the pest and the others look elsewhere. Only claims reported within
+    ``claim_fresh_for`` count, so a peer that left or failed does not hold a pest for good. If
+    every known pest is claimed by a closer peer, none is left out, so the robot still helps.
+
     Attributes:
         reduction_rate: What is left of a cell's attraction when a peer is heading for it, 0..1.
         value_amplifier: The attraction of a cell of severity 1 at full confidence, in cells.
@@ -89,10 +96,13 @@ class TreatSeeder:
         cutoff_sigmas: Infestations further apart than this many widths do not reinforce each
             other. At the default of three the weight is ``exp(-9)``, about 0.0001, so what is
             left out is negligible.
+        window_blocks: How many blocks around the robot's own the field is searched cell by
+            cell, as in ``FieldSeeder``.
+        yield_to_closer: Whether to leave out the cells a closer peer is heading for.
+        claim_fresh_for: How old a peer's report of its target may be to count as a claim.
     """
 
     name: str = "treat"
-    window_blocks: int = 2
 
     def __init__(
         self,
@@ -100,6 +110,9 @@ class TreatSeeder:
         value_amplifier: float = 1.0,
         sigma: float = 1.0,
         cutoff_sigmas: float = 3.0,
+        window_blocks: int = 2,
+        yield_to_closer: bool = False,
+        claim_fresh_for: Time = 2 * TimeUnit.MINUTE,
     ) -> None:
         if not 0.0 <= reduction_rate <= 1.0:
             raise ValueError("reduction_rate must be between 0 and 1")
@@ -109,6 +122,9 @@ class TreatSeeder:
             raise ValueError("sigma must be positive")
         if cutoff_sigmas <= 0.0:
             raise ValueError("cutoff_sigmas must be positive")
+        self.window_blocks: int = window_blocks
+        self.yield_to_closer: bool = yield_to_closer
+        self.claim_fresh_for: Time = claim_fresh_for
         self._reduction_rate: float = reduction_rate
         self._value_amplifier: float = value_amplifier
         self._sigma: float = sigma
@@ -120,13 +136,15 @@ class TreatSeeder:
             for fact in memory.infestations()
             if fact.severity > 0.0
         )
-        return now // TimeUnit.MINUTE, facts, _cells_targeted_by_peers(memory)
+        yielded = self._yielded_cells(memory, robot, now)
+        return now // TimeUnit.MINUTE, facts, _cells_targeted_by_peers(memory), yielded
 
     def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
         seeds: list[Seed] = []
         targeted = _cells_targeted_by_peers(memory)
+        yielded = self._yielded_cells(memory, robot, now)
         for pest in memory.infestations():
-            if pest.severity <= 0.0:
+            if pest.severity <= 0.0 or pest.cell in yielded:
                 continue
             attractiveness = pest.severity * memory.confidence(pest, now)
             if pest.cell in targeted:
@@ -138,6 +156,35 @@ class TreatSeeder:
             return ()
         updated_seeds = self.reinforce_clustered_seeds(seeds)
         return tuple(updated_seeds)
+
+    def _yielded_cells(self, memory: MemoryView, robot: CellId, now: Time) -> frozenset[CellId]:
+        """The infested cells a closer peer has freshly claimed, if ``yield_to_closer``.
+
+        Empty when the robot does not yield, and when every infested cell would be yielded.
+        The set depends on the robot's own cell, so ``field_key`` includes it.
+        """
+        if not self.yield_to_closer:
+            return frozenset()
+        closest_claim: dict[CellId, float] = {}
+        for peer in memory.peers():
+            if peer.target is None or peer.objective is not AgentObjective.TREAT:
+                continue
+            if now - peer.observed_at > self.claim_fresh_for:
+                continue
+            distance = math.dist(peer.cell, peer.target)
+            closest_claim[peer.target] = min(distance, closest_claim.get(peer.target, math.inf))
+        yielded: set[CellId] = set()
+        infested = 0
+        for pest in memory.infestations():
+            if pest.severity <= 0.0:
+                continue
+            infested += 1
+            claim = closest_claim.get(pest.cell)
+            if claim is not None and claim < math.dist(robot, pest.cell):
+                yielded.add(pest.cell)
+        if len(yielded) == infested:
+            return frozenset()
+        return frozenset(yielded)
 
     def reinforce_clustered_seeds(self, seeds: list[Seed]) -> list[Seed]:
         """Update each value by the values of its neighbours, so clusters attract more.
