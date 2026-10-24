@@ -38,6 +38,7 @@ class MetricsSample:
         worst_idleness_ms: The largest age of a crop cell in those samples.
         redundancy: The share of the robots' visits to a crop cell sensed less than
             ``MetricsConfig.fresh_age`` before, 0..1.
+        battery_failures: Number of robots that have failed from battery depletion by this sample.
     """
 
     time: Time
@@ -51,6 +52,7 @@ class MetricsSample:
     mean_idleness_ms: float = 0.0
     worst_idleness_ms: float = 0.0
     redundancy: float = 0.0
+    battery_failures: int = 0
 
     def to_row(self) -> dict[str, Any]:
         """This sample as a flat ``dict`` of field name to value, for CSV and JSON export."""

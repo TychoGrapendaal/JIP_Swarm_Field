@@ -52,11 +52,13 @@ from swarm_field.simulation import (
 from swarm_field.swarm import (
     AgentMemory,
     ArbiterConfig,
+    BatteryRequestSeeder,
     BeaconConfig,
     BeaconLink,
     BeaconView,
     Behavior,
     ComposedAgent,
+    DockSeeder,
     ExploreBehaviour,
     ExploreConfig,
     ExploreSeeder,
@@ -66,10 +68,13 @@ from swarm_field.swarm import (
     KnowledgeSnapshot,
     Navigator,
     ObjectiveField,
+    RechargeConfig,
     Regroup,
     RegroupSeeder,
+    ReturnToDock,
     SensedSurroundings,
     SharingConfig,
+    SupplyBattery,
     TreatByBeacon,
     TreatInfestation,
     TreatSeeder,
@@ -173,6 +178,38 @@ def _build_treat_seeder(params: dict[str, Any], rng: Random) -> TreatSeeder:
     window_blocks: int = params.get("treat_window_blocks", 2)
     yield_to_closer: bool = params.get("treat_yield", False)
     return TreatSeeder(window_blocks=window_blocks, yield_to_closer=yield_to_closer)
+
+
+@BEHAVIORS.register("supply-battery")
+def _build_supply_battery(params: dict[str, Any], rng: Random) -> SupplyBattery:
+    """Build battery support, following the battery-support seeder named by the spec."""
+    seeders: tuple[str, ...] = tuple(params.get("seeders", (BatteryRequestSeeder.name,)))
+    seeder = next((name for name in seeders if name == BatteryRequestSeeder.name), None)
+    if seeder is None:
+        raise ValueError("supply-battery needs the battery-support seeder")
+    return SupplyBattery(seeder)
+
+
+@BEHAVIORS.register("return-to-dock")
+def _build_return_to_dock(params: dict[str, Any], rng: Random) -> ReturnToDock:
+    """Build recharge behaviour with the scenario's docks and optional policy."""
+    docks: tuple[CellId, ...] = tuple(params.get("docks", ()))
+    recharge: RechargeConfig | None = params.get("recharge")
+    seeders: tuple[str, ...] = tuple(params.get("seeders", ("dock",)))
+    seeder = next((name for name in seeders if name == "dock"), "dock")
+    return ReturnToDock(seeder, docks=docks, recharge_config=recharge)
+
+
+@SEEDERS.register("battery-support")
+def _build_battery_request_seeder(params: dict[str, Any], rng: Random) -> BatteryRequestSeeder:
+    """Build the peer battery-request field seeder."""
+    return BatteryRequestSeeder()
+
+
+@SEEDERS.register("dock")
+def _build_dock_seeder(params: dict[str, Any], rng: Random) -> DockSeeder:
+    """Build fixed attraction seeds for the docks configured in the scenario."""
+    return DockSeeder(tuple(params.get("docks", ())))
 
 
 @BEHAVIORS.register(ExploreBehaviour.name)
@@ -365,8 +402,15 @@ def build_run(
     agents: dict[RobotId, SwarmAgent] = {}
     for spec in scenario.robots:
         brain = config.brain_of(spec.robot_id, spec.body)
-        flies = capabilities_for(spec.body).can_fly
-        agents[spec.robot_id] = build_agent(brain, spec.robot_id, scenario.field, rng, known, flies)
+        agents[spec.robot_id] = build_agent(
+            brain,
+            spec.robot_id,
+            scenario.field,
+            rng,
+            known,
+            flies=capabilities_for(spec.body).can_fly,
+            docks=scenario.docks,
+        )
 
     collector = MetricsCollector(config=config.metrics)
     collector.bind(world)
@@ -424,7 +468,9 @@ def build_agent(
     field: FieldGeometry,
     rng: Random,
     known: KnowledgeSnapshot | None = None,
+    *,
     flies: bool = False,
+    docks: tuple[CellId, ...] = (),
 ) -> ComposedAgent:
     """Resolve a ``BrainSpec`` into one assembled brain for one robot.
 
@@ -432,9 +478,9 @@ def build_agent(
     it from each ``Perception``, and a body or a robot gets its own brain through
     ``ExperimentConfig`` (architecture §A.3). Only whether the body ``flies`` reaches the brain:
     a flying robot plans over obstacles, which it can enter. The robot's memory starts with what
-    ``known`` holds. A brain with beacons gets a ``BeaconLink``, whose beacons its hop parts
-    read, and steers headings from what it senses around itself at each decision only, not
-    from a map.
+    ``known`` holds, and its dock parts lead to ``docks``. A brain with beacons gets a
+    ``BeaconLink``, whose beacons its hop parts read, and steers headings from what it senses
+    around itself at each decision only, not from a map.
     """
     memory = AgentMemory(robot_id, field, keeps_map=spec.keeps_map)
     if known is not None:
@@ -442,9 +488,9 @@ def build_agent(
     link: BeaconLink | None = None
     if spec.beacons is not None:
         link = BeaconLink(robot_id, spec.beacons, field)
-    params = _params_for(spec, link)
+    params = _params_for(spec, link, docks=docks)
     behaviors: list[Behavior] = [BEHAVIORS.build(name, params, rng) for name in spec.behaviors]
-    fields = build_field_provider(spec, memory, rng, link, flies)
+    fields = build_field_provider(spec, memory, rng, link, flies=flies, docks=docks)
     heading_sensing: SensedSurroundings | None = None
     if link is not None:
         heading_sensing = link.surroundings
@@ -485,8 +531,11 @@ def terrain_map(world: WorldState) -> list[TerrainObservation]:
     return facts
 
 
-def _params_for(spec: BrainSpec, link: BeaconLink | None = None) -> dict[str, Any]:
-    """The spec's shared parameters, with the seeders, beacons and robot's beacon view folded in.
+def _params_for(
+    spec: BrainSpec, link: BeaconLink | None = None, *, docks: tuple[CellId, ...] = ()
+) -> dict[str, Any]:
+    """The spec's shared parameters, with the seeders, beacons, robot's beacon view and the
+    scenario's docks folded in.
 
     The seeders and beacons are fields of their own rather than parameters so that swapping one
     does not mean restating it, and so that the spec gives each in one place. The beacon view is
@@ -500,6 +549,7 @@ def _params_for(spec: BrainSpec, link: BeaconLink | None = None) -> dict[str, An
         "seeders": spec.seeders,
         "beacons": spec.beacons,
         "beacon_view": beacon_view,
+        "docks": docks,
     }
 
 
@@ -508,7 +558,9 @@ def build_field_provider(
     memory: AgentMemory,
     rng: Random,
     link: BeaconLink | None = None,
+    *,
     flies: bool = False,
+    docks: tuple[CellId, ...] = (),
 ) -> FieldProvider:
     """Build the objective fields of the navigator named by a spec: its seeders and its fields.
 
@@ -522,7 +574,7 @@ def build_field_provider(
     """
     if spec.navigator != "potential-field":
         raise ValueError(f"unknown navigator: {spec.navigator}")
-    params = _params_for(spec, link)
+    params = _params_for(spec, link, docks=docks)
     seeders: list[FieldSeeder] = []
     fields: list[ObjectiveField] = []
     for name in spec.seeders:

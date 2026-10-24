@@ -32,13 +32,16 @@ PRESET_HORIZON: Time = TimeUnit.HOUR
 """How long a preset runs when the caller does not say."""
 
 
-PRESET_BRAIN = BrainSpec(behaviors=("explore",), seeders=("explore",))
-"""The brain of every preset robot whose body has no brain of its own: it explores."""
+PRESET_BRAIN = BrainSpec(behaviors=("explore", "return-to-dock"), seeders=("explore", "dock"))
+"""The brain of every preset robot whose body has no brain of its own: it explores, and
+recharges at the preset's dock when its battery runs low."""
 
 PRESET_KILLER_BRAIN = BrainSpec(
-    behaviors=("treat-infestation", "explore"), seeders=("treat", "explore")
+    behaviors=("treat-infestation", "explore", "return-to-dock"),
+    seeders=("treat", "explore", "dock"),
 )
-"""A preset killer weighs treating the pests it knows of against exploring."""
+"""A preset killer weighs treating the pests it knows of against exploring, and recharges at
+the preset's dock when its battery runs low."""
 
 
 def _preset(scenario: ScenarioId) -> ScenarioBuilder:

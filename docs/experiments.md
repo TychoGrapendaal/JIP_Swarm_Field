@@ -74,7 +74,7 @@ What a robot broadcasts follows from who listens. Every preset says what the swa
 | `decision_interval` | The time between two decisions, 15 s. |
 | `knows_terrain` | Whether robots start with the map. In the obstacle scenarios they do not, and learn obstacles by sensing. |
 | `lattice_starts` | Each group of robots starts on a jittered lattice of its own over the field, from the seed. Otherwise all robots start side by side along the bottom row. |
-| `battery_capacity` | How many standard charges every battery holds, 1 by default. A standard charge lasts a body's endurance in travel, 30 minutes for a scout, and no robot charges yet, so moving explorers run empty after about 80 minutes. A large capacity, e.g. `1000`, keeps them going for a whole run. |
+| `battery_capacity` | How many standard charges every battery holds, 1 by default. A standard charge lasts a body's endurance in travel, 30 minutes for a scout, so moving explorers have to return to a dock (`MapConfig.docks`) about every hour. A large capacity, e.g. `1000`, keeps robots working without trips to a dock, and keeps hop killers, which cannot return to one yet, from running empty. |
 
 ```python
 from dataclasses import replace
@@ -91,6 +91,7 @@ The sparsest relay lattice that keeps nearly all relays in one network is one re
 | `size` | The field's side in cells. |
 | `obstacles` | The blocked cells, as a tuple of `(x, y)`. `river_and_rocks(size)` and `two_rivers_and_rocks(size)` build the two ready maps; `()` is an open field, and `None`, the default, the river. |
 | `cell_size` | The side of a cell in metres. |
+| `docks` | The cells where robots recharge, one at a time each; `((0, 0),)` by default. Explorers and seeded killers return to one when their battery runs low ([`battery-lifecycle.md`](battery-lifecycle.md)); `()` for none. |
 
 ```python
 from swarm_field.experiments import RIVERS_LARGE, MapConfig, two_rivers_and_rocks

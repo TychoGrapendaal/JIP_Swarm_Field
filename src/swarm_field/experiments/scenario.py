@@ -123,7 +123,8 @@ class RobotConfig:
             of the lattice pitch.
         battery_capacity: How many standard charges every robot's battery holds; a standard
             charge lasts a body's endurance in travel, 30 minutes for a scout. A large capacity,
-            e.g. ``1000``, keeps robots from running empty, since none of them charges yet.
+            e.g. ``1000``, keeps robots working without trips to a dock, and keeps hop killers,
+            which cannot return to one yet, from running empty.
     """
 
     speed_mps_drone: float = 2.0
@@ -398,6 +399,7 @@ class SwarmScenario:
             treatment_rate=self.pests.treatment_rate,
             treatment_doses=self.pests.treatment_doses,
             energy=EnergySpec(capacity=self.robots.battery_capacity),
+            docks=self.map.docks,
         )
         context = self.context()
         brains: list[BrainSpec] = []

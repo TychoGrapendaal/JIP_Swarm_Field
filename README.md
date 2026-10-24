@@ -81,6 +81,54 @@ uv run python -m studies.benchmark_sharing --cases 10x32 20x32 20x64 40x64
 
 See [`studies/README.md`](studies/README.md) for the list of studies and how to write one.
 
+## Running an experiment from a JSON file
+
+To run an experiment without writing code, describe it in a JSON file and run that file. [`configs/`](configs/) has three to copy: `pests.json` (one setup), `radio_range.json` (several conditions compared over the same seeds) and `explore.json`.
+
+```bash
+uv run python -m swarm_field.experiments.from_json configs/radio_range.json
+```
+
+```json
+{
+  "name": "radio-range",
+  "scenario": "pests",
+  "seeds": [0, 1, 2],
+  "hours": 1,
+  "jobs": 6,
+  "parameters": {"swarm": {"explorer": 5, "seeded-killer": 3}},
+  "conditions": {
+    "radio-50": {"robots": {"radio_range_m": 50}},
+    "radio-300": {"robots": {"radio_range_m": 300}}
+  }
+}
+```
+
+- `scenario` is a ready scenario: `pests`, `explore`, `river-small`, `rivers-large` or `relayed-killers`. Every run starts from it.
+- `parameters` changes it for every run, and each entry of `conditions` (optional) changes it further for one condition. Every condition runs with every seed.
+- Parameters come in groups: `map`, `pests`, `robots` and `metrics` take the fields of `MapConfig`, `PestConfig`, `RobotConfig` and `MetricsConfig` (see [`docs/experiments.md`](docs/experiments.md)), with their names and units, so times are in milliseconds. `explore` takes the explorers' `ExploreConfig` fields, and `swarm` the number of robots of each preset by name. List them all with their values with `uv run python -m swarm_field.experiments.from_json --list pests`. An unknown name is an error rather than silently ignored.
+- `hours` sets every run's length in whole hours, `warmup_hours` how much of it is left out of the infested cells (0 by default), and `jobs` how many runs go at once (one per CPU by default).
+
+Every run is measured with `measure_pest_response`. The run prints one row per condition, and writes every run's result, the table and a copy of the JSON file to a new folder in `output/`.
+
+## Integrated battery and live-field demonstrations
+
+The Issue #77 battery lifecycle adds simulated-time energy depletion, exclusive dock charging with
+FIFO queues, and explicit off-dock `DEAD_BATTERY` failures while preserving the current behaviour,
+arbitration, potential-field and discrete-event architecture. See
+[`docs/battery-lifecycle.md`](docs/battery-lifecycle.md) for policy and test details.
+
+The styled live simulation shows the actual runner-built swarm, selected robot's potential field,
+infestation, docks, radio links and battery telemetry in one interactive window. It does not save
+an animation by default:
+
+```bash
+uv run --with matplotlib python examples/field_simulation_demo.py
+```
+
+See [`docs/live-field-simulation-demo.md`](docs/live-field-simulation-demo.md) for controls and the
+components the view observes.
+
 ## Demonstrations
 
 > **Note:** The examples below are demonstration and visualization tools for the current world model and potential-field prototype. They are not the final swarm exploration or communication implementation.
@@ -231,5 +279,6 @@ src/swarm_field/   # contracts, swarm brain, simulation, runner and visualizatio
 tests/             # pytest suite
 examples/          # executable demonstrations
 studies/           # experiments behind the report, one per research question
+configs/           # experiments described in JSON, for swarm_field.experiments.from_json
 docs/              # design documents, research notes and source material
 ```

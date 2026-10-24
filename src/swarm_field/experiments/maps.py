@@ -20,11 +20,26 @@ class MapConfig:
         size: The field's side in cells.
         obstacles: The blocked cells; ``None`` for ``river_and_rocks``, ``()`` for an open field.
         cell_size: The side of a cell in metres.
+        docks: The cells where robots recharge, one robot at a time each. Explorers and seeded
+            killers return to one when their battery runs low; ``()`` for none, so that a robot
+            fails once its battery runs out.
     """
 
     size: int = 32
     obstacles: tuple[CellId, ...] | None = None
     cell_size: float = 10.0
+    docks: tuple[CellId, ...] = ((0, 0),)
+
+    def __post_init__(self) -> None:
+        """Check that every dock is a free cell of the field.
+
+        Raises:
+            ValueError: If a dock is outside the field or blocked.
+        """
+        blocked = set(self.blocked_cells())
+        for dock in self.docks:
+            if not self.is_inside(dock) or dock in blocked:
+                raise ValueError(f"dock {dock} is not a free cell of the field")
 
     def field_geometry(self) -> FieldGeometry:
         return FieldGeometry(

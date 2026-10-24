@@ -32,11 +32,13 @@ from swarm_field.runner import BrainSpec
 from swarm_field.swarm import (
     ArbiterConfig,
     BeaconConfig,
+    DockSeeder,
     EscapeConfig,
     ExploreConfig,
     ExploreSeeder,
     HopField,
     KnowledgeSharing,
+    ReturnToDock,
     SharingConfig,
     TreatByBeacon,
     TreatInfestation,
@@ -127,9 +129,10 @@ class RobotPreset(Protocol):
 class ExplorerPreset:
     """An explorer: the explore behaviour on the EXPLORE field, sharing all it knows.
 
-    In a swarm with beacons it relays them too, and is the source of the pests it sees. Its
-    revisit age is ``revisit_sweeps`` times the swarm's sweep time, so a swarm of any size on
-    any field keeps enough of the field stale to spread over.
+    In a swarm with beacons it relays them too, and is the source of the pests it sees. It
+    returns to a dock of the field when its battery runs low (``ReturnToDock``). Its revisit
+    age is ``revisit_sweeps`` times the swarm's sweep time, so a swarm of any size on any field
+    keeps enough of the field stale to spread over.
 
     Attributes:
         explore: The parameters of its EXPLORE field.
@@ -151,8 +154,8 @@ class ExplorerPreset:
 
     def brain(self, swarm: SwarmContext) -> BrainSpec:
         return BrainSpec(
-            behaviors=("explore",),
-            seeders=(ExploreSeeder.name,),
+            behaviors=("explore", ReturnToDock.name),
+            seeders=(ExploreSeeder.name, DockSeeder.name),
             params={"explore": self.explore_config(swarm.sweep_time)},
             arbiter=swarm.arbiter,
             beacons=swarm.relaying.beacons,
@@ -197,7 +200,8 @@ class RelayPreset:
 
 @dataclass(frozen=True)
 class SeededKillerPreset:
-    """A seeded killer: ``TreatInfestation`` on the TREAT field of its map.
+    """A seeded killer: ``TreatInfestation`` on the TREAT field of its map, returning to a dock
+    of the field when its battery runs low.
 
     With ``claims`` it leaves a pest to a closer killer that claimed it and waits on a pest a
     lower-id killer already treats, and the swarm passes on the killers' claims with the pests.
@@ -222,8 +226,8 @@ class SeededKillerPreset:
 
     def brain(self, swarm: SwarmContext) -> BrainSpec:
         return BrainSpec(
-            behaviors=(TreatInfestation.name,),
-            seeders=(TreatSeeder.name,),
+            behaviors=(TreatInfestation.name, ReturnToDock.name),
+            seeders=(TreatSeeder.name, DockSeeder.name),
             params={"treat_window_blocks": self.window_blocks, "treat_yield": self.claims},
             arbiter=swarm.arbiter,
             sharing=SharingConfig(facts=self._pest_facts()),
@@ -240,6 +244,8 @@ class SeededKillerPreset:
 @dataclass(frozen=True)
 class HopKillerPreset:
     """A hop killer: ``TreatByBeacon`` on the hop field, with no map and no shared memory.
+
+    It does not return to a dock: the dock field is planned over a map, which it does not keep.
 
     Attributes:
         beacons: How it and every robot of its swarm keep, relay and weigh beacons, or ``None``

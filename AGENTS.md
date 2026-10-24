@@ -16,6 +16,7 @@ A decentralized swarm of robots that monitor and cultivate a crop field. Each ro
 - Source lives under `src/swarm_field/<package>/`; tests mirror it under `tests/`.
 - `output/` (git-ignored) — one folder per experiment run through `swarm_field.experiments.Experiment`, named `YYYY-MM-DD_HH-MM-SS_<name>`, with `experiment.json` (what was run, from which commit), `results.json` (one record per run) and whatever else the experiment writes, such as tables and videos.
 - [`studies/`](studies/README.md) — the experiments behind the report, one script per research question; `examples/` holds demonstrations.
+- [`configs/`](configs/) — experiments described in JSON, run with `uv run python -m swarm_field.experiments.from_json FILE` (see the README).
 
 ## Modules
 

@@ -295,7 +295,6 @@ class BatteryRequestSeeder:
                 )
                 for fact in memory.peers()
                 if fact.peer is not None
-                and fact.battery is not None
                 and fact.body in (BodyType.SCOUT, BodyType.KILLER)
                 and fact.battery <= self.low_battery_threshold
                 and 0 <= now - fact.observed_at <= self.observation_ttl
@@ -309,7 +308,6 @@ class BatteryRequestSeeder:
             Seed(fact.cell, -1.0 + fact.battery)
             for fact in memory.peers()
             if fact.peer is not None
-            and fact.battery is not None
             and fact.body in (BodyType.SCOUT, BodyType.KILLER)
             and fact.battery <= self.low_battery_threshold
             and 0 <= now - fact.observed_at <= self.observation_ttl
