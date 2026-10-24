@@ -170,3 +170,17 @@ def test_an_explorer_without_revisit_sweeps_keeps_its_own_revisit_age() -> None:
     scenario = _OPEN.add_robots(fixed, 4)
 
     assert scenario.brain(fixed).params["explore"].revisit_age == TimeUnit.HOUR
+
+
+def test_a_preset_with_no_robots_adds_no_brain() -> None:
+    # A hop killer's brain needs relayed beacons, which a swarm without hop killers lacks.
+    scenario = (
+        SwarmScenario()
+        .add_robots(EXPLORER, 2)
+        .add_robots(SEEDED_KILLER, 2)
+        .add_robots(HOP_KILLER, 0)
+    )
+
+    config = scenario.into_experiment()
+
+    assert len(config.scenario.robots) == 4

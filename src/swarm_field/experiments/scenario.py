@@ -404,6 +404,10 @@ class SwarmScenario:
         context = self.context()
         brains: list[BrainSpec] = []
         for group in self.swarm:
+            # A group without robots has no brain to build, and like ``relaying`` it must not
+            # count: a hop killer's brain refuses a swarm whose other robots relay no beacons.
+            if group.count == 0:
+                continue
             brain = group.preset.brain(context)
             brains.extend([brain] * group.count)
         default = BrainSpec()

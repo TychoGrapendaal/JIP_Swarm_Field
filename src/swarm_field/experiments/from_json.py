@@ -148,15 +148,18 @@ class ExperimentFile:
 
         Raises:
             ValueError: If a key, the scenario, a group, a field or a preset is unknown, so that
-                a typo is reported instead of silently running the default.
+                a typo is reported instead of silently running the default, or if ``hours`` or
+                ``warmup_hours`` is not a whole number of hours.
         """
         _check_names(data, _FILE_KEYS, "key")
+        hours = _whole_hours(data.get("hours", 1), "hours", smallest=1)
+        warmup_hours = _whole_hours(data.get("warmup_hours", 0), "warmup_hours", smallest=0)
         experiment = cls(
             name=data["name"],
             scenario=data["scenario"],
             seeds=tuple(data.get("seeds", (0,))),
-            hours=data.get("hours", 1),
-            warmup_hours=data.get("warmup_hours", 0),
+            hours=hours,
+            warmup_hours=warmup_hours,
             jobs=data.get("jobs"),
             parameters=data.get("parameters"),
             conditions=data.get("conditions"),
@@ -278,6 +281,21 @@ def _merge_groups(shared: dict[str, Any], overrides: dict[str, Any]) -> dict[str
     for group in (*shared, *overrides):
         merged[group] = {**shared.get(group, {}), **overrides.get(group, {})}
     return merged
+
+
+def _whole_hours(value: Any, key: str, smallest: int) -> int:
+    """``value`` as a whole number of hours of at least ``smallest``.
+
+    The table has one column per simulated hour, so a run must last whole hours.
+
+    Raises:
+        ValueError: If ``value`` is not a whole number, or smaller than ``smallest``.
+    """
+    if isinstance(value, bool) or not isinstance(value, int | float) or value != int(value):
+        raise ValueError(f"{key} must be a whole number of hours, got {value!r}")
+    if value < smallest:
+        raise ValueError(f"{key} must be at least {smallest}, got {value!r}")
+    return int(value)
 
 
 def _check_names(values: dict[str, Any], known: set[str] | frozenset[str], what: str) -> None:

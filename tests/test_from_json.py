@@ -79,6 +79,12 @@ def test_a_typo_is_refused_rather_than_run_with_the_default(data: dict[str, obje
         ExperimentFile.from_dict(data)
 
 
+@pytest.mark.parametrize("hours", [0.5, 0])
+def test_a_run_must_last_whole_hours(hours: float) -> None:
+    with pytest.raises(ValueError):
+        ExperimentFile.from_dict({"name": "x", "scenario": "pests", "hours": hours})
+
+
 @pytest.mark.parametrize("path", _CONFIGS, ids=[path.name for path in _CONFIGS])
 def test_every_example_file_is_a_valid_experiment(path: Path) -> None:
     assert ExperimentFile.from_path(path).into_specs()

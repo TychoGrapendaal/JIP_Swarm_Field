@@ -83,7 +83,7 @@ See [`studies/README.md`](studies/README.md) for the list of studies and how to 
 
 ## Running an experiment from a JSON file
 
-To run an experiment without writing code, describe it in a JSON file and run that file. [`configs/`](configs/) has three to copy: `pests.json` (one setup), `radio_range.json` (several conditions compared over the same seeds) and `explore.json`.
+To run an experiment without writing code, describe it in a JSON file and run that file. [`configs/`](configs/) has four to copy: `pests.json` (one setup), `radio_range.json` (several conditions compared over the same seeds), `seeded_vs_hop.json` (the map-based seeded killers against the hop-based killers, switched by the robot counts in `swarm`) and `explore.json`.
 
 ```bash
 uv run python -m swarm_field.experiments.from_json configs/radio_range.json
@@ -106,7 +106,7 @@ uv run python -m swarm_field.experiments.from_json configs/radio_range.json
 
 - `scenario` is a ready scenario: `pests`, `explore`, `river-small`, `rivers-large` or `relayed-killers`. Every run starts from it.
 - `parameters` changes it for every run, and each entry of `conditions` (optional) changes it further for one condition. Every condition runs with every seed.
-- Parameters come in groups: `map`, `pests`, `robots` and `metrics` take the fields of `MapConfig`, `PestConfig`, `RobotConfig` and `MetricsConfig` (see [`docs/experiments.md`](docs/experiments.md)), with their names and units, so times are in milliseconds. `explore` takes the explorers' `ExploreConfig` fields, and `swarm` the number of robots of each preset by name. List them all with their values with `uv run python -m swarm_field.experiments.from_json --list pests`. An unknown name is an error rather than silently ignored.
+- Parameters come in groups: `map`, `pests`, `robots` and `metrics` take the fields of `MapConfig`, `PestConfig`, `RobotConfig` and `MetricsConfig` (see [`docs/experiments.md`](docs/experiments.md)), with their names and units, so times are in milliseconds. `explore` takes the explorers' `ExploreConfig` fields, and `swarm` the number of robots of each preset by name (`explorer`, `relay`, `seeded-killer`, `hop-killer`); a count of 0 leaves a preset out, which is how a condition switches the killers' navigation, as in `seeded_vs_hop.json`. Hop killers cannot find a dock yet, so give them a large `robots.battery_capacity` and `pests.treatment_doses` for a fair comparison. List them all with their values with `uv run python -m swarm_field.experiments.from_json --list pests`. An unknown name is an error rather than silently ignored.
 - `hours` sets every run's length in whole hours, `warmup_hours` how much of it is left out of the infested cells (0 by default), and `jobs` how many runs go at once (one per CPU by default).
 
 Every run is measured with `measure_pest_response`. The run prints one row per condition, and writes every run's result, the table and a copy of the JSON file to a new folder in `output/`.
