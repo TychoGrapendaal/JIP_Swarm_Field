@@ -74,6 +74,7 @@ from swarm_field.swarm import (
     TreatInfestation,
     TreatSeeder,
     UtilityArbiter,
+    capabilities_for,
 )
 
 T = TypeVar("T")
@@ -364,7 +365,8 @@ def build_run(
     agents: dict[RobotId, SwarmAgent] = {}
     for spec in scenario.robots:
         brain = config.brain_of(spec.robot_id, spec.body)
-        agents[spec.robot_id] = build_agent(brain, spec.robot_id, scenario.field, rng, known)
+        flies = capabilities_for(spec.body).can_fly
+        agents[spec.robot_id] = build_agent(brain, spec.robot_id, scenario.field, rng, known, flies)
 
     collector = MetricsCollector(config=config.metrics)
     collector.bind(world)
@@ -422,14 +424,17 @@ def build_agent(
     field: FieldGeometry,
     rng: Random,
     known: KnowledgeSnapshot | None = None,
+    flies: bool = False,
 ) -> ComposedAgent:
     """Resolve a ``BrainSpec`` into one assembled brain for one robot.
 
     The robot's ``BodyType`` is not a parameter: the capability gate of ``ComposedAgent`` takes
     it from each ``Perception``, and a body or a robot gets its own brain through
-    ``ExperimentConfig`` (architecture §A.3). The robot's memory starts with what ``known``
-    holds. A brain with beacons gets a ``BeaconLink``, whose beacons its hop parts read, and
-    steers headings from what it senses around itself at each decision only, not from a map.
+    ``ExperimentConfig`` (architecture §A.3). Only whether the body ``flies`` reaches the brain:
+    a flying robot plans over obstacles, which it can enter. The robot's memory starts with what
+    ``known`` holds. A brain with beacons gets a ``BeaconLink``, whose beacons its hop parts
+    read, and steers headings from what it senses around itself at each decision only, not
+    from a map.
     """
     memory = AgentMemory(robot_id, field, keeps_map=spec.keeps_map)
     if known is not None:
@@ -439,7 +444,7 @@ def build_agent(
         link = BeaconLink(robot_id, spec.beacons, field)
     params = _params_for(spec, link)
     behaviors: list[Behavior] = [BEHAVIORS.build(name, params, rng) for name in spec.behaviors]
-    fields = build_field_provider(spec, memory, rng, link)
+    fields = build_field_provider(spec, memory, rng, link, flies)
     heading_sensing: SensedSurroundings | None = None
     if link is not None:
         heading_sensing = link.surroundings
@@ -499,14 +504,17 @@ def _params_for(spec: BrainSpec, link: BeaconLink | None = None) -> dict[str, An
 
 
 def build_field_provider(
-    spec: BrainSpec, memory: AgentMemory, rng: Random, link: BeaconLink | None = None
+    spec: BrainSpec,
+    memory: AgentMemory,
+    rng: Random,
+    link: BeaconLink | None = None,
+    flies: bool = False,
 ) -> FieldProvider:
     """Build the objective fields of the navigator named by a spec: its seeders and its fields.
 
-    A name is looked up in ``FIELDS`` first, then in ``SEEDERS``.
-
-    Every v1 body is a ground robot, so the potential field is planned over land the robot
-    believes it can enter. An aerial body would pass ``flies=True`` and ignore crop cells.
+    A name is looked up in ``FIELDS`` first, then in ``SEEDERS``. The potential field is planned
+    over the cells the robot believes it can enter: a ground robot avoids obstacles, a robot that
+    ``flies`` crosses them.
 
     Raises:
         ValueError: If the spec names a navigator that is not registered yet.
@@ -522,7 +530,7 @@ def build_field_provider(
             fields.append(FIELDS.build(name, params, rng))
         else:
             seeders.append(SEEDERS.build(name, params, rng))
-    return FieldProvider(memory, flies=False, seeders=seeders, fields=fields)
+    return FieldProvider(memory, flies=flies, seeders=seeders, fields=fields)
 
 
 def build_experiment(

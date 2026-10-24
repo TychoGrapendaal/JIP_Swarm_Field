@@ -44,7 +44,7 @@ A preset is a kind of robot: its name, its body, and its brain (`src/swarm_field
 
 | Preset | Class | Body | What it does | Parameters |
 | --- | --- | --- | --- | --- |
-| `EXPLORER` | `ExplorerPreset` | scout | Explores the field on the EXPLORE field and shares everything it knows. | `explore`: its `ExploreConfig` |
+| `EXPLORER` | `ExplorerPreset` | scout | Explores the field on the EXPLORE field and shares everything it knows. A scout flies, so it plans over the river and the rocks. | `explore`: its `ExploreConfig` |
 | `RELAY` | `RelayPreset` | scout | Stands still and only passes on what the swarm's killers read. | — |
 | `SEEDED_KILLER` | `SeededKillerPreset` | killer | Plans a route to a pest it knows of over its map, and treats it. | `claims` (on), `window_blocks` |
 | `HOP_KILLER` | `HopKillerPreset` | killer | Walks down the hop beacons to a pest, without a map. | `beacons`: its `BeaconConfig`, `hop-tuned` by default |
