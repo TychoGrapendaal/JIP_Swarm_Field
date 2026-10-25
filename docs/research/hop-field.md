@@ -164,6 +164,29 @@ With claims, the seeded arm beats `hop tuned` on both obstacle fields, by about 
 - **A distance weight frees killers between pests.** On the river, power 1 lifts the treated pests from 35 to 40, and to 45 with the escape. The two runs where the killer was held between pests went from 1 and 0 treated to 4 and 6. In the open field, power 1 is slightly worse; power 0.5 is better in both.
 - **The escape adds little once the shuttles are gone.** It helps together with a distance weight, where a push can tip the killer off an unstable point.
 
+### Moving explorers: how long a pest stays marked, and hovering (tried, dropped)
+
+These runs use the scenario of `studies/explorer_hop_killers.py` instead: the river field, 20 moving explorers and 4 killers, no relays or mock sources, a 50 m radio, 12 pests per hour, 3 h with a 1 h warm-up, and unlimited battery and doses. Robots decide whenever a move arrives. The 16 seeds (100 to 115) were not used in the first, 8-seed run of the same arms, so they confirm it independently. "Paired" is the difference in infested cells to the arm's baseline on the same seeds, and "idle" is the change in the field's mean idleness, the cost to exploring.
+
+An explorer that senses a pest is its source for `source_for`, 1 minute in `hop-tuned`. As it flies on, it keeps beaconing 0 on the pest's cell for that long, so it carries the pest's location away from the pest. We compared a longer `source_for` with a scout that instead hovers over the pest it found: it stands still next to it with a bid that falls over a time limit, and stops when the pest is cleared, a killer arrives, or a scout with a lower id already hovers there.
+
+| Arm | Infested | Paired | Idle | Killer hears a 0-beacon | Its distance (cells) |
+| --- | --- | --- | --- | --- | --- |
+| hop, `source_for` 1 min (baseline) | 4.92 ± 0.42 | 0 | 0 | 19.5 % | 4.3 |
+| hop, `source_for` 3 min | 3.86 ± 0.40 | −1.06 ± 0.35 | +1 % | 33.9 % | 6.5 |
+| hop, hover 3 min | 4.42 ± 0.38 | −0.51 ± 0.48 | +13 % | 20.1 % | 3.6 |
+| hop, hover 3 min and `source_for` 3 min | 3.47 ± 0.33 | −0.39 ± 0.42 against `source_for` 3 min | +11 % | 30.0 % | 5.5 |
+| seeded (baseline) | 1.23 ± 0.09 | 0 | 0 | — | — |
+| seeded, hover 3 min | 1.31 ± 0.09 | +0.08 ± 0.06 | +4 % | — | — |
+| hop, 10 explorers, `source_for` 1 min (baseline) | 7.39 ± 0.49 | 0 | 0 | 15.0 % | 4.6 |
+| hop, 10 explorers, `source_for` 3 min | 5.28 ± 0.36 | −2.10 ± 0.48 | −1 % | 29.8 % | 7.7 |
+| hop, 10 explorers, hover 3 min | 6.02 ± 0.55 | −1.36 ± 0.54 | +25 % | 16.6 % | 3.7 |
+
+- **Keeping the pest marked longer helps the hop arm.** A `source_for` of 3 minutes removes about a fifth of the infested cells with 20 explorers and better than a quarter with 10, on 13 of 16 seeds each, at no cost to exploring. A 10-minute `source_for` did a little worse than 3 minutes in the first run (−1.48 against −1.79), probably because a long mark also points killers to pests that were cleared meanwhile.
+- **Hovering did not improve the response much, and it was dropped.** With 20 explorers its gain is within the error, on top of the 3-minute mark it adds nothing, and in the seeded arm it is slightly worse, since the pest fact is gossiped anyway. With 10 explorers it helps, but less than the 3-minute mark, and the field's idleness rises by a quarter. The code was not kept.
+- **Why: a marked pest is useless when no killer can hear the mark.** A hovering scout was connected by radio to some killer in only 32 % of its hovering time (22 % with 10 explorers), so most of the time its beacon reached no killer at all. A scout that flies on carries the mark towards the rest of the swarm instead. With a 3-minute mark a killer heard a 0-beacon in 34 % of its samples, against 20 % with hovering, and heard it from 6.5 cells away from the pest instead of 3.6. Hovering keeps the mark where it is least needed.
+- **Hovering worked as designed.** The hovering scout was the pest's 0-source in 99 % of its hovering samples, and almost every cleared pest was hovered over at some point. A hover lasted 2.75 minutes at the median, of 3 allowed. 44 % of hovers ran out of time and 33 % gave way to a lower-id scout on the same pest, while only 12 % ended because a killer arrived.
+
 ### Earlier: limiting recruitment
 
 20 seeds per arm, run before the fix for the relay shuttle, which changes every hop arm. "Paired" is the difference in infested cells to the capped hop arm on the same seeds.
