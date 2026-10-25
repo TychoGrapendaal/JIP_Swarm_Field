@@ -91,7 +91,7 @@ The sparsest relay lattice that keeps nearly all relays in one network is one re
 | `size` | The field's side in cells. |
 | `obstacles` | The blocked cells, as a tuple of `(x, y)`. `river_and_rocks(size)` and `two_rivers_and_rocks(size)` build the two ready maps; `()` is an open field, and `None`, the default, the river. |
 | `cell_size` | The side of a cell in metres. |
-| `docks` | The cells where robots recharge and killers restock, any number at once, in a 5-minute battery swap; `((0, 0),)` by default, and two opposite corners on `RIVERS_LARGE`. Robots return to one when their battery runs low, killers also when their doses do ([`battery-lifecycle.md`](battery-lifecycle.md)); `()` for none. |
+| `docks` | The cells where robots recharge and killers restock, any number at once, in a 5-minute battery swap; `((0, 0),)` by default, one on each bank of the river on `RIVER_SMALL`, and two opposite corners on `RIVERS_LARGE`. Robots return to one when their battery runs low, killers also when their doses do ([`battery-lifecycle.md`](battery-lifecycle.md)); `()` for none. |
 | `dock_range_m` | How far a dock's own DOCK beacon reaches, for swarms that relay beacons; `None`, the default, for the robots' radio range. A larger one is a stronger dock antenna. |
 
 ```python

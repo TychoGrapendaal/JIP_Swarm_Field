@@ -5,7 +5,8 @@ Question: on the small river field with moving explorers only (the scenario of
 broadcasts, to restock their doses and to charge, as reliably and as fast as seeded killers
 that plan over their map? Two conditions make the killers go: ``doses``, where every killer
 carries 10 doses and the battery is unlimited, so killers restock; and ``battery``, where every
-battery holds half a standard charge and doses are unlimited, so robots charge. The dock is at
+battery holds half a standard charge and doses are unlimited, so robots charge. The field has
+``RIVER_SMALL``'s docks, one on each bank of the river; ``--one-dock`` keeps only the one at
 ``(0, 0)``, west of the river, so a killer on the east bank must find the bridge.
 
 A trip starts when ``return-to-dock`` or ``resupply`` wins a killer's decision and ends when the
@@ -130,6 +131,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seeds", type=int, default=8, help="runs per arm, seeds 0, 1, ...")
     parser.add_argument("--hours", type=int, default=6, help="simulated hours per run")
     parser.add_argument("--warmup-hours", type=int, default=1, help="left out of infested")
+    parser.add_argument(
+        "--one-dock", action="store_true", help="only the dock at (0, 0), west of the river"
+    )
     parser.add_argument("--jobs", type=int, help="processes; one per CPU if not given")
     return parser.parse_args()
 
@@ -139,6 +143,9 @@ def main() -> None:
     args = parse_args()
     rate = PESTS_PER_KILLER_HOUR * args.killers
     radio = RIVER_SMALL.robots.radio_range_m
+    docks = RIVER_SMALL.map.docks
+    if args.one_dock:
+        docks = ((0, 0),)
     specs: dict[str, PestRunSpec] = {}
     for condition, (capacity, doses) in CONDITIONS.items():
         for name, killer in KILLERS.items():
@@ -146,6 +153,7 @@ def main() -> None:
             scenario = scenario.with_robot_config(
                 replace(scenario.robots, battery_capacity=capacity)
             ).with_pests(replace(scenario.pests, treatment_doses=doses))
+            scenario = scenario.with_map(replace(scenario.map, docks=docks))
             spec = PestRunSpec(scenario, args.hours, rate, args.warmup_hours)
             specs[arm_name(condition, name)] = spec
 
@@ -175,7 +183,8 @@ def main() -> None:
         cells.append(f"{mean(result.empty_share for result in arm_results):.3f}")
         rows.append(cells)
     title = (
-        f"river-small, dock at (0, 0): {args.explorers} explorers, {args.killers} killers, "
+        f"river-small, docks at {docks}: "
+        f"{args.explorers} explorers, {args.killers} killers, "
         f"{radio:g} m radio, {rate:g} pests per hour, {args.hours} h (warm-up "
         f"{args.warmup_hours} h), mean over {args.seeds} seeds; doses: 10 doses and unlimited "
         "battery; battery: half a standard charge and unlimited doses"

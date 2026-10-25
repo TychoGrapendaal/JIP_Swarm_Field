@@ -468,14 +468,15 @@ relay pitches, so a pest reaches the nearest killer through several relays.
 
 RIVER_SMALL = (
     SwarmScenario(
-        map=MapConfig(obstacles=river_and_rocks(32)),
+        map=MapConfig(obstacles=river_and_rocks(32), docks=((0, 0), (31, 31))),
         pests=PestConfig(pests_per_hour=18.0, treatment_rate=FAST_TREATMENT, source_range_m=50.0),
         robots=RobotConfig(radio_range_m=50.0, knows_terrain=False, lattice_starts=True),
     )
     .add_robots(RELAY, 64)
     .add_robots(SEEDED_KILLER, 6)
 )
-"""The obstacle comparison's small field (#70): one river with a bridge, and two rocks.
+"""The obstacle comparison's small field (#70): one river with a bridge, two rocks, and a dock
+on each bank of the river, since a hop killer finds a dock across the river only slowly.
 
 Relays stand on a lattice 4 cells apart, as sparse as it gets while the radio, which reaches
 1.25 pitches, still joins almost all of them into one network and every cell is in range of a
