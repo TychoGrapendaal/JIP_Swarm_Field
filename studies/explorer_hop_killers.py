@@ -84,9 +84,14 @@ def parse_args() -> argparse.Namespace:
 
 
 def explorer_scenario(
-    killer: RobotPreset, explorers: int, killers: int, radio_range_m: float
+    killer: RobotPreset,
+    explorers: int,
+    killers: int,
+    radio_range_m: float,
+    explorer: RobotPreset = EXPLORER,
 ) -> SwarmScenario:
-    """``RIVER_SMALL``'s field with explorers and killers of one preset, and no mock sources."""
+    """``RIVER_SMALL``'s field with explorers and killers of one preset each, and no mock
+    sources."""
     robots = replace(
         RIVER_SMALL.robots, radio_range_m=radio_range_m, battery_capacity=BATTERY_CAPACITY
     )
@@ -96,7 +101,7 @@ def explorer_scenario(
             replace(RIVER_SMALL.pests, source_range_m=None, treatment_doses=TREATMENT_DOSES)
         )
         .with_robot_config(robots)
-        .add_robots(EXPLORER, explorers)
+        .add_robots(explorer, explorers)
         .add_robots(killer, killers)
     )
 

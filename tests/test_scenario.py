@@ -8,6 +8,7 @@ import pytest
 from swarm_field.contracts import BodyType, CellId, MessageKind, TimeUnit
 from swarm_field.experiments import (
     EXPLORER,
+    HOP_BEST,
     HOP_KILLER,
     RELAY,
     RELAYED_KILLERS,
@@ -109,6 +110,18 @@ def test_only_a_swarm_that_relays_dock_beacons_gets_the_docks_radio() -> None:
     assert "dock-hop" in hop.brain(HOP_KILLER).seeders
 
 
+def test_the_best_hop_killer_keeps_its_tuned_times_and_scales_its_hops_with_the_radio() -> None:
+    near = _OPEN.add_robots(EXPLORER, 2).add_robots(HOP_BEST, 1)
+    far = near.with_robot_config(replace(near.robots, radio_range_m=100.0))
+
+    beacons = near.relaying().beacons
+    wider = far.relaying().beacons
+    assert beacons is not None and wider is not None
+    assert beacons.fresh_for == beacons.source_for == 3 * TimeUnit.MINUTE
+    assert beacons.hop_cells == near.robots.radio_range_m / near.map.cell_size
+    assert wider.hop_cells == 100.0 / near.map.cell_size
+
+
 def test_relays_pass_on_what_the_killers_read() -> None:
     seeded = _OPEN.add_robots(RELAY, 4).add_robots(SEEDED_KILLER, 2)
     without_claims = _OPEN.add_robots(RELAY, 4).add_robots(SeededKillerPreset(claims=False), 2)
@@ -159,7 +172,8 @@ def test_mock_pest_sources_send_only_what_the_killers_read() -> None:
 def test_the_pest_responses_keep_the_number_of_killers() -> None:
     configurations = pest_response_configurations(RELAYED_KILLERS, seeded_no_yield=True)
 
-    assert list(configurations) == ["seeded", "seeded-no-yield", "hop", "hop-repel", "hop-tuned"]
+    expected = ["seeded", "seeded-no-yield", "hop", "hop-repel", "hop-tuned", "hop-best"]
+    assert list(configurations) == expected
     for configured in configurations.values():
         assert configured.killers == RELAYED_KILLERS.killers
         assert configured.count(RELAY.name) == RELAYED_KILLERS.count(RELAY.name)

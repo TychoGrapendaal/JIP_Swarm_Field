@@ -47,9 +47,11 @@ A preset is a kind of robot: its name, its body, and its brain (`src/swarm_field
 | `EXPLORER` | `ExplorerPreset` | scout | Explores the field on the EXPLORE field and shares everything it knows. A scout flies, so it plans over the river and the rocks. | `explore`: its `ExploreConfig`; `revisit_sweeps` (0.5): its revisit age in sweep times of the swarm, see [`explore.md`](explore.md), or `None` to keep `explore`'s |
 | `RELAY` | `RelayPreset` | scout | Stands still and only passes on what the swarm's killers read. | — |
 | `SEEDED_KILLER` | `SeededKillerPreset` | killer | Plans a route to a pest it knows of over its map, and treats it. | `claims` (on), `window_blocks` |
-| `HOP_KILLER` | `HopKillerPreset` | killer | Walks down the hop beacons to a pest, without a map, and down the DOCK beacons the docks broadcast to a dock when its battery or doses run low. | `beacons`: its `BeaconConfig`, `hop-tuned` by default |
+| `HOP_KILLER` | `HopKillerPreset` | killer | Walks down the hop beacons to a pest, without a map, and down the DOCK beacons the docks broadcast to a dock when its battery or doses run low. | `beacons`: its `BeaconConfig`, or `variant` of `hop_beacon_variants` for the swarm's radio, `hop-tuned` by default |
+| `SEEDED_BEST` | `SeededKillerPreset` | killer | `SEEDED_KILLER` tuned for the moving-explorer scenarios: a claim counts for 10 minutes instead of 2. | `claim_age` |
+| `HOP_BEST` | `HopKillerPreset` | killer | `HOP_KILLER` tuned likewise: the `hop-best` beacons keep a pest marked and a heard beacon fresh for 3 minutes instead of 1. | `variant="hop-best"` |
 
-A variant is the class with other parameters, and a name of its own keeps it apart in tables:
+`SEEDED_BEST` and `HOP_BEST` are each arm's best configuration, tuned one parameter at a time on the small and the large river field with moving explorers (`studies/tune_arms.py`); use them when the two arms are compared. A variant is the class with other parameters, and a name of its own keeps it apart in tables:
 
 ```python
 from swarm_field.experiments import ExplorerPreset, SeededKillerPreset
@@ -127,7 +129,7 @@ hop = configurations["hop-tuned"]
 - **`seeded`** shares pest cells. Relays gossip the pests they know and the killers' claims; a killer plans a route to a remembered pest over the terrain it sensed, leaves a pest to a closer killer that claimed it, and does not join a pest another killer already treats.
 - **`hop-tuned`** shares hop numbers only. A source beacons 0, every relay broadcasts its distance in hops, and a killer walks down the hop values to the pest; killers repel each other, pulls are weighted by the square root of the distance, and a killer stuck in place pushes itself out. See [`research/hop-field.md`](research/hop-field.md).
 
-The dictionary also has `hop` and `hop-repel`, the hop method without its later improvements, and with `seeded_no_yield=True` it adds `seeded-no-yield`, the seeded method without the claims. Use them only when a question is about those differences.
+The dictionary also has `hop-best`, the hop arm of `HOP_BEST`, and `hop` and `hop-repel`, the hop method without its later improvements, and with `seeded_no_yield=True` it adds `seeded-no-yield`, the seeded method without the claims. Use them only when a question is about those differences.
 
 ### Time and seeds
 

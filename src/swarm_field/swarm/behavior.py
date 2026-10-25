@@ -25,6 +25,7 @@ from swarm_field.swarm.explore import ExploreConfig, ExploreSeeder, revisit_wort
 from swarm_field.swarm.memory import MemoryView
 from swarm_field.swarm.recharge import RechargeConfig
 from swarm_field.swarm.seeder import (
+    CLAIM_MAX_AGE,
     BatteryRequestSeeder,
     RegroupSeeder,
     TreatSeeder,
@@ -164,6 +165,8 @@ class TreatInfestation:
     Attributes:
         yield_to_treating_peer: Whether the killer claims pests and leaves them to its peers.
         claim_fresh_for: How old a peer's report of treating a cell may be to count.
+        claim_max_age: How old a peer's report of heading for a pest may be to keep the pest
+            claimed, as for the TREAT field (``TreatSeeder.claim_fresh_for``).
     """
 
     name: str = "treat-infestation"
@@ -173,10 +176,12 @@ class TreatInfestation:
         seeder: str = TreatSeeder.name,
         yield_to_treating_peer: bool = False,
         claim_fresh_for: Time = 30 * TimeUnit.SECOND,
+        claim_max_age: Time = CLAIM_MAX_AGE,
     ) -> None:
         self._seeder: str = seeder
         self.yield_to_treating_peer: bool = yield_to_treating_peer
         self.claim_fresh_for: Time = claim_fresh_for
+        self.claim_max_age: Time = claim_max_age
 
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
         # An empty killer cannot treat, and a bid would claim a pest it can never clear.
@@ -195,7 +200,7 @@ class TreatInfestation:
         # to explore.
         pests = infested(ctx.memory)
         if self.yield_to_treating_peer:
-            pests = pests_left_to_robot(ctx.memory, position, ctx.time)
+            pests = pests_left_to_robot(ctx.memory, position, ctx.time, self.claim_max_age)
         worst = 0.0
         for pest in pests:
             worst = max(worst, pest.severity * ctx.memory.confidence(pest, ctx.time))

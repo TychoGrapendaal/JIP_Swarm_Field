@@ -224,6 +224,39 @@ Same scenario as the section above, 8 seeds (0 to 7), 3 h with a 1 h warm-up, an
 
 **Spreading idle killers did not help, and it was dropped.** We tried a behaviour that made an idle killer step away from the killers whose status it had heard within radio range in the last 30 s, with a low bid that gave way to any work. It ran in both arms, and the code was not kept. On this small field it left 0.1 to 0.6 fewer infested cells, within the error in three of four arms (seeded with 4 killers: −0.16 ± 0.08). That field gives it little to win: a seeded pest is cleared about 6 minutes after it appears, of which some 2 minutes are the walk of a well-placed killer, since 4 killers on 32 × 32 cells are never far from a pest. So it was run again where killers walk far: the large field with two rivers (64 × 64 cells, `RIVERS_LARGE`'s map and two docks), 40 moving explorers and 4 killers at the same load per killer, 8 seeds. There, spreading made the seeded arm worse, by +0.33 ± 0.16 infested cells (3.43 without it, worse on 6 of 8 seeds, response 16.4 → 17.8 minutes), and did nothing in the hop arm (−0.08 ± 0.26 of 12.53). Idle killers were seldom next to each other in the first place, 18 % of the idle time in the seeded arm and 2 % in the hop arm, so there was little to spread out, and a killer pushed away from another probably ended up as often farther from the next pest as nearer to it.
 
+### Tuning both arms: `SEEDED_BEST` and `HOP_BEST`
+
+`studies/tune_arms.py` tunes each arm one parameter at a time on the moving-explorer scenario, against the arm's base on the same seeds, and adopts a value only if it beats the base by two standard errors on both of two fields. The small field is the one above (32 × 32 cells, 20 explorers, 4 killers, 12 pests per hour). The large field is the one with two rivers (64 × 64 cells, `RIVERS_LARGE`'s map and two docks, 40 explorers, 8 killers, 24 pests per hour), with four times the area, half the robots per cell, and the same load per killer. Every run lasts 3 h with a 1 h warm-up.
+
+The first sweep, on the small field with 8 seeds, varied the hop arm's `source_for`, `fresh_for`, `decay`, cap, killer repulsion, distance power, `gamma` and escape, the seeded arm's claim age and search window, and both arms' revisit age. Only `fresh_for` of 2 minutes beat the base, by −1.11 ± 0.31 infested cells. Turning off the seeded claims cost +1.95 ± 0.45, which confirms them, and the search window had no effect, since on 32 × 32 cells it already spans the field. The second round tested the near-misses on both fields:
+
+| Change | Small field, 16 seeds | Large field, 8 seeds |
+| --- | --- | --- |
+| hop: `fresh_for` 1 → 2 min | −1.13 ± 0.35 | −3.47 ± 0.95 |
+| hop: then `fresh_for` 2 → 3 min | +0.09 ± 0.21 | −2.86 ± 0.94 |
+| hop: then `fresh_for` 2 → 4 min | +0.48 ± 0.36 | −1.83 ± 1.09 |
+| hop: cap 3 hops instead of 4.3 | +0.18 ± 0.34 | +0.32 ± 1.09 |
+| hop: `gamma` 0.7 instead of 0.5 | −0.22 ± 0.30 | +0.16 ± 1.07 |
+| hop: no escape | −0.02 ± 0.24 | −1.43 ± 1.14 |
+| hop: killer repulsion 4 instead of 2 | −0.07 ± 0.29 | −0.57 ± 0.66 |
+| seeded: claim age 2 → 5 min | −0.05 ± 0.06 | −0.15 ± 0.13 |
+| seeded: claim age 2 → 10 min | −0.03 ± 0.07 | −0.57 ± 0.12 |
+| seeded: then claim age 10 → 20 min | +0.00 ± 0.00 | +0.03 ± 0.18 |
+
+Two values hold on both fields. **A heard hop beacon counts for 3 minutes instead of 1**, the same as `source_for`: on the small field 2 and 3 minutes are as good, and on the large field, with fewer robots per cell, 3 minutes is clearly best, while 4 is worse on both. A sparser swarm relays a beacon less often, so it must count for longer. **A seeded claim counts for 10 minutes instead of 2**: claims reach far-away killers late through the moving explorers, which only matters on the large field. Every other change is within its error on at least one field, so the defaults stay. The two values are times, the cap stays in radio ranges, and `hop_beacon_variants` derives the hop length from the radio, so the presets carry over to other fields and radios as far as these two fields show; denser or sparser swarms may want another `fresh_for`.
+
+The frozen presets, on seeds 100 onwards, which tuning did not use:
+
+| Arm | Small field, 16 seeds | Paired | Large field, 8 seeds | Paired |
+| --- | --- | --- | --- | --- |
+| `SEEDED_KILLER` | 1.23 ± 0.09 | | 5.35 ± 0.52 | |
+| `SEEDED_BEST` | 1.24 ± 0.10 | +0.00 ± 0.05 | 4.03 ± 0.25 | −1.33 ± 0.35 |
+| `HOP_KILLER` | 4.99 ± 0.42 | | 18.59 ± 1.11 | |
+| `HOP_BEST` | 3.05 ± 0.33 | −1.94 ± 0.46 | 12.92 ± 1.14 | −5.66 ± 1.26 |
+| `HOP_BEST` against `SEEDED_BEST` | | +1.81 ± 0.29 | | +8.90 ± 1.11 |
+
+Tuning improves the hop arm by 30 to 40 % and the seeded arm by a quarter on the large field, but the seeded arm still leaves far fewer infested cells, by a factor of 2.5 on the small field and 3.2 on the large one. This is the starting point of the comparison experiments.
+
 ### Earlier: limiting recruitment
 
 20 seeds per arm, run before the fix for the relay shuttle, which changes every hop arm. "Paired" is the difference in infested cells to the capped hop arm on the same seeds.

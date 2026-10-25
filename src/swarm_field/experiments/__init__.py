@@ -44,9 +44,11 @@ from swarm_field.experiments.pest_response import (
 )
 from swarm_field.experiments.presets import (
     EXPLORER,
+    HOP_BEST,
     HOP_KILLER,
     RELAY,
     REVISIT_SWEEPS,
+    SEEDED_BEST,
     SEEDED_KILLER,
     CustomPreset,
     ExplorerPreset,
@@ -84,6 +86,7 @@ __all__ = [
     "EXPLORE",
     "EXPLORER",
     "FAST_TREATMENT",
+    "HOP_BEST",
     "HOP_KILLER",
     "OUTPUT",
     "PESTS",
@@ -92,6 +95,7 @@ __all__ = [
     "REVISIT_SWEEPS",
     "RIVERS_LARGE",
     "RIVER_SMALL",
+    "SEEDED_BEST",
     "SEEDED_KILLER",
     "CustomPreset",
     "Experiment",
