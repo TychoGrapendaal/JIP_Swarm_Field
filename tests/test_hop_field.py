@@ -198,7 +198,7 @@ def test_beacons_above_the_cap_are_ignored_and_not_relayed() -> None:
 
 def _memory_with_a_killer_east() -> BeaconMemory:
     memory = _memory_hearing((1.0, (0, 4)), (1.0, (4, 0)))
-    memory.note_body(3, BodyType.KILLER)
+    memory.note_body(3, BodyType.KILLER, 0)
     return memory
 
 
@@ -221,7 +221,7 @@ def test_without_repulsion_a_killers_beacon_pulls_like_any_other() -> None:
 
 def test_a_robot_does_not_bid_when_only_a_killer_is_downhill() -> None:
     memory = _memory_hearing((1.0, (4, 0)))
-    memory.note_body(2, BodyType.KILLER)
+    memory.note_body(2, BodyType.KILLER, 0)
     ctx = DecisionContext(time=0, self_state=_self_state((0, 0)), sensed=[], memory=_MAP)
 
     assert TreatByBeacon(BeaconConfig(killer_repulsion=1.0), memory).propose(ctx) == ()
@@ -297,3 +297,21 @@ def test_beacon_memory_forgets_stale_beacons_old_sightings_and_faded_pushes() ->
     assert [heard.sender for heard in memory.beacons(BeaconKind.TREAT)] == [3]
     assert memory.latest_sighting(since=0) == (4, 4)
     assert [placed.cell for placed in memory.placed_beacons()] == [(2, 1)]
+
+
+def test_beacon_memory_keeps_at_most_its_cap_of_each_sort_and_forgets_old_killers() -> None:
+    memory = BeaconMemory(cap=2)
+    for sender in (1, 2, 3):
+        memory.hear(sender, sent_at=sender, beacons=[Beacon(BeaconKind.TREAT, 1.0, (sender, 0))])
+        memory.note_body(sender, BodyType.KILLER, at=sender)
+        memory.see((sender, 5), at=sender, infested=True)
+
+    heard: list[int] = []
+    for beacon in memory.beacons(BeaconKind.TREAT):
+        heard.append(beacon.sender)
+    assert sorted(heard) == [2, 3]
+    assert memory.killers() == frozenset({2, 3})
+    assert memory.latest_sighting(since=0) == (3, 5)
+
+    memory.forget(heard_before=3, seen_before=0, now=3)
+    assert memory.killers() == frozenset({3})

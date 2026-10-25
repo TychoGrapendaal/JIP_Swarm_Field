@@ -103,7 +103,7 @@ class KnowledgeExchange:
         """Merge the status reports and memory snapshots in the inbox, in the order received.
 
         A knowledge message may also carry a tuple of facts, as a mock source sends; those are
-        merged as they are.
+        merged as they are. A robot whose memory keeps no map skips snapshots altogether.
         """
         for message in inbox:
             if message.kind is MessageKind.STATUS:
@@ -128,6 +128,9 @@ class KnowledgeExchange:
                         message.sender,
                         message.payload,
                     )
+                    continue
+                if not self._memory.keeps_map:
+                    # A robot without a map takes in no peer's snapshot, and keeps none.
                     continue
                 self._memory.merge_snapshot(message.payload, self._merged.get(message.sender))
                 self._merged[message.sender] = message.payload

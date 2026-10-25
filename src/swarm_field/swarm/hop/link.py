@@ -81,7 +81,7 @@ class BeaconLink:
             elif message.kind is MessageKind.STATUS and isinstance(
                 message.payload, PeerObservation
             ):
-                self.memory.note_body(message.sender, message.payload.body)
+                self.memory.note_body(message.sender, message.payload.body, message.sent_at)
 
     def after_step(self, heading: Heading | None, action: Action, robot: CellId, now: Time) -> None:
         """Escape when the robot circles in place: place the beacon its ``StuckEscape`` hands out.

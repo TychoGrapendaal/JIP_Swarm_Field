@@ -2,12 +2,13 @@
 
 ``BeaconMemory`` keeps the newest beacon heard from each sender per kind, the beacons the robot
 placed itself to push it away from a cell, the pests the robot saw itself, and which senders are
-killers. It forgets what no longer counts, so it stays small. Every hop rule reads it through
+killers. It forgets what no longer counts, and it keeps at most ``MEMORY_CAP`` entries of each
+sort, so it stays small however large the swarm and the field. Every hop rule reads it through
 ``BeaconView``, which offers no terrain, other robots' pest cells or quadtree, so a rule cannot
 come to depend on a shared map.
 """
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -16,6 +17,11 @@ from swarm_field.contracts import Beacon, BeaconKind, BodyType, CellId, RobotId,
 _FADED_DECAYS = 5.0
 """After this many decay times a placed beacon pushes with under 1 % of its strength, and is
 forgotten."""
+
+MEMORY_CAP = 100
+"""The most entries a ``BeaconMemory`` keeps of each sort: heard beacons of one kind, placed
+beacons, pest sightings and killers. Lifetimes alone would let a sort grow with the swarm or the
+field, so beyond the cap the oldest entry is forgotten first."""
 
 
 @dataclass(frozen=True)
@@ -65,35 +71,48 @@ class BeaconView(Protocol):
 
 
 class BeaconMemory:
-    """One robot's beacons, heard from peers and placed by itself, and its own pest sightings."""
+    """One robot's beacons, heard from peers and placed by itself, and its own pest sightings.
 
-    def __init__(self) -> None:
+    Each sort holds at most ``cap`` entries, heard beacons ``cap`` per kind; storing one more
+    forgets the oldest of its sort.
+    """
+
+    def __init__(self, cap: int = MEMORY_CAP) -> None:
+        if cap < 1:
+            raise ValueError("cap must be at least 1")
+        self._cap: int = cap
         self._heard: dict[tuple[RobotId, BeaconKind], HeardBeacon] = {}
         self._placed: dict[CellId, PlacedBeacon] = {}
-        self._killers: set[RobotId] = set()
+        self._killers: dict[RobotId, Time] = {}
         self._sightings: dict[CellId, Time] = {}
 
     def hear(self, sender: RobotId, sent_at: Time, beacons: Iterable[Beacon]) -> None:
-        """Keep the newest beacon per sender and kind."""
+        """Keep the newest beacon per sender and kind, and at most ``cap`` of each kind."""
         for beacon in beacons:
             key = (sender, beacon.kind)
             stored = self._heard.get(key)
             if stored is None or sent_at > stored.sent_at:
                 self._heard[key] = HeardBeacon(sender, sent_at, beacon)
+                if stored is None:
+                    self._limit_heard(beacon.kind)
 
     def place(self, cell: CellId, now: Time, strength: float, decay: Time) -> None:
         """Place a beacon on ``cell`` at ``now``: one per cell, the newest kept."""
         self._placed[cell] = PlacedBeacon(cell, strength, now, decay)
+        _forget_oldest(self._placed, _placed_at, self._cap)
 
-    def note_body(self, peer: RobotId, body: BodyType) -> None:
-        """Remember a peer's body, from its status, to tell killers' beacons apart."""
-        if body is BodyType.KILLER:
-            self._killers.add(peer)
+    def note_body(self, peer: RobotId, body: BodyType, at: Time) -> None:
+        """Remember that a peer reported itself a killer at ``at``, to tell its beacons apart."""
+        if body is not BodyType.KILLER:
+            return
+        self._killers[peer] = max(at, self._killers.get(peer, at))
+        _forget_oldest(self._killers, _itself, self._cap)
 
     def see(self, cell: CellId, at: Time, infested: bool) -> None:
         """Note what the robot itself sensed on ``cell``: a pest, or that the pest there is gone."""
         if infested:
             self._sightings[cell] = at
+            _forget_oldest(self._sightings, _itself, self._cap)
         else:
             self._sightings.pop(cell, None)
 
@@ -101,13 +120,15 @@ class BeaconMemory:
         """Drop what no longer counts at ``now``.
 
         Args:
-            heard_before: Heard beacons sent before this are dropped.
+            heard_before: Heard beacons sent before this are dropped, and so are killers that
+                last reported before it: a killer's status comes with its beacon.
             seen_before: Pest sightings older than this are dropped.
             now: Placed beacons that have faded by now are dropped.
         """
         self._heard = {
             key: heard for key, heard in self._heard.items() if heard.sent_at >= heard_before
         }
+        self._killers = {peer: at for peer, at in self._killers.items() if at >= heard_before}
         self._sightings = {cell: at for cell, at in self._sightings.items() if at >= seen_before}
         self._placed = {
             cell: placed
@@ -128,7 +149,7 @@ class BeaconMemory:
         return self._placed.get(cell)
 
     def killers(self) -> frozenset[RobotId]:
-        """The peers the robot heard report themselves as killers."""
+        """The peers the robot heard report themselves as killers, and has not forgotten."""
         return frozenset(self._killers)
 
     def latest_sighting(self, since: Time) -> CellId | None:
@@ -140,3 +161,33 @@ class BeaconMemory:
                 latest = cell
                 latest_at = at
         return latest
+
+    def _limit_heard(self, kind: BeaconKind) -> None:
+        """Forget the oldest heard beacon of ``kind`` while more than ``cap`` are kept."""
+        while True:
+            oldest: tuple[RobotId, BeaconKind] | None = None
+            count = 0
+            for key, heard in self._heard.items():
+                if key[1] is not kind:
+                    continue
+                count += 1
+                if oldest is None or heard.sent_at < self._heard[oldest].sent_at:
+                    oldest = key
+            if count <= self._cap or oldest is None:
+                return
+            del self._heard[oldest]
+
+
+def _forget_oldest[K, V](entries: dict[K, V], age: Callable[[V], Time], cap: int) -> None:
+    """Forget the entries with the oldest ``age`` until at most ``cap`` are left."""
+    while len(entries) > cap:
+        oldest = min(entries, key=lambda key: age(entries[key]))
+        del entries[oldest]
+
+
+def _itself(at: Time) -> Time:
+    return at
+
+
+def _placed_at(placed: PlacedBeacon) -> Time:
+    return placed.placed_at
