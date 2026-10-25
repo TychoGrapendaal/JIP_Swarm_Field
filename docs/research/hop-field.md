@@ -208,6 +208,22 @@ An explorer that senses a pest is its source for `source_for`, 1 minute in `hop-
 - **Why: a marked pest is useless when no killer can hear the mark.** A hovering scout was connected by radio to some killer in only 32 % of its hovering time (22 % with 10 explorers), so most of the time its beacon reached no killer at all. A scout that flies on carries the mark towards the rest of the swarm instead. With a 3-minute mark a killer heard a 0-beacon in 34 % of its samples, against 20 % with hovering, and heard it from 6.5 cells away from the pest instead of 3.6. Hovering keeps the mark where it is least needed.
 - **Hovering worked as designed.** The hovering scout was the pest's 0-source in 99 % of its hovering samples, and almost every cleared pest was hovered over at some point. A hover lasted 2.75 minutes at the median, of 3 allowed. 44 % of hovers ran out of time and 33 % gave way to a lower-id scout on the same pest, while only 12 % ended because a killer arrived.
 
+### Isolated killers, and spreading idle killers (tried, dropped)
+
+Same scenario as the section above, 8 seeds (0 to 7), 3 h with a 1 h warm-up, and the hop arm with a 3-minute `source_for` (`studies/killer_isolation.py`). The isolation table measures from the ground truth. "Cut off" counts the pests that some robot knows of, in the hop arm that some robot is the source of, while no robot in that robot's radio network is a killer; it is at most what perfect cohesion could save. "Unknown" counts the pests no robot knows of.
+
+| Arm | Infested | Killer isolated | Idle and isolated | Isolation spell, p90 (min) | Unknown | Cut off |
+| --- | --- | --- | --- | --- | --- | --- |
+| seeded, 30 m radio | 1.94 ± 0.22 | 37 % | 13 % | 1.8 | 0.31 | 0.32 |
+| hop, 30 m radio | 4.40 ± 0.71 | 57 % | 36 % | 2.2 | 1.50 | 2.26 |
+| seeded, 50 m radio | 1.36 ± 0.15 | 17 % | 10 % | 1.2 | 0.32 | 0.09 |
+| hop, 50 m radio | 3.98 ± 0.31 | 19 % | 7 % | 1.2 | 1.27 | 1.42 |
+
+- **Killers are rarely cut off for long, so cohesion was not built.** At 50 m a hop killer is idle and alone 7 % of the time, and nine in ten isolation spells end within 1.2 minutes, as an explorer comes by. The criterion set before the run asked for spells of 2 minutes or more.
+- **The pests are cut off, not the killers.** At 50 m, 1.42 of the hop arm's 3.98 infested cells are known only in radio networks without a killer, on every seed, against 0.09 in the seeded arm, whose pest facts stay in memory and are gossiped on. Walking killers towards their peers does not fix that; carrying the mark further does, as the longer `source_for` above shows.
+
+**Spreading idle killers did not help, and it was dropped.** We tried a behaviour that made an idle killer step away from the killers whose status it had heard within radio range in the last 30 s, with a low bid that gave way to any work. It ran in both arms, and the code was not kept. On this small field it left 0.1 to 0.6 fewer infested cells, within the error in three of four arms (seeded with 4 killers: −0.16 ± 0.08). That field gives it little to win: a seeded pest is cleared about 6 minutes after it appears, of which some 2 minutes are the walk of a well-placed killer, since 4 killers on 32 × 32 cells are never far from a pest. So it was run again where killers walk far: the large field with two rivers (64 × 64 cells, `RIVERS_LARGE`'s map and two docks), 40 moving explorers and 4 killers at the same load per killer, 8 seeds. There, spreading made the seeded arm worse, by +0.33 ± 0.16 infested cells (3.43 without it, worse on 6 of 8 seeds, response 16.4 → 17.8 minutes), and did nothing in the hop arm (−0.08 ± 0.26 of 12.53). Idle killers were seldom next to each other in the first place, 18 % of the idle time in the seeded arm and 2 % in the hop arm, so there was little to spread out, and a killer pushed away from another probably ended up as often farther from the next pest as nearer to it.
+
 ### Earlier: limiting recruitment
 
 20 seeds per arm, run before the fix for the relay shuttle, which changes every hop arm. "Paired" is the difference in infested cells to the capped hop arm on the same seeds.

@@ -27,6 +27,18 @@ over the seeds and its standard error (±) where it matters:
 - ``isolated``: the share of the killer samples in which no other robot is within radio range;
 - ``no beacon``: the share of the samples of killers with beacons in which the killer heard no
   fresh TREAT beacon;
+
+``pest_isolation_headers`` and ``pest_isolation_cells`` give a second table, on whether killers
+lose contact with the swarm and what that costs:
+
+- ``idle isol``: the share of the killer samples in which the killer does not treat and no
+  other robot is within radio range;
+- ``isol p90``: the 90th percentile of the minutes a killer stayed isolated in one go;
+- ``crowded``: the share of the samples of killers that do not treat in which another killer is
+  within radio range;
+- ``unknown``: pests per sample, after the warm-up, that no robot knows of;
+- ``cut off``: pests per sample, after the warm-up, that some robot knows of but no robot in the
+  radio network of any robot that knows is a killer; at most what perfect cohesion could save.
 - ``coverage``: the share of the crop cells some robot sensed by the end;
 - ``idle``: minutes since a robot last sensed a crop cell, averaged over the cells and the
   samples after the warm-up: the expected wait of a pest for its first sighting;
@@ -43,15 +55,18 @@ from __future__ import annotations
 
 import math
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from statistics import mean, median, quantiles
+
+import numpy as np
 
 from swarm_field.contracts import BeaconKind, BodyType, CellId, Idle, RobotId, Time, TimeUnit
 from swarm_field.experiments.batch import Run, mean_and_error
 from swarm_field.experiments.run import LiveRun
 from swarm_field.experiments.scenario import SwarmScenario
 from swarm_field.runner import ExperimentConfig
-from swarm_field.swarm import KnowledgeSharing, treat_beacon
+from swarm_field.swarm import ComposedAgent, KnowledgeSharing, treat_beacon
 from swarm_field.swarm.hop import fresh_beacons
 
 
@@ -131,6 +146,14 @@ class PestResponse:
         isolated: The share of the killer samples with no other live robot within radio range.
         no_fresh_beacon: The share of the samples of killers with beacons in which the killer
             heard no fresh TREAT beacon, or ``None`` without beacons.
+        idle_isolated: The share of the killer samples in which the killer did not treat and no
+            other live robot was within radio range.
+        isolation_spells: The minutes each killer stayed isolated in one go.
+        crowded: The share of the samples of killers that did not treat in which another killer
+            was within radio range, or ``None`` if every killer always treated.
+        unknown_infested: Pests per sample after the warm-up that no robot knew of.
+        cut_off_infested: Pests per sample after the warm-up that some robot knew of, but no
+            robot in the radio network of any that knew was a killer.
         consumable_used: Treatment consumable used by all killers together, each starting with
             1; a treatment job uses ``1 / treatment_doses`` of the scenario.
         drift: The killers' mean distance in cells from their start, after each hour.
@@ -157,6 +180,11 @@ class PestResponse:
     co_treating: float | None
     isolated: float
     no_fresh_beacon: float | None
+    idle_isolated: float
+    isolation_spells: tuple[float, ...]
+    crowded: float | None
+    unknown_infested: float
+    cut_off_infested: float
     consumable_used: float
     drift: tuple[float, ...]
     coverage: float
@@ -186,6 +214,13 @@ class PestTracker:
         isolated: Of those, the samples with no other live robot within radio range.
         beacon_samples: Samples of a live killer with beacons.
         no_fresh_beacon: Of those, the samples in which it heard no fresh TREAT beacon.
+        idle_isolated: Killer samples in which the killer did not treat and was isolated.
+        spells: The isolation spells that ended, in simulation time.
+        idle_samples: Samples of a live killer that did not treat.
+        crowded: Of those, the samples with another killer within radio range.
+        reach_samples: Samples after the warm-up, for ``unknown`` and ``cut_off``.
+        unknown: Pests no robot knew of, summed over those samples.
+        cut_off: Pests known only in radio networks without a killer, summed likewise.
     """
 
     def __init__(self, starts: dict[RobotId, CellId], warmup: Time, radio_cells: float) -> None:
@@ -216,6 +251,15 @@ class PestTracker:
         self.isolated: int = 0
         self.beacon_samples: int = 0
         self.no_fresh_beacon: int = 0
+        self.idle_isolated: int = 0
+        self.spells: list[Time] = []
+        self.idle_samples: int = 0
+        self.crowded: int = 0
+        self.reach_samples: int = 0
+        self.unknown: int = 0
+        self.cut_off: int = 0
+        self._isolated_since: dict[RobotId, Time] = {}
+        self._last_sample: Time = 0
         self._treating: set[RobotId] = set()
 
     def sample(self, run: LiveRun, now: Time) -> None:
@@ -239,6 +283,9 @@ class PestTracker:
         self._sample_commitments(run, now)
         self._sample_treatments(run)
         self._sample_isolation(run, now)
+        if now > self._warmup:
+            self._sample_reach(run, now, infested)
+        self._last_sample = now
         if now % TimeUnit.HOUR == 0:
             self.drift.append(self.mean_distance_from_start())
 
@@ -288,29 +335,85 @@ class PestTracker:
             self.co_treating += 1
 
     def _sample_isolation(self, run: LiveRun, now: Time) -> None:
-        """Count the live killers with no other live robot in radio range, and without beacons."""
+        """Count the live killers with no other live robot in radio range, those without beacons,
+        and those idle and isolated or crowded; follow every killer's isolation spells."""
         world = run.context.world
         agents = run.agents()
         live = world.live_robots()
         for robot_id in self._positions:
             killer = world.robots[robot_id]
             if killer.failed:
+                self._end_spell(robot_id, now)
                 continue
             self.killer_samples += 1
             neighbours = 0
+            killers_near = 0
             for other in live:
                 if other == robot_id:
                     continue
                 if math.dist(killer.position, world.robots[other].position) <= self._radio_cells:
                     neighbours += 1
+                    if other in self._positions:
+                        killers_near += 1
+            goal = agents[robot_id].inspect().current_goal
+            treating = goal is not None and goal.startswith("treat")
+            if not treating:
+                self.idle_samples += 1
+                if killers_near > 0:
+                    self.crowded += 1
             if neighbours == 0:
                 self.isolated += 1
+                self._isolated_since.setdefault(robot_id, now)
+                if not treating:
+                    self.idle_isolated += 1
+            else:
+                self._end_spell(robot_id, now)
             link = agents[robot_id].beacon_link
             if link is None:
                 continue
             self.beacon_samples += 1
             if not fresh_beacons(link.memory, BeaconKind.TREAT, now, link.config):
                 self.no_fresh_beacon += 1
+
+    def _end_spell(self, robot_id: RobotId, now: Time) -> None:
+        """End the robot's isolation spell at ``now``, if it is isolated."""
+        since = self._isolated_since.pop(robot_id, None)
+        if since is not None:
+            self.spells.append(now - since)
+
+    def isolation_spells(self) -> list[Time]:
+        """Every isolation spell, the spells still under way ended at the last sample."""
+        spells = list(self.spells)
+        for since in self._isolated_since.values():
+            spells.append(self._last_sample - since)
+        return spells
+
+    def _sample_reach(self, run: LiveRun, now: Time, infested: set[CellId]) -> None:
+        """Count the pests no robot knows of, and those known only away from every killer."""
+        if not infested:
+            self.reach_samples += 1
+            return
+        world = run.context.world
+        agents = run.agents()
+        positions: dict[RobotId, CellId] = {}
+        for robot_id in world.live_robots():
+            positions[robot_id] = world.robots[robot_id].position
+        networks = radio_networks(positions, self._radio_cells)
+        with_killer: set[int] = set()
+        for robot_id in self._positions:
+            if robot_id in networks:
+                with_killer.add(networks[robot_id])
+        known_in: dict[CellId, set[int]] = {}
+        for robot_id, position in positions.items():
+            for cell in _pests_known_to(agents[robot_id], position, now, infested):
+                known_in.setdefault(cell, set()).add(networks[robot_id])
+        self.reach_samples += 1
+        for cell in infested:
+            networks_knowing = known_in.get(cell)
+            if networks_knowing is None:
+                self.unknown += 1
+            elif not networks_knowing & with_killer:
+                self.cut_off += 1
 
     def mean_distance_from_start(self) -> float:
         """The killers' mean straight-line distance in cells from where they started; 0 without."""
@@ -412,6 +515,11 @@ class MeasuredPestRun:
             co_treating=_share(tracker.co_treating, tracker.treating),
             isolated=tracker.isolated / max(tracker.killer_samples, 1),
             no_fresh_beacon=_share(tracker.no_fresh_beacon, tracker.beacon_samples),
+            idle_isolated=tracker.idle_isolated / max(tracker.killer_samples, 1),
+            isolation_spells=_minutes(tracker.isolation_spells()),
+            crowded=_share(tracker.crowded, tracker.idle_samples),
+            unknown_infested=tracker.unknown / max(tracker.reach_samples, 1),
+            cut_off_infested=tracker.cut_off / max(tracker.reach_samples, 1),
             consumable_used=used,
             drift=tuple(tracker.drift),
             coverage=metrics.coverage,
@@ -474,6 +582,78 @@ def pest_table_cells(label: str, results: list[PestResponse], hours: int) -> lis
     return cells
 
 
+def pest_isolation_headers(first: str = "arm") -> list[str]:
+    """The isolation table's column names."""
+    return [first, "infested", "isolated", "idle isol", "isol p90", "crowded", "unknown", "cut off"]
+
+
+def pest_isolation_cells(label: str, results: list[PestResponse]) -> list[str]:
+    """One row of the isolation table: the means over an arm's results, by seed."""
+    spells: list[float] = []
+    for result in results:
+        spells.extend(result.isolation_spells)
+    p90 = "-"
+    if spells:
+        p90 = f"{_percentile_90(spells):.1f}"
+    return [
+        label,
+        mean_and_error([result.infested for result in results]),
+        f"{mean(result.isolated for result in results):.2f}",
+        f"{mean(result.idle_isolated for result in results):.2f}",
+        p90,
+        _mean_share([result.crowded for result in results]),
+        mean_and_error([result.unknown_infested for result in results]),
+        mean_and_error([result.cut_off_infested for result in results]),
+    ]
+
+
+def radio_networks(positions: Mapping[RobotId, CellId], radio_cells: float) -> dict[RobotId, int]:
+    """Which radio network each robot is in: robots within ``radio_cells`` of each other are
+    joined, and so are robots joined through others. Networks are numbered from 0."""
+    robots = list(positions)
+    if not robots:
+        return {}
+    cells = np.array([positions[robot] for robot in robots], dtype=np.float64)
+    gaps = cells[:, np.newaxis, :] - cells[np.newaxis, :, :]
+    linked = np.hypot(gaps[..., 0], gaps[..., 1]) <= radio_cells
+    network = np.full(len(robots), -1)
+    label = 0
+    for start in range(len(robots)):
+        if network[start] >= 0:
+            continue
+        reached = np.zeros(len(robots), dtype=np.bool_)
+        reached[start] = True
+        frontier = reached.copy()
+        while frontier.any():
+            frontier = linked[frontier].any(axis=0) & ~reached
+            reached |= frontier
+        network[reached] = label
+        label += 1
+    found: dict[RobotId, int] = {}
+    for index, robot in enumerate(robots):
+        found[robot] = int(network[index])
+    return found
+
+
+def _pests_known_to(
+    agent: ComposedAgent, position: CellId, now: Time, infested: set[CellId]
+) -> list[CellId]:
+    """The infested cells the robot knows of: the pest it is the hop source of, for a robot with
+    beacons, which is all a hop killer can follow; the pests in its memory otherwise."""
+    link = agent.beacon_link
+    if link is not None:
+        beacon = treat_beacon(link.memory, position, now, link.config)
+        if beacon is not None and beacon.value == 0.0 and beacon.cell in infested:
+            return [beacon.cell]
+        return []
+    known: list[CellId] = []
+    for cell in infested:
+        fact = agent.memory.infestation_at(cell)
+        if fact is not None and fact.severity > 0:
+            known.append(cell)
+    return known
+
+
 def treated_share(results: list[PestResponse]) -> str:
     """The share of the pests that appeared and were treated, as mean ± standard error.
 
@@ -526,7 +706,15 @@ def _has_duplicate(cells: list[CellId | None]) -> bool:
     return False
 
 
-def _percentile_90(values: list[Time]) -> float:
+def _minutes(times: list[Time]) -> tuple[float, ...]:
+    """``times`` in minutes."""
+    minutes: list[float] = []
+    for value in times:
+        minutes.append(value / TimeUnit.MINUTE)
+    return tuple(minutes)
+
+
+def _percentile_90(values: list[Time] | list[float]) -> float:
     """The 90th percentile of ``values``; the value itself for a single one."""
     if len(values) == 1:
         return values[0]

@@ -16,6 +16,7 @@ uv run python -m studies.radio_range --ranges 50 150 300 --seeds 3 --hours 1
 | [`benchmark_obstacles.py`](benchmark_obstacles.py) | How do the four pest responses compare on the two fields with obstacles (`RIVER_SMALL`, `RIVERS_LARGE`)? | `output/<…>_obstacle_comparison/`, recorded in [`docs/research/hop-field.md`](../docs/research/hop-field.md) |
 | [`explorer_hop_killers.py`](explorer_hop_killers.py) | Do hop killers find the pests when only moving explorers see the pests and relay the beacons, without relays or mock sources? Seeded killers with the same explorers are the reference. | `output/<…>_explorer_hop_killers/`, with videos of both arms |
 | [`hop_dock_return.py`](hop_dock_return.py) | Do hop killers reach the dock down the DOCK beacons, to restock and to charge, as reliably and as fast as seeded killers that plan over their map? | `output/<…>_hop_dock_return/` |
+| [`killer_isolation.py`](killer_isolation.py) | How often is a killer cut off from the swarm, and how many pests are known only where no killer can hear of them? Decides whether hop killers need cohesion. | `output/<…>_killer_isolation/` |
 | [`benchmark_field.py`](benchmark_field.py) | How much faster is the quadtree potential field than a plain Dijkstra over every cell, and how far off are its values? | printed, recorded in [`docs/robot-memory-and-navigation.md`](../docs/robot-memory-and-navigation.md) |
 | [`benchmark_sharing.py`](benchmark_sharing.py) | How much of a pest run's wall time goes to knowledge sharing, full against periodic? | printed |
 
