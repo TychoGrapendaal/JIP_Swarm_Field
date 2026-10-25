@@ -4,12 +4,12 @@
 and received observations into memory, updates the field provider with new terrain facts, gathers
 behavior candidates, and lets its arbiter select one. The winning intent is resolved into a concrete
 action, then checked against the robot body's capabilities. The agent broadcasts its status and
-knowledge snapshot and merges the status and knowledge received from peers.
+knowledge snapshot and merges the status and knowledge received from peers. A robot of the hop
+method also has a ``BeaconLink``, which hears, places and sends its beacons.
 """
 
 import logging
 from dataclasses import replace
-from typing import cast
 
 from swarm_field.contracts import (
     Action,
@@ -21,12 +21,9 @@ from swarm_field.contracts import (
     Message,
     MessageKind,
     Move,
-    Observation,
-    ObservationBase,
     PeerObservation,
     Perception,
     RobotId,
-    TerrainObservation,
     Time,
 )
 from swarm_field.swarm.arbiter import Arbiter, UtilityArbiter
@@ -38,9 +35,12 @@ from swarm_field.swarm.behavior import (
     Intent,
 )
 from swarm_field.swarm.capabilities import CapabilitySet, capabilities_for
+from swarm_field.swarm.guidance import Guidance, Heading
+from swarm_field.swarm.hop.link import BeaconLink
 from swarm_field.swarm.memory import AgentMemory
 from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.provider import FieldProvider
+from swarm_field.swarm.sharing import KnowledgeExchange, SharingConfig
 
 logger = logging.getLogger(__name__)
 
@@ -52,11 +52,14 @@ class ComposedAgent:
         robot_id: The robot this brain drives.
         behaviors: The composable pieces of decision logic, combined at each decision point.
         memory: The robot's facts about the field and its peers.
-        fields: The robot's quadtree, and the grid potential fields of its seeders. Only the
+        fields: The robot's quadtree, and its objective fields by name. Only the
             winner's field is built, to pick its target and for the navigator to follow.
         navigator: Moves the robot along the winning candidate's field.
         arbiter: Picks the candidate the robot acts on and holds the robot to its choice. Every
             robot needs its own, since an arbiter remembers its robot's commitment.
+        exchange: Merges what the robot hears into its memory, and picks what it shares.
+        beacon_link: The robot's beacons, for a robot of the hop method, or ``None`` for a
+            robot that neither keeps nor broadcasts beacons.
     """
 
     def __init__(
@@ -68,6 +71,8 @@ class ComposedAgent:
         navigator: Navigator,
         arbiter: Arbiter | None = None,
         capabilities: CapabilitySet | None = None,
+        sharing: SharingConfig | None = None,
+        beacon_link: BeaconLink | None = None,
     ) -> None:
         self.robot_id: RobotId = robot_id
         self.behaviors: list[Behavior] = behaviors
@@ -76,20 +81,21 @@ class ComposedAgent:
         self.navigator: Navigator = navigator
         self.capabilities: CapabilitySet | None = capabilities
         self.arbiter: Arbiter = arbiter if arbiter is not None else UtilityArbiter()
+        self.exchange: KnowledgeExchange = KnowledgeExchange(memory, sharing)
+        self.beacon_link: BeaconLink | None = beacon_link
         self._current_goal: str | None = None
         self._current_target: CellId | None = None
         self._current_objective: AgentObjective | None = None
+        self._heading: Heading | None = None
+        self._guidance: Guidance | None = None
 
     def decide(self, perception: Perception) -> Decision:
-        received = self._facts_received(perception.inbox)
+        version = self.memory.version
         self.memory.ingest(perception)
-        self.memory.merge(received)
-        terrain_cells = [
-            fact.cell
-            for fact in [*perception.sensed, *received]
-            if isinstance(fact, TerrainObservation)
-        ]
-        self.fields.update_terrain(terrain_cells)
+        self.exchange.receive(perception.inbox)
+        if self.beacon_link is not None:
+            self.beacon_link.perceive(perception)
+        self.fields.update_terrain(self.memory.terrain_stored_after(version))
 
         # Ground-truth body identity in the perception is authoritative. This also keeps
         # manually assembled agents safe if they were passed the wrong capability profile.
@@ -120,37 +126,46 @@ class ComposedAgent:
                     candidates.append(candidate)
 
         choice = self.arbiter.choose(candidates, perception.time)
-        if choice is None:
-            self._current_goal = None
-            self._current_target = None
-            self._current_objective = None
-            return Decision(action=Idle(), outbox=self._messages_to_send(perception))
-
-        best = choice.candidate
-        self._current_goal = best.source
-        self._current_objective = best.objective
-        self._current_target = best.target
-        action, field_target = self._action_for(
-            best.action, perception.self_state.position, perception.time
-        )
-        if field_target is not None:
-            self._current_target = field_target
-
-        # Validate the concrete action as well as the proposed intent: a FollowField intent
-        # becomes a Move (or Idle) only after the navigator has resolved it.
-        if not capabilities.can(type(action)):
-            logger.warning(
-                "Blocked disallowed action %s from robot %s (%s)",
-                type(action).__name__,
-                self.robot_id,
-                capabilities.body.name,
+        self._current_goal = None
+        self._current_target = None
+        self._current_objective = None
+        self._heading = None
+        self._guidance = None
+        action: Action = Idle()
+        if choice is not None:
+            best = choice.candidate
+            self._current_goal = best.source
+            self._current_objective = best.objective
+            self._current_target = best.target
+            action, field_target = self._action_for(
+                best.action, perception.self_state.position, perception.time
             )
-            action = Idle()
-            self._current_goal = None
-            self._current_target = None
-            self._current_objective = None
+            if field_target is not None:
+                self._current_target = field_target
 
+            # Validate the concrete action as well as the proposed intent: a FollowField intent
+            # becomes a Move (or Idle) only after the navigator has resolved it.
+            if not capabilities.can(type(action)):
+                logger.warning(
+                    "Blocked disallowed action %s from robot %s (%s)",
+                    type(action).__name__,
+                    self.robot_id,
+                    capabilities.body.name,
+                )
+                action = Idle()
+                self._current_goal = None
+                self._current_target = None
+                self._current_objective = None
+        if self.beacon_link is not None:
+            self.beacon_link.after_step(
+                self._heading, action, perception.self_state.position, perception.time
+            )
         return Decision(action=action, outbox=self._messages_to_send(perception))
+
+    @property
+    def guidance(self) -> Guidance | None:
+        """The field's guidance the robot followed at its last decision, or ``None``."""
+        return self._guidance
 
     @staticmethod
     def _candidate_is_allowed(candidate: ActionCandidate, capabilities: CapabilitySet) -> bool:
@@ -181,43 +196,28 @@ class ComposedAgent:
         """The action that carries out the winning candidate's intent, and the field's target.
 
         For a ``FollowField`` this builds the seeder's field and the navigator steps along it;
-        the target is the one the field leads to, or ``None`` for any other intent.
+        the target is the one the field leads to, or ``None`` for any other intent. A heading
+        is remembered in ``_heading`` for the ``BeaconLink``.
         """
         if not isinstance(intent, FollowField):
             return intent, None
         field = self.fields.field_for(intent.seeder, robot, now)
         if field is None:
-            logger.warning("FollowField couldn't find the corresponding field %s", intent.seeder)
+            logger.warning("Field %s has nothing to guide the robot to; idling", intent.seeder)
             return Idle(), None
+        self._guidance = field
+        if isinstance(field, Heading):
+            self._heading = field
         return self.navigator.step_towards(field, robot)
 
-    def _facts_received(self, inbox: list[Message]) -> list[Observation]:
-        """The facts carried by the received messages: memory snapshots and status reports."""
-        facts: list[Observation] = []
-        for message in inbox:
-            if message.kind is MessageKind.KNOWLEDGE:
-                if not isinstance(message.payload, (tuple, list)):
-                    continue
-                for fact in message.payload:
-                    if isinstance(fact, ObservationBase):
-                        facts.append(cast(Observation, fact))
-            elif message.kind is MessageKind.STATUS:
-                if not isinstance(message.payload, PeerObservation):
-                    logger.warning(
-                        "Skipping a status message from %s with payload %r",
-                        message.sender,
-                        message.payload,
-                    )
-                    continue
-                facts.append(message.payload)
-        return facts
-
     def _messages_to_send(self, perception: Perception) -> list[Message]:
-        """The messages to broadcast at this decision point: the robot's status and its memory.
+        """The messages to broadcast at this decision point: the robot's status and knowledge.
 
         The status tells peers where the robot is, which target it is heading for (the target
         of the winner's field, or else the winning candidate's ``target``) and for which
-        objective, so that they can avoid the same region.
+        objective, so that they can avoid the same region. The knowledge is what the exchange
+        shares of the robot's memory, if anything. With a ``beacon_link`` the robot also
+        broadcasts its TREAT beacon, if it has one.
         """
         status = PeerObservation(
             cell=perception.self_state.position,
@@ -236,10 +236,19 @@ class ComposedAgent:
             kind=MessageKind.STATUS,
             payload=status,
         )
-        memory_message = Message(
-            sender=self.robot_id,
-            sent_at=perception.time,
-            kind=MessageKind.KNOWLEDGE,
-            payload=tuple(self.memory.records()),
-        )
-        return [status_message, memory_message]
+        messages = [status_message]
+        knowledge = self.exchange.knowledge_to_send()
+        if knowledge is not None:
+            messages.append(
+                Message(
+                    sender=self.robot_id,
+                    sent_at=perception.time,
+                    kind=MessageKind.KNOWLEDGE,
+                    payload=knowledge,
+                )
+            )
+        if self.beacon_link is not None:
+            beacon = self.beacon_link.beacon_message(perception)
+            if beacon is not None:
+                messages.append(beacon)
+        return messages

@@ -1,6 +1,6 @@
 # Research note — from which pest spread rate is a swarm needed? (#74)
 
-Status: describes the grid-search baseline (`GridSweepSeeder` and `grid_sweep_brain` in `tests/baselines.py`), the study `studies/spread_threshold.py`, and its results. Reproducible with:
+Status: describes the grid-search baseline (`GridSweepSeeder` and `grid_sweep_brain` in `studies/baselines.py`), the study `studies/spread_threshold.py`, and its results. The results below were measured with the earlier `PestScenario.smoke`, before the body capabilities (#61), the battery lifecycle (#81), the move to `SwarmScenario` (#84) and the spreading of killers over pests (#60). A short check after those changes (one seed, one hour) already turned the conclusion around: the swarm kept spread 0.02 under control where the grid baseline did not. The results need a rerun with:
 
 ```bash
 uv run python -m studies.spread_threshold --seeds 5 --hours 3 --jobs 8

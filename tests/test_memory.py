@@ -3,6 +3,7 @@
 from math import exp, isclose
 
 from swarm_field.contracts import (
+    AgentObjective,
     BodyType,
     CellId,
     CropObservation,
@@ -86,6 +87,35 @@ def test_merge_order_does_not_matter() -> None:
     assert set(forward.records()) == set(backward.records())
 
 
+def test_a_peer_is_where_it_was_last_seen_and_heads_where_it_last_reported() -> None:
+    def peer_fact(
+        source: RobotId, cell: CellId, at: Time, target: CellId | None = None
+    ) -> PeerObservation:
+        objective = AgentObjective.TREAT if target is not None else None
+        return PeerObservation(
+            cell=cell,
+            confidence=1.0,
+            observed_at=at,
+            source=source,
+            peer=2,
+            body=BodyType.KILLER,
+            target=target,
+            objective=objective,
+        )
+
+    memory = _memory()
+    # A sighting newer than the peer's report, then a report older than the sighting.
+    memory.merge([peer_fact(2, (1, 1), at=0, target=(5, 5))])
+    memory.merge([peer_fact(3, (2, 2), at=20)])
+    memory.merge([peer_fact(2, (1, 2), at=10, target=(6, 6))])
+
+    (peer,) = memory.peers()
+    assert peer.cell == (2, 2)
+    assert peer.observed_at == 20
+    assert peer.target == (6, 6)
+    assert peer.objective is AgentObjective.TREAT
+
+
 def test_ingest_stores_crop_terrain_infestation_and_named_peers_only() -> None:
     memory = _memory()
     crop = CropObservation(
@@ -136,6 +166,19 @@ def test_newer_crop_observation_replaces_older_and_is_in_memory_snapshot() -> No
     assert newer in memory.snapshot()
 
 
+def test_a_memory_without_a_map_keeps_only_peers() -> None:
+    field = FieldGeometry(
+        width=10, height=10, cell_size=10.0, row_sp=0.0, in_row_sp=0.0, headland=0.0
+    )
+    memory = AgentMemory(_SELF, field, keeps_map=False)
+    peer = _peer(2, (3, 3), 0)
+
+    memory.merge([_terrain((1, 1), Terrain.OBSTACLE, 0), _pest((2, 2), 0.5, 0), peer])
+
+    assert list(memory.records()) == [peer]
+    assert memory.terrain_at((1, 1)) is None
+
+
 def test_terrain_is_unknown_until_observed_and_outside_beyond_the_field() -> None:
     memory = _memory()
 
@@ -174,3 +217,27 @@ def test_known_obstacles_are_not_monitorable() -> None:
     assert not monitorable[2, 2]
     assert monitorable[4, 4]
     assert monitorable[0, 0]
+
+
+def test_a_sighting_of_a_peer_keeps_the_goal_of_its_last_status() -> None:
+    memory = AgentMemory(1, FieldGeometry(10, 10, 10.0, 0.0, 0.0, 0.0))
+    status = PeerObservation(
+        cell=(3, 3),
+        confidence=1.0,
+        observed_at=0,
+        source=2,
+        peer=2,
+        body=BodyType.KILLER,
+        target=(5, 5),
+        objective=AgentObjective.TREAT,
+    )
+    sighting = PeerObservation(
+        cell=(4, 4), confidence=1.0, observed_at=10, source=1, peer=2, body=BodyType.KILLER
+    )
+
+    memory.merge([status, sighting])
+
+    (known,) = memory.peers()
+    assert known.cell == (4, 4)
+    assert known.target == (5, 5)
+    assert known.objective is AgentObjective.TREAT

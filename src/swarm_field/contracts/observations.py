@@ -79,7 +79,8 @@ class PeerObservation(ObservationBase):
     Attributes:
         peer: The peer's identity if resolvable, else ``None`` for an anonymous sighting.
         body: The peer's body type.
-        battery: Remaining battery fraction, when reported (0..1); ``None`` when unavailable.
+        battery: Reported battery fraction in [0, 1]. An unavailable report uses 1.0
+            conservatively so missing information does not trigger an emergency support request.
         target: The cell the peer is heading for, if it reported one. A status report can include
             it; a local sighting may also include the current move target when exposed by the world.
         objective: The objective the peer is pursuing, if it reported one, so that a seeder
@@ -90,7 +91,7 @@ class PeerObservation(ObservationBase):
     body: BodyType
     target: CellId | None = None
     objective: AgentObjective | None = None
-    battery: float | None = None
+    battery: float = 1.0
 
 
 Observation = CropObservation | InfestationObservation | TerrainObservation | PeerObservation

@@ -12,8 +12,15 @@ from swarm_field.contracts import (
     TerrainObservation,
     Time,
 )
-from swarm_field.swarm import AgentMemory, FieldProvider, MemoryView, Navigator, QuadtreeSensing
-from swarm_field.swarm.field import Seed
+from swarm_field.swarm import (
+    AgentMemory,
+    FieldProvider,
+    Heading,
+    MemoryView,
+    Navigator,
+    QuadtreeSensing,
+)
+from swarm_field.swarm.field import Quadtree, Seed
 
 _FIELD = FieldGeometry(
     width=40, height=40, cell_size=1.0, row_sp=0.0, in_row_sp=0.0, headland=0.0, connectivity=8
@@ -47,6 +54,12 @@ def _fields(obstacles: set[CellId], seeds: tuple[Seed, ...] = ()) -> FieldProvid
     ]
     memory.merge(facts)
     return FieldProvider(memory, flies=False, seeders=[_FixedSeeder(seeds)])
+
+
+def _quadtree(obstacles: set[CellId]) -> Quadtree:
+    quadtree = _fields(obstacles).quadtree
+    assert quadtree is not None
+    return quadtree
 
 
 def _drive(fields: FieldProvider, start: CellId) -> list[Move | Idle]:
@@ -89,14 +102,34 @@ def test_a_walled_off_target_hands_over_to_the_steerer_and_then_reports() -> Non
 
 def test_the_map_backed_sensing_never_cuts_a_blocked_corner() -> None:
     """The steerer must not read as free a diagonal the quadtree's own routing refuses."""
-    both_corners_blocked = QuadtreeSensing(_fields({(11, 0), (10, 1)}).quadtree)
+    both_corners_blocked = QuadtreeSensing(_quadtree({(11, 0), (10, 1)}))
     assert not both_corners_blocked.clear((10, 0), Direction.NE)
     assert not both_corners_blocked.clear((10, 0), Direction.E)
     assert not both_corners_blocked.clear((10, 0), Direction.N)
 
-    one_corner_blocked = QuadtreeSensing(_fields({(11, 0)}).quadtree)
+    one_corner_blocked = QuadtreeSensing(_quadtree({(11, 0)}))
     assert not one_corner_blocked.clear((10, 0), Direction.NE)
     assert one_corner_blocked.clear((10, 0), Direction.N)
 
-    both_corners_free = QuadtreeSensing(_fields({(12, 0)}).quadtree)
+    both_corners_free = QuadtreeSensing(_quadtree({(12, 0)}))
     assert both_corners_free.clear((10, 0), Direction.NE)
+
+
+def test_a_heading_to_a_new_target_frees_a_stalled_robot() -> None:
+    trap = {(x, 23) for x in range(16, 21)} | {(x, 19) for x in range(16, 21)}
+    trap |= {(16, y) for y in range(19, 24)}
+    navigator = Navigator(_fields(trap).quadtree)
+    position = (24, 21)
+    action: Move | Idle = Idle()
+    for _ in range(300):
+        heading = Heading(offset=(5.0 - position[0], 21.0 - position[1]), target=(5, 21))
+        action, _ = navigator.step_towards(heading, position)
+        if isinstance(action, Idle):
+            break
+        position = action.to
+    assert isinstance(action, Idle)
+
+    heading = Heading(offset=(35.0 - position[0], 21.0 - position[1]), target=(35, 21))
+    action, _ = navigator.step_towards(heading, position)
+
+    assert isinstance(action, Move)

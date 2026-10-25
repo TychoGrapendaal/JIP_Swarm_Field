@@ -1,6 +1,6 @@
 # Research note — measuring swarm robustness to robot failure and localisation error
 
-Status: describes the machinery implemented in `src/swarm_field/runner.py` (`robustness_sweep`, `RobustnessCase`, `default_robustness_cases`), `src/swarm_field/simulation/event.py` (`FailureCheck`) and `src/swarm_field/simulation/world.py` (`fail_robot`, `perceived_self`). The results below are produced by `examples/robustness_demo.py` and are reproducible from seed 101. **Read "What these results do and do not show" before quoting any number here**: the harness is verified end to end, but the outcome metrics are currently flat because the swarm's behaviors are stubs, so this note establishes the measurement and the experimental controls, not a finding about resilience.
+Status: describes the machinery implemented in `src/swarm_field/experiments/robustness.py` (`RobustnessCase`, `default_robustness_cases`, `measure_robustness`), `src/swarm_field/simulation/event.py` (`FailureCheck`) and `src/swarm_field/simulation/world.py` (`fail_robot`, `perceived_self`). The results below are produced by `examples/robustness_demo.py` and are reproducible from seed 101. **Read "What these results do and do not show" before quoting any number here**: the harness is verified end to end, but the outcome metrics are currently flat because the swarm's behaviors are stubs, so this note establishes the measurement and the experimental controls, not a finding about resilience.
 
 ## The question
 
@@ -57,7 +57,7 @@ Two secondary effects compound this. The three failure modes are indistinguishab
 ```bash
 uv run python examples/robustness_demo.py
 uv run python examples/robustness_demo.py --scenario S5 --hours 3
-uv run python examples/robustness_demo.py --out runs/robustness
+uv run python examples/robustness_demo.py --seeds 5
 ```
 
-The last form writes `robustness.csv` and `robustness.json` summary tables plus each condition's full metrics series as CSV and JSON, which is the form to use for plotting. A single scenario/seed sweep, without fault injection, is `examples/metrics_sweep_demo.py`.
+Every form runs through `Experiment`, which writes each run's last metrics sample to `results.json` and the table to `tables.md` in a new folder of `output/`.

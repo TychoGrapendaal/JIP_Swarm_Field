@@ -13,12 +13,18 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
 from swarm_field.contracts import (
+    Beacon,
+    BeaconKind,
     BodyType,
     CellId,
     FailureMode,
     FailureSpec,
+    InfestationObservation,
+    Message,
+    MessageKind,
     Perception,
     PestDynamicsSpec,
+    PestSourceSpec,
     RobotId,
     Time,
     TimeUnit,
@@ -100,13 +106,12 @@ class RobotDecision:
 
     def handle(self, ctx: SimulationContext) -> None:
         """Perceive, decide, act, deliver messages, and schedule the next decision."""
+        ctx.world.advance_to(self.time)
         if self._has_failed(ctx):
             # A failed robot does not come back, so it stops scheduling decisions entirely and
-            # the swarm carries on without it. A move already under way still completes, so the
-            # rest of the swarm does not have to cope with robots stranded mid-cell.
+            # the swarm carries on without it. Advancing the world before this check lets a move
+            # that exhausts its battery be settled before the robot can make another decision.
             return
-
-        ctx.world.advance_to(self.time)
         perception = Perception(
             time=self.time,
             self_state=ctx.world.perceived_self(self.robot, self._believed_position(ctx)),
@@ -199,8 +204,80 @@ class FailureCheck:
         """Fail each live robot that draws a fault, then schedule the next check."""
         for robot_id in ctx.world.live_robots():
             if ctx.noise.random() < self.config.probability:
-                ctx.world.fail_robot(robot_id, self.config.mode)
+                ctx.world.fail_robot(robot_id, self.config.mode, time=self.time)
         ctx.schedule(FailureCheck(time=self.time + self.config.period, config=self.config))
+
+
+@dataclass
+class PestSourceBroadcast:
+    """Broadcast every pest from its own cell, as an explorer hovering above it would.
+
+    Each infested cell sends, of the spec's ``kinds``, a ``KNOWLEDGE`` message with the
+    infestation fact that own-cell sensing gives, and a ``BEACON`` message with a TREAT beacon of
+    0 on the cell, from a synthetic sender of its own. A pest cleared since the last broadcast is
+    reported once more, as clean and without a beacon, and then falls silent. Draws nothing from
+    ``ctx.rng``.
+
+    Attributes:
+        time: Simulation time of this broadcast.
+        spec: How often to broadcast and how far.
+        infested: The cells that were infested at the previous broadcast.
+    """
+
+    time: Time
+    spec: PestSourceSpec
+    infested: frozenset[CellId] = frozenset()
+
+    def handle(self, ctx: SimulationContext) -> None:
+        """Broadcast the infested and the just-cleared cells, then schedule the next round."""
+        infested_now: set[CellId] = set()
+        for cell, state in ctx.world.cells.items():
+            if state.infestation > 0.0:
+                infested_now.add(cell)
+        for cell in sorted(infested_now | self.infested):
+            source = _pest_source_id(cell, ctx.world.field.width)
+            severity = ctx.world.cells[cell].infestation
+            for message in self._source_messages(cell, source, severity):
+                ctx.channel.broadcast_from_cell(
+                    ctx.world, self.time, cell, self.spec.radio_range_m, message
+                )
+        ctx.schedule(
+            PestSourceBroadcast(
+                time=self.time + self.spec.period, spec=self.spec, infested=frozenset(infested_now)
+            )
+        )
+
+    def _source_messages(self, cell: CellId, source: RobotId, severity: float) -> list[Message]:
+        """What the source on ``cell`` sends, of the spec's ``kinds``: the infestation fact, and
+        a beacon while infested."""
+        messages: list[Message] = []
+        if MessageKind.KNOWLEDGE in self.spec.kinds:
+            fact = InfestationObservation(
+                cell=cell,
+                confidence=1.0,
+                observed_at=self.time,
+                source=source,
+                severity=severity,
+                pest=None,
+            )
+            messages.append(
+                Message(
+                    sender=source, sent_at=self.time, kind=MessageKind.KNOWLEDGE, payload=(fact,)
+                )
+            )
+        if MessageKind.BEACON in self.spec.kinds and severity > 0.0:
+            beacon = Beacon(BeaconKind.TREAT, 0.0, cell)
+            messages.append(
+                Message(
+                    sender=source, sent_at=self.time, kind=MessageKind.BEACON, payload=(beacon,)
+                )
+            )
+        return messages
+
+
+def _pest_source_id(cell: CellId, width: int) -> RobotId:
+    """A sender id for the source on ``cell``: negative, so it never clashes with a robot's."""
+    return -(1 + cell[0] + cell[1] * width)
 
 
 @dataclass
@@ -311,12 +388,21 @@ class WorldTick:
         )
 
     def _grow(self, ctx: SimulationContext) -> None:
-        """Increase every existing infestation without exceeding full severity."""
+        """Increase every existing infestation without exceeding full severity.
+
+        A cell a killer is treating does not grow: treatment removes a unit of severity per
+        hour, which would otherwise lose to any growth faster than that, so no pest could be
+        cleared.
+        """
         if self.config.growth_rate == 0.0:
             return
 
-        for state in ctx.world.cells.values():
-            if state.infestation <= 0.0:
+        treated: set[CellId] = set()
+        for robot in ctx.world.robots.values():
+            if robot.treating_cell is not None:
+                treated.add(robot.treating_cell)
+        for cell, state in ctx.world.cells.items():
+            if state.infestation <= 0.0 or cell in treated:
                 continue
             state.infestation = min(1.0, state.infestation + self.config.growth_rate)
 

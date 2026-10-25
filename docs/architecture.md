@@ -67,18 +67,17 @@ Because A and C both depend only on `contracts` and on these ports, either can b
 There is one place — the runner — that knows every concrete class and wires them together. Everything else depends on ports. This is where "assembled, possibly dynamically" actually happens: the runner reads specs, resolves named parts from registries, and constructs the object graph for a single run.
 
 ```python
-def run_experiment(config: ExperimentConfig) -> RunSummary:
+def run_experiment(config: ExperimentConfig) -> tuple[MetricsSample, ...]:
     ctx, collector = build_run(config)   # assemble + seed the first events
     SimulationLoop().run(ctx, config.until)
-    return RunSummary.from_series(config.label, config.scenario_name,
-                                  config.scenario.seed, collector.series())
+    return collector.series()
 ```
 
 Every random draw a run makes happens inside `build_run`, in a fixed order, so a run is a function of its seed and configuration. The context's `rng` is then left to the pest dynamics; the metrics collector holds no random source of its own, so recording metrics cannot change the world a run produces.
 
-The runner is also the natural home for the batch / sweep logic that runs many configurations for benchmarking: `sweep` runs a list of configurations, and `robustness_sweep` runs one configuration under each fault condition from its shared seed, so a condition and its baseline see identical pest dynamics. Which configuration to run comes from the scenario catalogue in `experiments`, one layer above the runner: it names every scenario, the presets and the hand-built experiments alike, turns a name and a seed into an `ExperimentConfig`, and its `sweep_scenarios` runs the cross product of names and seeds.
+Running many configurations is not the runner's job: `swarm_field.experiments.Experiment`, one layer above it, runs a batch of runs, every configuration with every seed, in parallel processes and keeps their results in `output/`. Which configuration to run comes from `experiments` too: a `SwarmScenario`, or the scenario catalogue, which names every scenario, the presets and the hand-built experiments alike, and turns a name and a seed into an `ExperimentConfig`. A robustness run (`experiments.robustness`) applies one fault condition to a scenario of the catalogue; every condition runs with the same seeds, so a condition and its baseline see identical pest dynamics.
 
-`run_experiment`, `sweep` and `robustness_sweep` each take an optional `Renderer`. Handing one in makes the run draw its world on every metric tick, so a sweep can be watched without a second driver. Because a render only reads ground truth, a run with a renderer measures exactly what the same run without one would — `test_a_run_with_a_renderer_measures_exactly_the_same_as_one_without` pins that. One renderer shared across a sweep sees all the conditions and cannot tell them apart, so to attribute frames to a condition, rebuild that one condition with `robustness_case_config` and pass the renderer to a single `run_experiment`: a run is a function of its seed, so the drawn run is the tabled one.
+`run_experiment` takes an optional `Renderer`. Handing one in makes the run draw its world on every metric tick, so a run can be watched without a second driver. Because a render only reads ground truth, a run with a renderer measures exactly what the same run without one would — `test_a_run_with_a_renderer_measures_exactly_the_same_as_one_without` pins that. A run is a function of its seed, so a condition drawn again is the one in the table.
 
 Visualization also attaches to a run the other way round, through `Command`, or consumes a recorded event log offline.
 
@@ -105,11 +104,12 @@ The pluggable ports inside the brain:
 |---|---|---|
 | `Memory` | hold + decay the local belief map and self‑state | grid‑cell map, continuous markers, bounded LRU map |
 | `Behavior` | bid for what the robot does next: scored candidates carrying an intent, from the robot's state and memory; never from a field | scout‑coverage, treat‑nearest‑pest, return‑to‑charge |
+| `ObjectiveField` | turn memory into the `Guidance` for one objective, under a name a behaviour can follow | `SeededObjectiveField` (a Dijkstra field over a `FieldSeeder`), `HopField` (a `Heading` from hop beacons) |
 | `FieldSeeder` | turn memory into the targets (`Seed`s) of one potential field, and say when they change | TREAT pests, EXPLORE stale cells, RECHARGE docks |
 | `AgentObjective` | the stable objective a candidate serves, reported to peers with the robot's target | `TREAT`, `EXPLORE`, `VERIFY`, `RECHARGE` |
 | `Arbiter` | fuse candidates into one chosen action | max‑utility, weighted sum, priority with hysteresis |
-| `FieldProvider` | build the winner's field, which picks its target, and cache one per seeder, for the navigator | quadtree potential field, uniform grid |
-| `Navigator` | turn the winner's field into a concrete `Move` | potential‑field, coverage‑control, greedy‑grid |
+| `FieldProvider` | hold the quadtree and the objective fields by name, and hand out the winner's guidance, for the navigator | quadtree potential field, uniform grid |
+| `Navigator` | turn the winner's guidance into a concrete `Move` | potential‑field, coverage‑control, greedy‑grid |
 | `CommsStrategy` | decode inbox → memory, encode memory → outbox | map‑merge, vicinity‑vector, stigmergy marks |
 | `CapabilitySet` | declare which action types the body can perform | scout (senses), killer (Treat), battery (Charge) |
 
@@ -130,15 +130,26 @@ class FieldSeeder(Protocol):      # the targets of one potential field, register
     def field_key(self, memory: "MemoryView", robot: CellId, now: Time) -> Hashable: ...  # changes when the seeds do
     def seeds(self, memory: "MemoryView", robot: CellId, now: Time) -> tuple[Seed, ...]: ...
 
-class FieldProvider:              # holds the seeders and the quadtree, caches one field per seeder
-    def field_for(self, seeder: str, robot: CellId, now: Time) -> SeededField | None: ...
+@dataclass(frozen=True)
+class Heading:                    # a direction to walk in, rather than a route
+    offset: Vector2               # relative, in cells
+    target: CellId | None         # the target the robot reports to its peers
 
-class Navigator:                  # moves the winner along its field
-    def step_towards(self, seeded: SeededField, robot: CellId) -> Move | Idle: ...
+Guidance = SeededField | Heading  # a cost grid to plan along, or a heading for the Steerer
+
+class ObjectiveField(Protocol):   # guides the robot towards one objective, registered by name
+    name: str
+    def guidance_for(self, memory: "MemoryView", robot: CellId, now: Time) -> Guidance | None: ...
+
+class FieldProvider:              # holds the quadtree and the objective fields; each field caches its own
+    def field_for(self, name: str, robot: CellId, now: Time) -> Guidance | None: ...
+
+class Navigator:                  # moves the winner along its guidance
+    def step_towards(self, guidance: Guidance, robot: CellId) -> tuple[Move | Idle, CellId | None]: ...
 
 @dataclass(frozen=True)
-class FollowField:                # "step along this seeder's field"; only the navigator moves
-    seeder: str
+class FollowField:                # "step along this objective field"; only the navigator moves
+    seeder: str                   # the field's name
 
 Intent = FollowField | Treat | Charge | Idle   # what a behavior wants done; no bare Move
 
@@ -177,6 +188,8 @@ class CapabilitySet:
     capabilities: tuple[Capability, ...]
     def can(self, action_type: type[Action]) -> bool: ...
 ```
+
+**The guidance port.** An `ObjectiveField` turns the robot's memory into `Guidance` for one objective. Two adapters exist. `SeededObjectiveField` wraps a `FieldSeeder` and returns a `SeededField`, the Dijkstra potential field the `Navigator` plans along. `HopField` reads the hop beacons the robot heard and returns a `Heading`, which the `Navigator` hands straight to its `Steerer`. A brain picks one field per objective by name: a behaviour proposes `FollowField(name)`, and the runner registers that name in `SEEDERS` (a seeder, wrapped by the provider) or in `FIELDS` (any other objective field). Behaviours still never read a field: `TreatByBeacon` bids from the robot's beacons, not from the `HopField`. Everything of the hop method lives in the package `swarm/hop/`. Its parts read the robot's beacons through a `BeaconView` of its own `BeaconMemory`, which has no terrain, pest cells or quadtree, so the type checker keeps them off the map. A `BeaconLink` per hop robot connects the method to the brain. The hop field is described in [`research/hop-field.md`](research/hop-field.md).
 
 ### A.3 The orchestrator
 
@@ -230,6 +243,8 @@ flowchart TB
     OUT --> D
 ```
 
+In the code, communication is not a separate `CommsStrategy` part yet: `ComposedAgent` encodes and decodes its messages itself. Every decision it broadcasts a `STATUS` message with its cell and target. It adds a `KNOWLEDGE` message with the `KnowledgeSnapshot` its `KnowledgeExchange` picks: the facts `SharingConfig.facts` selects (everything, infestations only, infestations and the peers that report a target, or none), as often as its `SharingStrategy` says. A robot with a `BeaconConfig` has a `BeaconLink`, which hears the `BEACON` messages, places the beacons that push the robot out of places it circles in, and adds a `BEACON` message with the robot's TREAT hop value from `treat_beacon`. The brain calls it at three points of a decision and knows nothing else of beacons. Received beacons are kept in the link's `BeaconMemory`, apart from the facts, so they are never gossiped on. `BrainSpec.sharing` and `BrainSpec.beacons` set both per robot.
+
 ### A.4 Assembly (data‑driven)
 
 Parts register under names; a `BrainSpec` names the parts to use; `build_agent` resolves them. Testing a different configuration is editing a spec, not code — and specs can come from a config file, so assembly can be dynamic.
@@ -253,6 +268,8 @@ class BrainSpec:
 def build_agent(spec: BrainSpec, body: BodyType, rng: Random) -> SwarmAgent:
     ...   # resolve names -> instances, build CapabilitySet from body, wire ComposedAgent
 ```
+
+The objective fields resolve the same way: each name in `BrainSpec.seeders` is looked up in `FIELDS` first, then in `SEEDERS`.
 
 ### A.5 How the brain grows (worked cases)
 
@@ -326,6 +343,7 @@ flowchart LR
 | `WorldTick` | advance infestation dynamics one step | itself, at the next coarse cadence |
 | `MetricSample` | record a metrics sample, and hand the world to the run's `Renderer` if it has one | itself, periodically |
 | `FailureCheck` | fail each live robot that draws a fault from `ctx.noise` | itself, at the next coarse cadence |
+| `PestSourceBroadcast` | broadcast each pest's infestation fact and a TREAT beacon of 0 from its own cell, through `Channel.broadcast_from_cell`, standing in for an explorer above it (`ScenarioConfig.pest_sources`) | itself, every `PestSourceSpec.period` |
 
 ### B.4 Keeping handlers uncoupled
 
@@ -369,7 +387,7 @@ flowchart LR
 |---|---|---|
 | Add a robot action | a `contracts` action + a `Capability` + a `Behavior` | orchestrator, arbiter, loop, simulation |
 | Try a new decision algorithm | `Behavior` / `Arbiter` implementations + a `BrainSpec` | ports, contracts, simulation |
-| Change how robots share knowledge | a `CommsStrategy` (payload stays opaque) | simulation, other agents |
+| Change how robots share knowledge | a `SharingStrategy` in `BrainSpec.sharing` (payload stays opaque) | simulation, other agents |
 | Add a simulation dynamic (e.g. pest model) | a new `Event` type + handler | brains, contracts, other events |
 | Add a robot/body class | a `CapabilitySet` + per‑robot `BrainSpec` | orchestrator, simulation |
 | Swap the renderer | the C adapter | A, B, contracts |
@@ -379,10 +397,4 @@ The recurring shape is the same on both sides of the system: a dumb orchestrator
 
 ## Implemented body capability model
 
-The initial body-specific capability gate is implemented in `src/swarm_field/swarm/capabilities.py`,
-`src/swarm_field/swarm/brain.py`, and `src/swarm_field/swarm/assembly.py`. `ComposedAgent` filters
-candidates before score selection, maps `FollowField` to the `Move` capability, and validates the
-resolved concrete action before returning it. The factory `build_agent(robot_id, body, field,
-docks=...)` assembles the default behaviours and flying/ground field provider per body. The profile
-values, sensing rules, battery service semantics, and simplifications are documented in
-[`body-capabilities.md`](body-capabilities.md).
+The body-specific capability gate is implemented in `src/swarm_field/swarm/capabilities.py` and `src/swarm_field/swarm/brain.py`. `ComposedAgent` takes the body from each `Perception`, filters candidates before score selection, maps `FollowField` to the `Move` capability, and validates the resolved concrete action before returning it. The profile values, sensing rules, battery service semantics, and simplifications are documented in [`body-capabilities.md`](body-capabilities.md).

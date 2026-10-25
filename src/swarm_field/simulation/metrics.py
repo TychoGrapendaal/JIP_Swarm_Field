@@ -233,6 +233,7 @@ class MetricsCollector:
             killer_driving_share=self._killer_share(KillerActivity.DRIVING),
             killer_treating_share=self._killer_share(KillerActivity.TREATING),
             duplicate_trip_share=self._duplicate_trip_share(),
+            battery_failures=world.battery_failure_count(),
         )
         self.samples.append(taken)
         return taken

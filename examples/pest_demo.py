@@ -1,20 +1,20 @@
-"""Scouts explore and killers explore and treat while pests keep appearing, on the console.
+"""Explorers find pests and killers treat them while pests keep appearing, on the console.
 
-Five scouts and three killers start side by side in a corner of a field of 10 m cells with a
+Five explorers and three killers start side by side in a corner of a field of 10 m cells with a
 river and two rocks. Each is a real ``ComposedAgent`` with a ``UtilityArbiter`` on the real
-simulation loop: scouts follow the EXPLORE field, killers weigh it against ``TreatInfestation``
-on the TREAT field. With ``--killers-treat-only`` killers do not explore and wait until they hear
-of a pest. Pests spawn at random free cells over time, and robots share what they know only
-within radio range. ``PestScenario`` describes the run, and ``swarm_field.runner`` assembles and
-runs it.
+simulation loop: explorers follow the EXPLORE field, and seeded killers treat the pests they
+know of on the TREAT field. With ``--hop`` the killers are hop killers instead: they follow the
+hop beacons that every robot relays, from the explorer that sees a pest. Pests spawn at random
+free cells over time, and robots share what they know only within radio range. A
+``SwarmScenario`` describes the run, and ``swarm_field.runner`` assembles and runs it.
 
 Red cells are the pests in ground truth, trails show where the robots went, and dashed lines the
 target each robot is heading for. The panel shows the measures of ``MetricsCollector``, how the
 killers spent their time, and what each killer does and knows. The console's controls work as in
 ``scenario_viewer.py``: pause, step, change the speed, inject a pest, inspect a robot.
 
-``--smoke`` starts from the base demo (``PestScenario.smoke``): five scouts that only explore and
-five killers at 0.5 m/s that only treat. Any other option given changes that setup.
+``--smoke`` starts from the base demo (``SMOKE``): five explorers that only explore and five
+seeded killers that only treat. Any other option given changes that setup.
 
 Run from the repository root with:
     uv run python examples/pest_demo.py
@@ -27,6 +27,7 @@ Record a video instead (mp4 through ffmpeg, or a gif):
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 from dataclasses import replace
 
 from swarm_field.console import (
@@ -36,77 +37,96 @@ from swarm_field.console import (
     save_session,
     show_window,
 )
-from swarm_field.contracts import BodyType, TimeUnit, WorldSnapshot
-from swarm_field.experiments import LiveRun, PestScenario
-from swarm_field.visualization import MatplotlibRenderer
+from swarm_field.contracts import BodyType, Time, TimeUnit, WorldSnapshot
+from swarm_field.experiments import (
+    EXPLORER,
+    HOP_KILLER,
+    PESTS,
+    SEEDED_KILLER,
+    SMOKE,
+    LiveRun,
+    RobotPreset,
+    SwarmScenario,
+)
+from swarm_field.visualization import DEFAULT_TRAIL_LENGTH, MatplotlibRenderer
 
 DEFAULT_SPEED = 40.0
 """Twenty simulated seconds per frame."""
-TRAIL_LENGTH = 30
 GOAL_LABELS: dict[str | None, str] = {
-    "follow-field": "explore",
     "treat-infestation": "treat",
+    "treat-hop": "treat",
     None: "idle",
 }
 
 
 def parse_args() -> argparse.Namespace:
     """The command line; an option left out keeps the value of the starting scenario."""
-    defaults = PestScenario()
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--smoke", action="store_true", help="start from the base demo: 5 + 5 robots, one task each"
     )
-    parser.add_argument("--scouts", type=int, default=None, help=f"default {defaults.scouts}")
-    parser.add_argument("--killers", type=int, default=None, help=f"default {defaults.killers}")
-    parser.add_argument("--killers-treat-only", action="store_true", help="killers do not explore")
+    parser.add_argument(
+        "--explorers",
+        type=int,
+        help=f"default {PESTS.count(EXPLORER.name)}, smoke {SMOKE.count(EXPLORER.name)}",
+    )
+    parser.add_argument(
+        "--killers", type=int, help=f"default {PESTS.killers}, smoke {SMOKE.killers}"
+    )
+    parser.add_argument("--hop", action="store_true", help="hop killers instead of seeded ones")
     parser.add_argument(
         "--killer-speed",
         type=float,
-        default=None,
-        help=f"killers' speed in m/s (default {defaults.speed_mps_ground:g})",
+        help=f"killers' speed in m/s (default {PESTS.robots.speed_mps_ground:g})",
     )
     parser.add_argument(
         "--radio",
         type=float,
-        default=None,
-        help=f"radio range in metres (default {defaults.radio_range_m:g})",
+        help=f"radio range in metres (default {PESTS.robots.radio_range_m:g})",
     )
     parser.add_argument(
-        "--pests-per-hour",
-        type=float,
-        default=None,
-        help=f"default {defaults.pests_per_hour:g}",
+        "--pests-per-hour", type=float, help=f"default {PESTS.pests.pests_per_hour:g}"
     )
     parser.add_argument(
         "--spread",
         type=float,
-        default=None,
-        help=f"pest spread probability (default {defaults.spread_probability:g})",
+        help=f"pest spread probability (default {PESTS.pests.spread_probability:g})",
     )
     add_session_arguments(parser, default_speed=DEFAULT_SPEED, recording=False)
     return parser.parse_args()
 
 
-def build_scenario(args: argparse.Namespace) -> PestScenario:
-    """``PestScenario``, or its smoke preset with ``--smoke``, changed by the options given."""
-    scenario = PestScenario()
+def build_scenario(args: argparse.Namespace) -> SwarmScenario:
+    """``PESTS``, or ``SMOKE`` with ``--smoke``, changed by the options given."""
+    start = PESTS
     if args.smoke:
-        scenario = PestScenario.smoke()
-    if args.scouts is not None:
-        scenario = replace(scenario, scouts=args.scouts)
+        start = SMOKE
+    killer: RobotPreset = SEEDED_KILLER
+    if args.hop:
+        killer = HOP_KILLER
+    explorers = start.count(EXPLORER.name)
+    if args.explorers is not None:
+        explorers = args.explorers
+    killers = start.killers
     if args.killers is not None:
-        scenario = replace(scenario, killers=args.killers)
-    if args.killers_treat_only:
-        scenario = replace(scenario, killers_explore=False)
-    if args.killer_speed is not None:
-        scenario = replace(scenario, speed_mps_ground=args.killer_speed)
-    if args.radio is not None:
-        scenario = replace(scenario, radio_range_m=args.radio)
+        killers = args.killers
+    pests = start.pests
     if args.pests_per_hour is not None:
-        scenario = replace(scenario, pests_per_hour=args.pests_per_hour)
+        pests = replace(pests, pests_per_hour=args.pests_per_hour)
     if args.spread is not None:
-        scenario = replace(scenario, spread_probability=args.spread)
+        pests = replace(pests, spread_probability=args.spread)
+    robots = start.robots
+    if args.radio is not None:
+        robots = replace(robots, radio_range_m=args.radio)
+    if args.killer_speed is not None:
+        robots = replace(robots, speed_mps_ground=args.killer_speed)
+    scenario = (
+        start.without_robots()
+        .with_pests(pests)
+        .with_robot_config(robots)
+        .add_robots(EXPLORER, explorers)
+        .add_robots(killer, killers)
+    )
     if args.seed is not None:
         scenario = replace(scenario, seed=args.seed)
     if args.hours is not None:
@@ -114,20 +134,50 @@ def build_scenario(args: argparse.Namespace) -> PestScenario:
     return scenario
 
 
+class KillerTime:
+    """How long the killers have spent on each goal, in simulated time.
+
+    Weighted by the time between two observations, so a paused, stepped or sped-up console
+    counts every goal for as long as the killers actually pursued it.
+    """
+
+    def __init__(self) -> None:
+        self._time_by_goal: Counter[str] = Counter()
+        self._goals: list[str] = []
+        self._seen_at: Time = 0
+
+    def observe(self, now: Time, goals: list[str]) -> None:
+        """Credit the goals seen last with the time since then, and remember ``goals``."""
+        elapsed = now - self._seen_at
+        if elapsed > 0:
+            for goal in self._goals:
+                self._time_by_goal[goal] += elapsed
+            self._seen_at = now
+        self._goals = goals
+
+    def shares(self) -> list[tuple[str, float]]:
+        """Each goal and its share of the killers' time so far, by goal name."""
+        total = sum(self._time_by_goal.values())
+        if total == 0:
+            return []
+        return [(goal, time / total) for goal, time in sorted(self._time_by_goal.items())]
+
+
 def main() -> None:
     args = parse_args()
     scenario = build_scenario(args)
     run = LiveRun.from_config(scenario.into_experiment())
+    killer_time = KillerTime()
 
     def panel(snapshot: WorldSnapshot) -> list[str]:
-        return panel_lines(run, scenario, snapshot)
+        return panel_lines(run, scenario, snapshot, killer_time)
 
     console = InteractiveConsole(
         run,
         MatplotlibRenderer((12.0, 8.0), show_targets=False),
         speed=args.speed,
         panel=panel,
-        trail_length=TRAIL_LENGTH,
+        trail_length=DEFAULT_TRAIL_LENGTH,
         show_targets=True,
     )
     if args.save is None:
@@ -137,17 +187,19 @@ def main() -> None:
     print(f"Wrote {frames} frames up to {format_time(run.now)} to {args.save}")
 
 
-def panel_lines(run: LiveRun, scenario: PestScenario, snapshot: WorldSnapshot) -> list[str]:
+def panel_lines(
+    run: LiveRun, scenario: SwarmScenario, snapshot: WorldSnapshot, killer_time: KillerTime
+) -> list[str]:
     """The run's settings, its measures, and what the killers do and know."""
-    killers = "explore + treat"
-    if not scenario.killers_explore:
-        killers = "treat only"
+    killers = "seeded"
+    if scenario.count(HOP_KILLER.name) > 0:
+        killers = "hop"
     lines = [
         f"time          {_clock(snapshot.time)}",
-        f"robots        {scenario.scouts} scouts, {scenario.killers} killers",
-        f"killers       {killers}, {scenario.speed_mps_ground:g} m/s",
-        f"radio range   {scenario.radio_range_m:.0f} m",
-        f"pest rate     {scenario.pests_per_hour:.1f} per hour",
+        f"robots        {scenario.count(EXPLORER.name)} explorers, {scenario.killers} killers",
+        f"killers       {killers}",
+        f"radio range   {scenario.robots.radio_range_m:.0f} m",
+        f"pest rate     {scenario.pests.pests_per_hour:.1f} per hour",
         "",
     ]
     latest = run.metrics.latest()
@@ -155,34 +207,35 @@ def panel_lines(run: LiveRun, scenario: PestScenario, snapshot: WorldSnapshot) -
         lines.extend(
             [
                 f"infested      {latest.targets_remaining} cells",
-                f"pests         {latest.pests_cleared} of {latest.pests_appeared} cleared",
                 f"detection     {_minutes(latest.detection_latency_ms)} (mean)",
-                f"news reaches  {_minutes(latest.knowledge_latency_ms)} later",
-                f"cleared after {_minutes(latest.response_time_ms)} (mean)",
                 f"covered       {latest.coverage:6.1%}",
                 f"idleness      {latest.mean_idleness_ms / TimeUnit.MINUTE:5.1f} min (mean)",
                 f"redundancy    {latest.redundancy:6.1%}",
                 "",
-                f"killer time   {latest.killer_driving_share:6.1%} driving",
-                f"              {latest.killer_treating_share:6.1%} treating",
-                f"              {latest.killer_exploring_share:6.1%} exploring",
-                f"              {latest.killer_idle_share:6.1%} idle",
-                f"same pest     {latest.duplicate_trip_share:6.1%} of trips",
-                "",
             ]
         )
     agents = run.agents()
+    goals: list[str] = []
     rows: list[str] = []
     for robot in snapshot.robots:
         if robot.body is not BodyType.KILLER:
             continue
         agent = agents[robot.robot_id]
         goal = GOAL_LABELS.get(agent.inspect().current_goal, "other")
+        goals.append(goal)
         known = 0
         for pest in agent.memory.infestations():
             if pest.severity > 0:
                 known += 1
-        rows.append(f"{robot.robot_id:6d}  {goal:8s} {known:5d}")
+        # A hop killer keeps no map, so it knows of no pest cell at all.
+        shown = f"{known:5d}"
+        if not agent.memory.keeps_map:
+            shown = "    -"
+        rows.append(f"{robot.robot_id:6d}  {goal:8s} {shown}")
+    killer_time.observe(snapshot.time, goals)
+    for goal, share in killer_time.shares():
+        lines.append(f"killer time   {share:6.1%} {goal}")
+    lines.append("")
     lines.append("killer  goal     known pests")
     lines.extend(rows)
     return lines

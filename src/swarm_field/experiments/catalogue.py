@@ -1,21 +1,30 @@
 """Every scenario by name: the presets ``S1`` to ``S5`` and the hand-built experiments.
 
-A name and a seed are all a sweep or a viewer needs to build a run: ``build_named_experiment``
-turns them into the ``ExperimentConfig`` that ``swarm_field.runner`` assembles and runs, labelled
-``NAME/SEED`` and with the name recorded as its ``scenario_name``. Each scenario keeps its own
-horizon unless the caller sets one: an hour for the presets, the sweeps' default, and the length
-``ExploreScenario`` and ``PestScenario`` define for theirs.
+A name and a seed are all an experiment or a viewer needs to build a run:
+``build_named_experiment`` turns them into the ``ExperimentConfig`` that ``swarm_field.runner``
+assembles and runs, labelled ``NAME/SEED`` and with the name recorded as its ``scenario_name``.
+Each scenario keeps its own horizon unless the caller sets one: an hour for the presets, and the
+length its ``SwarmScenario`` defines for the others.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from dataclasses import replace
 
-from swarm_field.contracts import ScenarioId, Time, TimeUnit
-from swarm_field.experiments.explore import ExploreScenario
-from swarm_field.experiments.pests import PestScenario
-from swarm_field.runner import ExperimentConfig, RunSummary, build_experiment, sweep
+from swarm_field.contracts import BodyType, ScenarioId, Time, TimeUnit
+from swarm_field.experiments.maps import MapConfig
+from swarm_field.experiments.presets import EXPLORER, SEEDED_KILLER
+from swarm_field.experiments.scenario import (
+    EXPLORE,
+    FAST_TREATMENT,
+    PESTS,
+    SMOKE,
+    PestConfig,
+    SwarmScenario,
+)
+from swarm_field.runner import BrainSpec, ExperimentConfig, build_experiment
+from swarm_field.simulation import MetricsConfig
 
 ScenarioBuilder = Callable[[int, Time | None], ExperimentConfig]
 """Builds one scenario's run from a seed and a horizon; ``None`` keeps the scenario's own."""
@@ -24,35 +33,74 @@ PRESET_HORIZON: Time = TimeUnit.HOUR
 """How long a preset runs when the caller does not say."""
 
 
+PRESET_BRAIN = BrainSpec(behaviors=("explore", "return-to-dock"), seeders=("explore", "dock"))
+"""The brain of every preset robot whose body has no brain of its own: it explores, and
+recharges at the preset's dock when its battery runs low."""
+
+PRESET_KILLER_BRAIN = BrainSpec(
+    behaviors=("treat-infestation", "explore", "return-to-dock"),
+    seeders=("treat", "explore", "dock"),
+)
+"""A preset killer weighs treating the pests it knows of against exploring, and recharges at
+the preset's dock when its battery runs low."""
+
+
 def _preset(scenario: ScenarioId) -> ScenarioBuilder:
     def build(seed: int, until: Time | None) -> ExperimentConfig:
         horizon = PRESET_HORIZON
         if until is not None:
             horizon = until
-        return build_experiment(f"{scenario.name}/{seed}", scenario, seed, until=horizon)
+        config = build_experiment(
+            f"{scenario.name}/{seed}", scenario, seed, brain=PRESET_BRAIN, until=horizon
+        )
+        return replace(config, brains_by_body={BodyType.KILLER: PRESET_KILLER_BRAIN})
 
     return build
 
 
 def _explore(seed: int, until: Time | None) -> ExperimentConfig:
-    scenario = ExploreScenario(seed=seed)
+    scenario = replace(EXPLORE, seed=seed)
     if until is not None:
         scenario = replace(scenario, until=until)
     return replace(scenario.into_experiment(f"explore/{seed}"), scenario_name="explore")
 
 
 def _pests(seed: int, until: Time | None) -> ExperimentConfig:
-    scenario = PestScenario(seed=seed)
+    scenario = replace(PESTS, seed=seed)
     if until is not None:
         scenario = replace(scenario, until=until)
     return replace(scenario.into_experiment(f"pests/{seed}"), scenario_name="pests")
 
 
 def _smoke(seed: int, until: Time | None) -> ExperimentConfig:
-    scenario = PestScenario.smoke(seed)
+    scenario = replace(SMOKE, seed=seed)
     if until is not None:
         scenario = replace(scenario, until=until)
     return replace(scenario.into_experiment(f"smoke/{seed}"), scenario_name="smoke")
+
+
+LARGE_PESTS = (
+    SwarmScenario(
+        map=MapConfig(size=256),
+        pests=PestConfig(pests_per_hour=240.0, treatment_rate=FAST_TREATMENT),
+        metrics=MetricsConfig(period=TimeUnit.MINUTE),
+    )
+    .add_robots(EXPLORER, 100)
+    .add_robots(SEEDED_KILLER, 5)
+)
+"""``pests`` at scale: 100 explorers and 5 killers on a 256 x 256 field (2.56 km a side).
+
+The field is 64 times the area of ``pests`` and the pests spawn 16 times as often, so they are a
+quarter as dense. Metrics are sampled once a minute, since every sample reads every cell.
+"""
+
+
+def _large_pests(seed: int, until: Time | None) -> ExperimentConfig:
+    scenario = replace(LARGE_PESTS, seed=seed)
+    if until is not None:
+        scenario = replace(scenario, until=until)
+    label = f"pests-large/{seed}"
+    return replace(scenario.into_experiment(label), scenario_name="pests-large")
 
 
 def _build_catalogue() -> dict[str, ScenarioBuilder]:
@@ -62,6 +110,7 @@ def _build_catalogue() -> dict[str, ScenarioBuilder]:
     catalogue["explore"] = _explore
     catalogue["pests"] = _pests
     catalogue["smoke"] = _smoke
+    catalogue["pests-large"] = _large_pests
     return catalogue
 
 
@@ -85,29 +134,3 @@ def build_named_experiment(name: str, seed: int, until: Time | None = None) -> E
         KeyError: If no scenario has that name.
     """
     return _CATALOGUE[name](seed, until)
-
-
-def sweep_scenarios(
-    names: Iterable[str],
-    seeds: Iterable[int],
-    until: Time | None = None,
-    sample_period: Time | None = None,
-) -> tuple[RunSummary, ...]:
-    """Run every named scenario with every seed, and return one summary per run, in that order.
-
-    Args:
-        names: Scenarios from ``scenario_names()``.
-        seeds: The seeds every scenario is run with.
-        until: How far to run every scenario, or ``None`` for each scenario's own horizon.
-        sample_period: The time between two metrics samples in every run, or ``None`` for
-            each scenario's own. The rest of each scenario's metrics settings is kept.
-    """
-    every_seed = tuple(seeds)
-    configs: list[ExperimentConfig] = []
-    for name in names:
-        for seed in every_seed:
-            config = build_named_experiment(name, seed, until)
-            if sample_period is not None:
-                config = replace(config, metrics=replace(config.metrics, period=sample_period))
-            configs.append(config)
-    return sweep(configs)

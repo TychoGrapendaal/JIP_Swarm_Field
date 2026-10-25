@@ -1,54 +1,33 @@
-# Explore Behaviour v2.0
+# The explore behaviour
 
-This document describes the current `ExploreBehaviour` implementation in [behavior.py](../src/swarm_field/swarm/behavior.py), including how it obtains its field, builds a score, and chooses between following the field and idling. It also records the main work needed to develop the behaviour further.
+This document describes `ExploreBehaviour` in [`behavior.py`](../src/swarm_field/swarm/behavior.py): what it proposes, how it scores its bid, and what is left to do. The EXPLORE field it follows, `ExploreSeeder`, is described in [`explore.md`](./explore.md).
 
 ## Purpose and boundary
 
-`ExploreBehaviour` proposes one scored candidate at each decision point. It does not move the robot itself: when a usable field target exists, it proposes `FollowField`; otherwise, it proposes `Idle`. The brain selects among behavior candidates and executes the selected intent.
+`ExploreBehaviour`, registered in the runner as `explore`, proposes one candidate at every decision point: `FollowField("explore")`, for the objective `EXPLORE`, with no target of its own. It never reads the field. The brain builds the field only if this candidate wins the arbitration, and the field then picks the target and leads the robot there.
 
-The behaviour is constructed with the name of a seeder registered in its `FieldProvider`:
+The behaviour takes the name of the field to follow and the field's `ExploreConfig`, the same one the seeder gets. A brain spec passes it under `"explore"`, and `ExplorerPreset(explore=...)` does so for every explorer of a scenario:
 
 ```python
-explore = ExploreBehaviour(seeder="explore")
+explore = ExploreBehaviour(seeder="explore", config=ExploreConfig(revisit_age=14 * TimeUnit.MINUTE))
 ```
 
-The name must match a registered seeder. There is no built-in `ExploreSeeder` or default seeder name yet, so the configured name must be supplied by the caller.
+## The bid
 
-## Field access
+The bid is the mean of three criteria, each from 0 to 0.99:
 
-At each decision, the behaviour asks `ctx.fields.field_for(self._seeder, position, ctx.time)` for the field. `FieldProvider` keeps a cached field while its inputs remain valid and builds a replacement when needed. The solved field is derived from the robot's memory and terrain; `MemoryView` itself stores observations, not a solved potential field.
+$$\text{Bid} = \frac{1}{3}\Big(\text{NonScoutShare} + \text{MeanRevisitWorth} + \text{ExploredShare}\Big)$$
 
-The returned field may be `None`, and a present field may have no target for the robot's position. Those cases still result in an `Idle` candidate, but the score is still built from the remaining criteria using their fallback values.
+| Symbol | Meaning |
+| --- | --- |
+| NonScoutShare | The share of the peers the robot remembers that are not scouts; 0.99 when none of them is a scout. A robot among few explorers explores more eagerly. |
+| MeanRevisitWorth | The mean over the field's cells of what revisiting each is worth, $1 - 2^{-\text{age}/\text{RevisitAge}}$ once its age reaches the configured `revisit_age`, and 1 for a cell never observed; at most 0.99. A field gone stale draws the robot out. |
+| ExploredShare | The share of the field's cells the robot has observed at least once. |
 
-## Candidate and score
+An explorer has only this behaviour, so its bid always wins and its value changes nothing yet. It matters once a robot weighs exploring against another behaviour, e.g. a killer that also explores, whose `TreatInfestation` bids 0.99.
 
-`propose(ctx)` returns a tuple containing one `ActionCandidate`. Its score is the weighted sum of three criteria:
+## What is left to do
 
-$$
-score = \sum_{i=1}^{3} w_i c_i
-$$
-
-The current criteria are:
-
-- **Non-scout fraction:** one minus the fraction of `PeerObservation` payloads in the inbox whose body is `BodyType.SCOUT`. If there are no peer observations, the criterion returns `1.0`.
-- **Target revisit worth:** the revisit worth of the chosen target cell, computed from `revisit_worths(last_observed_times[target], monitorable_cells[target], now, revisit_age)`. If there is no useful target, the criterion falls back to `1.0`.
-- **Unexplored-cell criterion:** one minus the fraction of cells in `last_observed_times()` that are still `-inf`, which marks cells never observed. If there are no cells, the criterion returns `1.0`.
-
-The candidate uses `FollowField(self._seeder)` when the field has a target other than the robot's current position. It uses `Idle` when the field is missing, the target is missing, or the robot is already at the target. The candidate's `target` is the field target, or `None` when there is no field target.
-
-## Current weight behavior
-
-The behaviour stores its weights and last update time between calls. It initializes all three weights to one third. When simulation time advances, `_update_weight` blends the previous weights toward normalized criterion importances using `alpha=0.2`; at the same or an earlier timestamp, it keeps the previous weights.
-
-All current importances are `1.0`, so their normalized values are equal. Starting from equal weights therefore leaves the weights equal on every update. The state and update method are scaffolding for dynamic weights, not an adaptive weighting strategy yet.
-
-## Further implementation
-
-- **Name and implement the exploration seeder:** add an `ExploreSeeder` with a stable name, register it with `FieldProvider`, and pass that registered name to `ExploreBehaviour`. Its seeds should be derived from exploration-relevant facts in memory.
-- **Add extra exploration criteria:** replace the exact potential-value check for unexplored cells with explicit coverage or visitation information, and consider recent revisits, uncertainty, expected information gain, terrain accessibility, and peer separation.
-- **Implement dynamic weights:** derive criterion importances from a stated objective or feedback signal rather than assigning every criterion `1.0`. Define how elapsed simulation time affects updates, keep weights normalized and bounded, and specify behavior for repeated timestamps and missing criteria.
-- **Add a demo:** show the behavior operating with a registered exploration seeder and several robots, with its candidate scores observable during a run.
-
-## Summary
-
-Version 2.0 documents the current implementation: one candidate is scored from peer composition and the provided field, with field-based fallback scores when data is absent. The candidate follows the configured field when it has a distinct target and otherwise idles. Seeder implementation, richer criteria, and truly dynamic weights remain future work.
+- **"Nearby" peers.** NonScoutShare counts every peer the robot remembers, however long ago it heard from it. Counting only peers heard within `ExploreConfig.peer_max_age` would match its intent.
+- **Weights.** The three criteria count equally. A question that needs exploring to compete with other behaviours should choose the weights, e.g. from how much of the field is stale.
+- **More criteria.** Recent revisits, uncertainty, terrain accessibility and the robot's battery are candidates.
