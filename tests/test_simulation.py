@@ -28,6 +28,7 @@ from swarm_field.contracts import (
     SetTimeScale,
     StepOnce,
     Time,
+    Treat,
 )
 from swarm_field.simulation import (
     PestDynamicsConfig,
@@ -177,6 +178,20 @@ def test_world_tick_grows_infestation() -> None:
     next_event = ctx.queue.peek()
     assert isinstance(next_event, WorldTick)
     assert next_event.time == 60_000
+
+
+def test_world_tick_does_not_grow_a_pest_a_killer_is_treating() -> None:
+    ctx = _context()
+    ctx.world.cell((2, 2)).infestation = 0.2
+    ctx.world.cell((3, 3)).infestation = 0.2
+    ctx.world.add_robot(RobotState(1, (2, 2), BodyType.KILLER, speed_mps=1.0))
+    ctx.world.apply_action(1, Treat((2, 2)), time=0)
+    config = PestDynamicsConfig(growth_rate=0.1, spread_probability=0.0, spawn_probability=0.0)
+
+    WorldTick(time=0, config=config).handle(ctx)
+
+    assert ctx.world.cell((2, 2)).infestation == pytest.approx(0.2)
+    assert ctx.world.cell((3, 3)).infestation == pytest.approx(0.3)
 
 
 def test_world_tick_spreads_without_cascading() -> None:

@@ -1,7 +1,6 @@
 """Composable robot behaviours for the high-level cell model."""
 
 import logging
-import math
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -29,6 +28,8 @@ from swarm_field.swarm.seeder import (
     BatteryRequestSeeder,
     RegroupSeeder,
     TreatSeeder,
+    infested,
+    pests_left_to_robot,
     unsearched_peer_locations,
 )
 
@@ -124,6 +125,20 @@ class Behavior(Protocol):
 
 _TREAT = AgentObjective.TREAT
 
+_TREAT_BID_LOW = 0.8
+"""The bid for driving to the least severe pest left to the robot.
+
+A killer's job is treating, so even a faint pest outbids exploring, whose bid stays below about
+0.7 in practice, by more than the arbiter's margin for switching objectives.
+"""
+
+_TREAT_BID_HIGH = 0.89
+"""The bid for driving to a pest of full severity at full confidence.
+
+Below the arbiter's override threshold of 0.9, so treating stays subject to its hysteresis and
+never outbids a robot saving its battery.
+"""
+
 TREAT_SCORE = 0.99
 """The score of treating the pest the robot stands on.
 
@@ -134,14 +149,18 @@ Just below 1, so that the battery behaviour can still outbid it to save the robo
 class TreatInfestation:
     """The pest-response behaviour: follow the TREAT field and treat on arrival.
 
-    With ``yield_to_treating_peer``, a killer standing on a pest that a peer with a lower id
-    reports, within ``claim_fresh_for``, to be treating on that same cell does not join in: it
-    proposes nothing until the pest is cleared, so two killers do not spend two doses on one
-    pest.
+    It bids by the worst pest it may go for, its severity times memory's confidence in it,
+    between ``_TREAT_BID_LOW`` and ``_TREAT_BID_HIGH``, and not at all without one.
+
+    With ``yield_to_treating_peer`` the killer claims pests: it may go only for the pests left to
+    it (``pests_left_to_robot``), and standing on a pest that a peer with a lower id reports,
+    within ``claim_fresh_for``, to be treating on that same cell, it proposes nothing until the
+    pest is cleared, so two killers do not spend two doses on one pest. Without it, every known
+    pest counts.
 
     Attributes:
-        yield_to_treating_peer: Whether to leave a pest to a peer already treating it.
-        claim_fresh_for: How old a peer's report may be to count.
+        yield_to_treating_peer: Whether the killer claims pests and leaves them to its peers.
+        claim_fresh_for: How old a peer's report of treating a cell may be to count.
     """
 
     name: str = "treat-infestation"
@@ -165,18 +184,18 @@ class TreatInfestation:
             treat = Treat(position)
             return (ActionCandidate(treat, TREAT_SCORE, self.name, position, _TREAT),)
 
-        num_pests = 0
-        for pest in ctx.memory.infestations():
-            if pest.severity > 0:
-                num_pests += 1
-        if num_pests == 0:
+        # With claims, a pest a closer killer is heading for is left to it, so the bid, like the
+        # TREAT field, counts only the pests left to this robot, and with none it leaves the robot
+        # to explore.
+        pests = infested(ctx.memory)
+        if self.yield_to_treating_peer:
+            pests = pests_left_to_robot(ctx.memory, position, ctx.time)
+        worst = 0.0
+        for pest in pests:
+            worst = max(worst, pest.severity * ctx.memory.confidence(pest, ctx.time))
+        if worst <= 0.0:
             return ()
-        num_killers = 0
-        for peer in ctx.memory.peers():
-            if peer.body is BodyType.KILLER:
-                num_killers += 1
-        # The more pests are left per killer already known, the more this robot is needed.
-        score = 1 / (1 + math.exp(-(num_pests - num_killers)))
+        score = _TREAT_BID_LOW + (_TREAT_BID_HIGH - _TREAT_BID_LOW) * min(1.0, worst)
         return (ActionCandidate(FollowField(self._seeder), score, self.name, None, _TREAT),)
 
     def _peer_treats(self, ctx: DecisionContext, cell: CellId) -> bool:

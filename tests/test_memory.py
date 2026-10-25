@@ -87,6 +87,35 @@ def test_merge_order_does_not_matter() -> None:
     assert set(forward.records()) == set(backward.records())
 
 
+def test_a_peer_is_where_it_was_last_seen_and_heads_where_it_last_reported() -> None:
+    def peer_fact(
+        source: RobotId, cell: CellId, at: Time, target: CellId | None = None
+    ) -> PeerObservation:
+        objective = AgentObjective.TREAT if target is not None else None
+        return PeerObservation(
+            cell=cell,
+            confidence=1.0,
+            observed_at=at,
+            source=source,
+            peer=2,
+            body=BodyType.KILLER,
+            target=target,
+            objective=objective,
+        )
+
+    memory = _memory()
+    # A sighting newer than the peer's report, then a report older than the sighting.
+    memory.merge([peer_fact(2, (1, 1), at=0, target=(5, 5))])
+    memory.merge([peer_fact(3, (2, 2), at=20)])
+    memory.merge([peer_fact(2, (1, 2), at=10, target=(6, 6))])
+
+    (peer,) = memory.peers()
+    assert peer.cell == (2, 2)
+    assert peer.observed_at == 20
+    assert peer.target == (6, 6)
+    assert peer.objective is AgentObjective.TREAT
+
+
 def test_ingest_stores_crop_terrain_infestation_and_named_peers_only() -> None:
     memory = _memory()
     crop = CropObservation(
