@@ -25,6 +25,9 @@ def test_a_measured_run_drifts_once_an_hour_and_counts_every_pest_treated_or_ope
     assert response.infested >= 0
     assert 0.0 < response.coverage <= 1.0
     assert 0.0 <= response.idleness_minutes <= response.worst_idleness_minutes
+    # The 300 m radio spans the 80 m field, and seeded killers keep no beacons.
+    assert response.isolated == 0.0
+    assert response.no_fresh_beacon is None
 
 
 def test_explorers_alone_are_measured_by_how_they_cover_the_field() -> None:

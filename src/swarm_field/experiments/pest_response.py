@@ -19,6 +19,14 @@ over the seeds and its standard error (±) where it matters:
 - ``commit hop``: the median beacon value of a killer when it commits to treating, for arms
   with beacons;
 - ``empty``: killers that used up their treatment consumable;
+- ``shared``: the share of the samples with two or more killers committed to treating in which
+  two of them report the same target, a duplicate trip; a hop killer's target is the cell of its
+  strongest beacon, not the pest;
+- ``co-treat``: the share of the samples with a treatment under way in which two killers treat
+  the same cell;
+- ``isolated``: the share of the killer samples in which no other robot is within radio range;
+- ``no beacon``: the share of the samples of killers with beacons in which the killer heard no
+  fresh TREAT beacon;
 - ``coverage``: the share of the crop cells some robot sensed by the end;
 - ``idle``: minutes since a robot last sensed a crop cell, averaged over the cells and the
   samples after the warm-up: the expected wait of a pest for its first sighting;
@@ -38,12 +46,13 @@ import time
 from dataclasses import dataclass, replace
 from statistics import mean, median, quantiles
 
-from swarm_field.contracts import BodyType, CellId, Idle, RobotId, Time, TimeUnit
+from swarm_field.contracts import BeaconKind, BodyType, CellId, Idle, RobotId, Time, TimeUnit
 from swarm_field.experiments.batch import Run, mean_and_error
 from swarm_field.experiments.run import LiveRun
 from swarm_field.experiments.scenario import SwarmScenario
 from swarm_field.runner import ExperimentConfig
 from swarm_field.swarm import KnowledgeSharing, treat_beacon
+from swarm_field.swarm.hop import fresh_beacons
 
 
 @dataclass(frozen=True)
@@ -115,6 +124,13 @@ class PestResponse:
         stuck: The share of committed killer samples in which the killer stood idle.
         commit_hops: The killer's beacon value each time it committed to treating.
         empty_killers: Killers that used up their treatment consumable.
+        shared_target: The share of the samples with two or more killers committed to treating
+            in which two report the same target, or ``None`` if there were none.
+        co_treating: The share of the samples with a treatment under way in which two killers
+            treat the same cell, or ``None`` if nothing was treated.
+        isolated: The share of the killer samples with no other live robot within radio range.
+        no_fresh_beacon: The share of the samples of killers with beacons in which the killer
+            heard no fresh TREAT beacon, or ``None`` without beacons.
         consumable_used: Treatment consumable used by all killers together, each starting with
             1; a treatment job uses ``1 / treatment_doses`` of the scenario.
         drift: The killers' mean distance in cells from their start, after each hour.
@@ -137,6 +153,10 @@ class PestResponse:
     stuck: float
     commit_hops: tuple[float, ...]
     empty_killers: int
+    shared_target: float | None
+    co_treating: float | None
+    isolated: float
+    no_fresh_beacon: float | None
     consumable_used: float
     drift: tuple[float, ...]
     coverage: float
@@ -158,11 +178,27 @@ class PestTracker:
         stuck: Committed killer samples in which the killer stood idle, not in a move.
         commit_hops: The killer's beacon value each time it committed, if it had beacons.
         drift: The killers' mean distance from their start, at each hour.
+        several_committed: Samples with two or more killers committed to treating.
+        shared_target: Of those, the samples in which two of them report the same target.
+        treating: Samples with a treatment under way.
+        co_treating: Of those, the samples in which two killers treat the same cell.
+        killer_samples: Samples of a live killer, one per killer and sample.
+        isolated: Of those, the samples with no other live robot within radio range.
+        beacon_samples: Samples of a live killer with beacons.
+        no_fresh_beacon: Of those, the samples in which it heard no fresh TREAT beacon.
     """
 
-    def __init__(self, starts: dict[RobotId, CellId], warmup: Time) -> None:
+    def __init__(self, starts: dict[RobotId, CellId], warmup: Time, radio_cells: float) -> None:
+        """Follow the killers starting on ``starts``.
+
+        Args:
+            starts: Each killer's start cell, by id.
+            warmup: How long at the start is left out of ``infested_samples``.
+            radio_cells: The radio range in cells, for ``isolated``.
+        """
         self._starts: dict[RobotId, CellId] = starts
         self._warmup: Time = warmup
+        self._radio_cells: float = radio_cells
         self._positions: dict[RobotId, CellId] = dict(starts)
         self.appeared: dict[CellId, Time] = {}
         self.responses: list[Time] = []
@@ -172,6 +208,14 @@ class PestTracker:
         self.stuck: int = 0
         self.commit_hops: list[float] = []
         self.drift: list[float] = []
+        self.several_committed: int = 0
+        self.shared_target: int = 0
+        self.treating: int = 0
+        self.co_treating: int = 0
+        self.killer_samples: int = 0
+        self.isolated: int = 0
+        self.beacon_samples: int = 0
+        self.no_fresh_beacon: int = 0
         self._treating: set[RobotId] = set()
 
     def sample(self, run: LiveRun, now: Time) -> None:
@@ -193,6 +237,8 @@ class PestTracker:
             self.cells_moved += max(abs(position[0] - before[0]), abs(position[1] - before[1]))
             self._positions[robot_id] = position
         self._sample_commitments(run, now)
+        self._sample_treatments(run)
+        self._sample_isolation(run, now)
         if now % TimeUnit.HOUR == 0:
             self.drift.append(self.mean_distance_from_start())
 
@@ -200,12 +246,15 @@ class PestTracker:
         """Count the killers committed to treating, those standing idle, and new commitments."""
         world = run.context.world
         agents = run.agents()
+        targets: list[CellId | None] = []
         for robot_id in self._positions:
             agent = agents[robot_id]
-            goal = agent.inspect().current_goal
+            inspection = agent.inspect()
+            goal = inspection.current_goal
             if goal is None or not goal.startswith("treat"):
                 self._treating.discard(robot_id)
                 continue
+            targets.append(inspection.current_target)
             self.committed += 1
             robot = world.robots[robot_id]
             if isinstance(robot.current_action, Idle) and robot.move_target is None:
@@ -219,6 +268,49 @@ class PestTracker:
                 beacon = treat_beacon(link.memory, position, now, link.config)
                 if beacon is not None:
                     self.commit_hops.append(beacon.value)
+        if len(targets) >= 2:
+            self.several_committed += 1
+            if _has_duplicate(targets):
+                self.shared_target += 1
+
+    def _sample_treatments(self, run: LiveRun) -> None:
+        """Count the samples with a treatment under way, and those with two killers on a cell."""
+        world = run.context.world
+        cells: list[CellId | None] = []
+        for robot_id in self._positions:
+            cell = world.robots[robot_id].treating_cell
+            if cell is not None:
+                cells.append(cell)
+        if not cells:
+            return
+        self.treating += 1
+        if _has_duplicate(cells):
+            self.co_treating += 1
+
+    def _sample_isolation(self, run: LiveRun, now: Time) -> None:
+        """Count the live killers with no other live robot in radio range, and without beacons."""
+        world = run.context.world
+        agents = run.agents()
+        live = world.live_robots()
+        for robot_id in self._positions:
+            killer = world.robots[robot_id]
+            if killer.failed:
+                continue
+            self.killer_samples += 1
+            neighbours = 0
+            for other in live:
+                if other == robot_id:
+                    continue
+                if math.dist(killer.position, world.robots[other].position) <= self._radio_cells:
+                    neighbours += 1
+            if neighbours == 0:
+                self.isolated += 1
+            link = agents[robot_id].beacon_link
+            if link is None:
+                continue
+            self.beacon_samples += 1
+            if not fresh_beacons(link.memory, BeaconKind.TREAT, now, link.config):
+                self.no_fresh_beacon += 1
 
     def mean_distance_from_start(self) -> float:
         """The killers' mean straight-line distance in cells from where they started; 0 without."""
@@ -251,8 +343,11 @@ class MeasuredPestRun:
         for robot_id, robot in self.live.context.world.robots.items():
             if robot.body is BodyType.KILLER:
                 self.killers[robot_id] = robot.position
+        scenario = run.config.scenario
         self.tracker: PestTracker = PestTracker(
-            self.killers, run.config.warmup_hours * TimeUnit.HOUR
+            self.killers,
+            run.config.warmup_hours * TimeUnit.HOUR,
+            scenario.robots.radio_range_m / scenario.map.cell_size,
         )
 
     @property
@@ -313,6 +408,10 @@ class MeasuredPestRun:
             stuck=tracker.stuck / max(tracker.committed, 1),
             commit_hops=tuple(tracker.commit_hops),
             empty_killers=empty,
+            shared_target=_share(tracker.shared_target, tracker.several_committed),
+            co_treating=_share(tracker.co_treating, tracker.treating),
+            isolated=tracker.isolated / max(tracker.killer_samples, 1),
+            no_fresh_beacon=_share(tracker.no_fresh_beacon, tracker.beacon_samples),
             consumable_used=used,
             drift=tuple(tracker.drift),
             coverage=metrics.coverage,
@@ -339,7 +438,8 @@ def pest_table_headers(hours: int, first: str = "arm") -> list[str]:
         first: The name of the label column.
     """
     headers = [first, "infested", "treated", "response", "p90", "open", "cells/treat", "msgs"]
-    headers.extend(["stuck", "commit hop", "empty", "coverage", "idle", "redund"])
+    headers.extend(["stuck", "commit hop", "empty", "shared", "co-treat", "isolated", "no beacon"])
+    headers.extend(["coverage", "idle", "redund"])
     for hour in range(1, hours + 1):
         headers.append(f"drift {hour} h")
     headers.append("wall (s)")
@@ -360,6 +460,10 @@ def pest_table_cells(label: str, results: list[PestResponse], hours: int) -> lis
         f"{mean(result.stuck for result in results):.2f}",
         _median_commit_hop(results),
         f"{mean(result.empty_killers for result in results):.1f}",
+        _mean_share([result.shared_target for result in results]),
+        _mean_share([result.co_treating for result in results]),
+        f"{mean(result.isolated for result in results):.2f}",
+        _mean_share([result.no_fresh_beacon for result in results]),
         f"{mean(result.coverage for result in results):.3f}",
         mean_and_error([result.idleness_minutes for result in results]),
         f"{mean(result.redundancy for result in results):.3f}",
@@ -390,6 +494,36 @@ def _median_commit_hop(results: list[PestResponse]) -> str:
     if not hops:
         return "-"
     return f"{median(hops):g}"
+
+
+def _share(count: int, total: int) -> float | None:
+    """``count`` out of ``total``, or ``None`` if there was nothing to count."""
+    if total == 0:
+        return None
+    return count / total
+
+
+def _mean_share(shares: list[float | None]) -> str:
+    """The mean of the seeds' shares that exist, or ``-`` if none does."""
+    present: list[float] = []
+    for share in shares:
+        if share is not None:
+            present.append(share)
+    if not present:
+        return "-"
+    return f"{mean(present):.2f}"
+
+
+def _has_duplicate(cells: list[CellId | None]) -> bool:
+    """Whether some cell occurs twice in ``cells``, ``None`` left out."""
+    seen: set[CellId] = set()
+    for cell in cells:
+        if cell is None:
+            continue
+        if cell in seen:
+            return True
+        seen.add(cell)
+    return False
 
 
 def _percentile_90(values: list[Time]) -> float:

@@ -163,6 +163,10 @@ The seed is not part of the spec: it comes with each run (section 3), and it set
 | `stuck` | stuck | The share of the time a killer committed to treating stands idle. |
 | `commit_hops` | commit hop | A killer's hop value each time it commits to treating, for hop arms; the table shows the median. |
 | `empty_killers` | empty | Killers that used up their doses. |
+| `shared_target` | shared | The share of the samples with two or more killers committed to treating in which two of them report the same target: a duplicate trip. A hop killer's target is the cell of its strongest beacon, not the pest. `None` if never two were committed. |
+| `co_treating` | co-treat | The share of the samples with a treatment under way in which two killers treat the same cell. |
+| `isolated` | isolated | The share of the killer samples in which no other live robot is within radio range, from the ground truth. |
+| `no_fresh_beacon` | no beacon | The share of the samples of killers with beacons in which the killer heard no fresh TREAT beacon; `None` without beacons. |
 | `consumable_used` | (not in the table) | Doses used by all killers together, in units of 1 per killer (`1 / treatment_doses` per dose). |
 | `drift` | drift N h | The killers' mean distance in cells from their start, after each hour; 0 without killers. |
 | `coverage` | coverage | The share of the crop cells some robot sensed by the end of the run. |
