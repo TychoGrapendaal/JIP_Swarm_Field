@@ -1,0 +1,13 @@
+{
+  "name": "pests",
+  "scenario": "pests",
+  "seeds": [0, 1, 2],
+  "hours": 1,
+  "jobs": 3,
+  "parameters": {
+    "swarm": {"explorer": 5, "seeded-killer": 3},
+    "robots": {"radio_range_m": 300},
+    "pests": {"pests_per_hour": 15, "growth_rate": 0.05, "spread_probability": 0.0},
+    "metrics": {"period": 60000}
+  }
+}

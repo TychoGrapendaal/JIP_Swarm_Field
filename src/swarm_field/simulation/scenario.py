@@ -38,6 +38,8 @@ def build_world(config: ScenarioConfig) -> WorldState:
         config.field,
         docks=config.docks,
         energy=EnergyConfig.from_spec(config.energy),
+        treatment_rate=config.treatment_rate,
+        treatment_doses=config.treatment_doses,
     )
 
     for cell, crop in config.crops.items():
@@ -59,11 +61,7 @@ def build_world(config: ScenarioConfig) -> WorldState:
                 speed_mps=spec.v_max,
                 radio_range_m=spec.radio_range,
                 battery=spec.battery,
-                spare_batteries=(
-                    capabilities_for(spec.body).spare_battery_capacity
-                    if spec.spare_batteries is None
-                    else spec.spare_batteries
-                ),
+                spare_batteries=spec.spare_batteries,
             )
         )
 
@@ -419,14 +417,11 @@ def _validate_config(config: ScenarioConfig) -> None:
             raise ValueError("robot battery must be between 0 and 1")
         if robot.radio_range < 0.0:
             raise ValueError("robot radio_range cannot be negative")
-        if robot.spare_batteries is not None and robot.spare_batteries < 0:
+        if robot.spare_batteries < 0:
             raise ValueError("robot spare_batteries cannot be negative")
-        if (
-            robot.spare_batteries is not None
-            and robot.spare_batteries > capabilities_for(robot.body).spare_battery_capacity
-        ):
+        if robot.spare_batteries > capabilities_for(robot.body).spare_battery_capacity:
             raise ValueError("robot spare_batteries exceeds body capacity")
-        if robot.body is not BodyType.BATTERY and robot.spare_batteries not in (None, 0):
+        if robot.body is not BodyType.BATTERY and robot.spare_batteries != 0:
             raise ValueError("only battery robots may carry spare batteries")
 
 

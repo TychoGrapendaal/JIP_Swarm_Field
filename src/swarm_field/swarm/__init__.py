@@ -16,15 +16,12 @@ from swarm_field.swarm.arbiter import (
     Commitment,
     UtilityArbiter,
 )
-from swarm_field.swarm.assembly import build_agent
 from swarm_field.swarm.behavior import (
     ActionCandidate,
     Behavior,
     DecisionContext,
     ExploreBehaviour,
-    ExploreField,
     FollowField,
-    FollowSeederField,
     Intent,
     Regroup,
     ReturnToDock,
@@ -34,9 +31,23 @@ from swarm_field.swarm.behavior import (
 from swarm_field.swarm.brain import ComposedAgent
 from swarm_field.swarm.capabilities import BODY_CAPABILITIES, CapabilitySet, capabilities_for
 from swarm_field.swarm.explore import ExploreConfig, ExploreSeeder
+from swarm_field.swarm.guidance import Guidance, Heading, ObjectiveField
+from swarm_field.swarm.hop import (
+    BeaconConfig,
+    BeaconLink,
+    BeaconMemory,
+    BeaconView,
+    EscapeConfig,
+    HeardBeacon,
+    HopField,
+    PlacedBeacon,
+    TreatByBeacon,
+    treat_beacon,
+)
 from swarm_field.swarm.memory import AgentMemory, DecayConfig, KnowledgeSnapshot, MemoryView
 from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.provider import FieldProvider
+from swarm_field.swarm.recharge import RechargeConfig
 from swarm_field.swarm.seeder import (
     BatteryRequestSeeder,
     DockSeeder,
@@ -45,9 +56,15 @@ from swarm_field.swarm.seeder import (
     SeededField,
     TreatSeeder,
 )
-from swarm_field.swarm.sharing import KnowledgeExchange, SharingConfig, SharingStrategy
+from swarm_field.swarm.sharing import (
+    KnowledgeExchange,
+    KnowledgeSharing,
+    SharingConfig,
+    SharingStrategy,
+)
 from swarm_field.swarm.steering import (
     QuadtreeSensing,
+    SensedSurroundings,
     Sensing,
     Steerer,
     SteeringConfig,
@@ -61,6 +78,10 @@ __all__ = [
     "ArbiterChoice",
     "ArbiterConfig",
     "BatteryRequestSeeder",
+    "BeaconConfig",
+    "BeaconLink",
+    "BeaconMemory",
+    "BeaconView",
     "Behavior",
     "CapabilitySet",
     "Commitment",
@@ -68,34 +89,43 @@ __all__ = [
     "DecayConfig",
     "DecisionContext",
     "DockSeeder",
+    "EscapeConfig",
     "ExploreBehaviour",
     "ExploreConfig",
-    "ExploreField",
     "ExploreSeeder",
     "FieldProvider",
     "FieldSeeder",
     "FollowField",
-    "FollowSeederField",
+    "Guidance",
+    "Heading",
+    "HeardBeacon",
+    "HopField",
     "Intent",
     "KnowledgeExchange",
+    "KnowledgeSharing",
     "KnowledgeSnapshot",
     "MemoryView",
     "Navigator",
+    "ObjectiveField",
+    "PlacedBeacon",
     "QuadtreeSensing",
+    "RechargeConfig",
     "Regroup",
     "RegroupSeeder",
     "ReturnToDock",
     "SeededField",
+    "SensedSurroundings",
     "Sensing",
     "SharingConfig",
     "SharingStrategy",
     "Steerer",
     "SteeringConfig",
     "SupplyBattery",
+    "TreatByBeacon",
     "TreatInfestation",
     "TreatSeeder",
     "UtilityArbiter",
     "Vector2",
-    "build_agent",
     "capabilities_for",
+    "treat_beacon",
 ]

@@ -10,10 +10,28 @@ from typing import Any
 
 import numpy as np
 
-from swarm_field.contracts import CellId, Time
+from swarm_field.contracts import AgentObjective, CellId, Time
 from swarm_field.runner import BEHAVIORS, SEEDERS, BrainSpec
-from swarm_field.swarm import FollowSeederField, MemoryView
+from swarm_field.swarm import ActionCandidate, DecisionContext, FollowField, MemoryView
 from swarm_field.swarm.field import Seed
+
+
+class FollowSeederField:
+    """A behaviour that always bids 0.5 to follow one seeder's field, for the objective EXPLORE.
+
+    As the only behaviour of a robot it always wins, so the robot goes wherever the seeder says.
+    """
+
+    name: str = "follow-field"
+
+    def __init__(self, seeder: str) -> None:
+        self._seeder: str = seeder
+
+    def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
+        candidate = ActionCandidate(
+            FollowField(self._seeder), 0.5, self.name, target=None, objective=AgentObjective.EXPLORE
+        )
+        return (candidate,)
 
 
 class RandomWaypointSeeder:

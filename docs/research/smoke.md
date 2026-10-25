@@ -1,9 +1,9 @@
 # Research note — the base demo: five scouts, five killers, one objective each (#67)
 
-Status: describes `PestScenario.smoke` in `src/swarm_field/experiments/pests.py` (also the catalogue entry `smoke`), the pest and killer measures of `MetricsCollector` in `src/swarm_field/simulation/metrics.py`, the smoke test in `tests/test_pest_smoke.py` and the study `studies/smoke.py`. The results below are reproducible with:
+Status: describes `SMOKE` in `src/swarm_field/experiments/scenario.py` (also the catalogue entry `smoke`), the pest and killer measures of `MetricsCollector` in `src/swarm_field/simulation/metrics.py`, the smoke test in `tests/test_pest_smoke.py` and the study `studies/smoke.py`. The results below were measured with the earlier `PestScenario.smoke`, before the body capabilities (#61), the battery lifecycle (#81) and the move to `SwarmScenario` (#84); they need a rerun with:
 
 ```bash
-uv run python -m studies.smoke --seeds 5 --hours 3 --jobs 16
+uv run python -m studies.smoke --seeds 5 --hours 3 --jobs 8
 ```
 
 ## The question

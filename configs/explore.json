@@ -1,0 +1,12 @@
+{
+  "name": "explore",
+  "scenario": "explore",
+  "seeds": [0, 1, 2],
+  "hours": 1,
+  "jobs": 3,
+  "parameters": {
+    "map": {"size": 32},
+    "swarm": {"explorer": 5},
+    "explore": {"block_side": 8}
+  }
+}

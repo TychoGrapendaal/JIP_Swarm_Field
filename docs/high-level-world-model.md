@@ -41,15 +41,3 @@ A typical local decision cycle is:
 4. Evaluate candidate cells.
 5. Choose a target cell with the lowest combined potential.
 6. Send `Move(to=target)`.
-
-The included mass-swarm example demonstrates this pattern with a lightweight local controller.
-
-## Scalability demonstration
-
-`examples/mass_swarm_visualization.py` starts with 300 robots by default and can be configured with `--robots`, for example:
-
-```bash
-uv run --with matplotlib python examples/mass_swarm_visualization.py --robots 500
-```
-
-The visualization uses large cells and plots robot positions as a scatter plot rather than rendering individual plant geometry, so it remains conceptually aligned with the intended swarm-level model.

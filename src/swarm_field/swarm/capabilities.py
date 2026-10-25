@@ -28,7 +28,7 @@ class CapabilitySet:
     terrain_sensing_radius: int
     peer_sensing_radius: int
     endurance_seconds: float
-    dock_recharge_seconds: float | None = None
+    dock_recharge_seconds: float = 0.0
     spare_battery_capacity: int = 0
     battery_replacement_seconds: float = 224.0
     can_detect_pests: bool = False

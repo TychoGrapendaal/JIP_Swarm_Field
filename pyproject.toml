@@ -28,7 +28,7 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-src = ["src", "tests"]
+src = ["src", "."]
 # Design docs contain illustrative, hand-formatted Python snippets — keep Ruff out of them.
 extend-exclude = ["docs"]
 

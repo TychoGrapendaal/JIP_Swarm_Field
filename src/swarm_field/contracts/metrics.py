@@ -51,6 +51,7 @@ class MetricsSample:
         killer_treating_share: The share spent treating.
         duplicate_trip_share: Of the killers' decisions driving to a pest, the share heading for
             a pest another killer was heading for as well.
+        battery_failures: Number of robots that have failed from battery depletion by this sample.
     """
 
     time: Time
@@ -73,6 +74,7 @@ class MetricsSample:
     killer_driving_share: float = 0.0
     killer_treating_share: float = 0.0
     duplicate_trip_share: float = 0.0
+    battery_failures: int = 0
 
     def to_row(self) -> dict[str, Any]:
         """This sample as a flat ``dict`` of field name to value, for CSV and JSON export."""
