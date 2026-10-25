@@ -4,9 +4,9 @@ Question: on the small river field (``RIVER_SMALL``'s map), do hop killers find 
 pests when the only robots that relay their beacons are explorers that keep moving? There are no
 standing relays and no mock sources on the pests: an explorer that senses a pest is its source,
 and every explorer relays the hop values it hears. Every battery holds ``BATTERY_CAPACITY``
-charges, since a scout's charge lasts only 30 minutes and hop killers cannot return to a dock
-yet, and every killer carries ``TREATMENT_DOSES`` doses, since none restocks and 10 run out
-within a run. The explorers set their revisit age from the swarm's sweep time, as every
+charges and every killer carries ``TREATMENT_DOSES`` doses, so that no robot needs a dock and
+the comparison is about the pest response alone; ``studies/hop_dock_return.py`` adds the dock
+trips. The explorers set their revisit age from the swarm's sweep time, as every
 ``ExplorerPreset`` does. Seeded killers with the same explorers run as a reference, on the same
 seeds, so every row differs from ``seeded`` only in the pest response.
 

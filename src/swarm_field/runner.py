@@ -34,6 +34,7 @@ from swarm_field.contracts import (
     TimeUnit,
 )
 from swarm_field.simulation import (
+    DockBroadcast,
     FailureCheck,
     FailureConfig,
     MetricSample,
@@ -64,6 +65,7 @@ from swarm_field.swarm import (
     ExploreSeeder,
     FieldProvider,
     FieldSeeder,
+    HopDockField,
     HopField,
     KnowledgeSnapshot,
     Navigator,
@@ -160,6 +162,19 @@ def _build_hop_field(params: dict[str, Any], rng: Random) -> HopField:
     return HopField(config, beacons)
 
 
+@FIELDS.register(HopDockField.name)
+def _build_hop_dock_field(params: dict[str, Any], rng: Random) -> HopDockField:
+    """Build the hop field of the DOCK beacons, over the robot's own beacons.
+
+    Raises:
+        ValueError: If the spec's ``BeaconConfig`` relays no DOCK beacons.
+    """
+    config, beacons = _beacon_parts(params, f"the {HopDockField.name} field")
+    if config.dock is None:
+        raise ValueError(f"the {HopDockField.name} field needs BeaconConfig.dock")
+    return HopDockField(config, beacons)
+
+
 def _beacon_parts(params: dict[str, Any], part: str) -> tuple[BeaconConfig, BeaconView]:
     """The spec's ``BeaconConfig``, and the robot's beacons from its ``BeaconLink``.
 
@@ -197,9 +212,7 @@ def _build_return_to_dock(params: dict[str, Any], rng: Random) -> ReturnToDock:
     """Build recharge behaviour with the scenario's docks and optional policy."""
     docks: tuple[CellId, ...] = tuple(params.get("docks", ()))
     recharge: RechargeConfig | None = params.get("recharge")
-    seeders: tuple[str, ...] = tuple(params.get("seeders", ("dock",)))
-    seeder = next((name for name in seeders if name == "dock"), "dock")
-    return ReturnToDock(seeder, docks=docks, recharge_config=recharge)
+    return ReturnToDock(_dock_field_of(params), docks=docks, recharge_config=recharge)
 
 
 @BEHAVIORS.register(Resupply.name)
@@ -208,7 +221,19 @@ def _build_resupply(params: dict[str, Any], rng: Random) -> Resupply:
     config, following the dock field."""
     docks: tuple[CellId, ...] = tuple(params.get("docks", ()))
     config: ResupplyConfig | None = params.get("resupply")
-    return Resupply(DockSeeder.name, docks=docks, config=config)
+    return Resupply(_dock_field_of(params), docks=docks, config=config)
+
+
+_DOCK_FIELDS = (DockSeeder.name, HopDockField.name)
+"""The fields that lead a robot to a dock: over its map, or down the DOCK beacons."""
+
+
+def _dock_field_of(params: dict[str, Any]) -> str:
+    """The dock field the spec names, the ``DockSeeder`` if it names none."""
+    for name in params.get("seeders", ()):
+        if name in _DOCK_FIELDS:
+            return name
+    return DockSeeder.name
 
 
 @SEEDERS.register("battery-support")
@@ -468,6 +493,8 @@ def seed_initial_events(ctx: SimulationContext, config: ExperimentConfig) -> Non
     )
     if config.scenario.pest_sources is not None:
         ctx.schedule(PestSourceBroadcast(time=0, spec=config.scenario.pest_sources))
+    if config.scenario.dock_beacons is not None:
+        ctx.schedule(DockBroadcast(time=0, spec=config.scenario.dock_beacons))
     if config.scenario.failures.probability > 0.0:
         ctx.schedule(FailureCheck(time=0, config=FailureConfig.from_spec(config.scenario.failures)))
     ctx.schedule(MetricSample(time=0, config=config.metrics))

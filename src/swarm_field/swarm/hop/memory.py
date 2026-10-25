@@ -8,7 +8,7 @@ sort, so it stays small however large the swarm and the field. Every hop rule re
 come to depend on a shared map.
 """
 
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -116,19 +116,24 @@ class BeaconMemory:
         else:
             self._sightings.pop(cell, None)
 
-    def forget(self, heard_before: Time, seen_before: Time, now: Time) -> None:
+    def forget(self, heard_before: Mapping[BeaconKind, Time], seen_before: Time, now: Time) -> None:
         """Drop what no longer counts at ``now``.
 
         Args:
-            heard_before: Heard beacons sent before this are dropped, and so are killers that
-                last reported before it: a killer's status comes with its beacon.
+            heard_before: Per kind, heard beacons sent before this are dropped; a kind not in
+                it is dropped altogether. Killers that last reported before the TREAT cutoff are
+                dropped too: a killer's status comes with its beacon.
             seen_before: Pest sightings older than this are dropped.
             now: Placed beacons that have faded by now are dropped.
         """
-        self._heard = {
-            key: heard for key, heard in self._heard.items() if heard.sent_at >= heard_before
-        }
-        self._killers = {peer: at for peer, at in self._killers.items() if at >= heard_before}
+        kept: dict[tuple[RobotId, BeaconKind], HeardBeacon] = {}
+        for key, heard in self._heard.items():
+            cutoff = heard_before.get(key[1])
+            if cutoff is not None and heard.sent_at >= cutoff:
+                kept[key] = heard
+        self._heard = kept
+        killers_before = heard_before.get(BeaconKind.TREAT, now)
+        self._killers = {peer: at for peer, at in self._killers.items() if at >= killers_before}
         self._sightings = {cell: at for cell, at in self._sightings.items() if at >= seen_before}
         self._placed = {
             cell: placed

@@ -23,12 +23,15 @@ class MapConfig:
         docks: The cells where robots recharge and killers restock, any number of robots at
             once. Explorers and seeded killers return to one when their battery runs low;
             ``()`` for none, so that a robot fails once its battery runs out.
+        dock_range_m: How far a dock's own beacon reaches, for robots that relay beacons;
+            ``None`` for the robots' radio range. A larger one is a stronger dock antenna.
     """
 
     size: int = 32
     obstacles: tuple[CellId, ...] | None = None
     cell_size: float = 10.0
     docks: tuple[CellId, ...] = ((0, 0),)
+    dock_range_m: float | None = None
 
     def __post_init__(self) -> None:
         """Check that every dock is a free cell of the field.
@@ -36,6 +39,8 @@ class MapConfig:
         Raises:
             ValueError: If a dock is outside the field or blocked.
         """
+        if self.dock_range_m is not None and self.dock_range_m < 0.0:
+            raise ValueError("dock_range_m must not be negative")
         blocked = set(self.blocked_cells())
         for dock in self.docks:
             if not self.is_inside(dock) or dock in blocked:

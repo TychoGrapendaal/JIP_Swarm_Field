@@ -32,10 +32,12 @@ from swarm_field.runner import BrainSpec
 from swarm_field.swarm import (
     ArbiterConfig,
     BeaconConfig,
+    DockBeacons,
     DockSeeder,
     EscapeConfig,
     ExploreConfig,
     ExploreSeeder,
+    HopDockField,
     HopField,
     KnowledgeSharing,
     Resupply,
@@ -246,7 +248,9 @@ class SeededKillerPreset:
 class HopKillerPreset:
     """A hop killer: ``TreatByBeacon`` on the hop field, with no map and no shared memory.
 
-    It does not return to a dock: the dock field is planned over a map, which it does not keep.
+    When its swarm relays DOCK beacons (``BeaconConfig.dock``), it returns to a dock down them
+    (``HopDockField``) when its battery runs low (``ReturnToDock``) or its doses do
+    (``Resupply``), still without a map.
 
     Attributes:
         beacons: How it and every robot of its swarm keep, relay and weigh beacons, or ``None``
@@ -273,14 +277,20 @@ class HopKillerPreset:
         Raises:
             ValueError: If the swarm relays no beacons, which ``SwarmScenario`` never does.
         """
-        if swarm.relaying.beacons is None:
+        beacons = swarm.relaying.beacons
+        if beacons is None:
             raise ValueError("a hop killer needs a swarm that relays beacons")
+        behaviors = [TreatByBeacon.name]
+        seeders = [HopField.name]
+        if beacons.dock is not None:
+            behaviors.extend([ReturnToDock.name, Resupply.name])
+            seeders.append(HopDockField.name)
         return BrainSpec(
-            behaviors=(TreatByBeacon.name,),
-            seeders=(HopField.name,),
+            behaviors=tuple(behaviors),
+            seeders=tuple(seeders),
             arbiter=swarm.arbiter,
             sharing=SharingConfig(facts=KnowledgeSharing.NOTHING),
-            beacons=swarm.relaying.beacons,
+            beacons=beacons,
             keeps_map=False,
         )
 
@@ -321,10 +331,13 @@ def hop_beacon_variants(hop_cells: float) -> dict[str, BeaconConfig]:
     """The hop method's configurations, by name, for hops of ``hop_cells`` cells.
 
     ``hop`` counts metric hops of one radio range, capped where a beacon's pull falls below
-    5 %. ``hop-repel`` adds killers repelling each other, and ``hop-tuned`` pulls weighted by
-    the square root of the distance and the escape: the best hop configuration so far.
+    5 %, and relays DOCK beacons, so hop killers find a dock. ``hop-repel`` adds killers
+    repelling each other, and ``hop-tuned`` pulls weighted by the square root of the distance
+    and the escape: the best hop configuration so far.
     """
-    hop = BeaconConfig(hop_cells=hop_cells, max_value=math.log(0.05) / math.log(0.5))
+    hop = BeaconConfig(
+        hop_cells=hop_cells, max_value=math.log(0.05) / math.log(0.5), dock=DockBeacons()
+    )
     repel = replace(hop, killer_repulsion=2.0)
     tuned = replace(repel, distance_power=0.5, escape=EscapeConfig())
     return {"hop": hop, "hop-repel": repel, "hop-tuned": tuned}

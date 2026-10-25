@@ -32,6 +32,7 @@ from random import Random
 from swarm_field.contracts import (
     BodyType,
     CellId,
+    DockBeaconSpec,
     EnergySpec,
     MessageKind,
     PestDynamicsSpec,
@@ -124,8 +125,7 @@ class RobotConfig:
             of the lattice pitch.
         battery_capacity: How many standard charges every robot's battery holds; a standard
             charge lasts a body's endurance in travel, 30 minutes for a scout. A large capacity,
-            e.g. ``1000``, keeps robots working without trips to a dock, and keeps hop killers,
-            which cannot return to one yet, from running empty.
+            e.g. ``1000``, keeps robots working without trips to a dock.
     """
 
     speed_mps_drone: float = 2.0
@@ -344,6 +344,20 @@ class SwarmScenario:
             cells.append((min(int(x), size - 1), min(int(y), size - 1)))
         return cells
 
+    def dock_beacons(self) -> DockBeaconSpec | None:
+        """The docks' own radio: only when the swarm relays DOCK beacons and the field has docks.
+
+        A dock broadcasts once per decision interval, as far as ``MapConfig.dock_range_m``, or
+        the robots' radio range without one.
+        """
+        beacons = self.relaying().beacons
+        if beacons is None or beacons.dock is None or not self.map.docks:
+            return None
+        reach = self.map.dock_range_m
+        if reach is None:
+            reach = self.robots.radio_range_m
+        return DockBeaconSpec(period=self.robots.decision_interval, radio_range_m=reach)
+
     def pest_sources(self) -> PestSourceSpec | None:
         """The mock pest sources: what the swarm's killers read, or ``None`` if none is used.
 
@@ -394,6 +408,7 @@ class SwarmScenario:
             obstacles=obstacles,
             pest_dynamics=self.pests.dynamics(self.map.free_cells()),
             pest_sources=self.pest_sources(),
+            dock_beacons=self.dock_beacons(),
             treatment_rate=self.pests.treatment_rate,
             treatment_doses=self.pests.treatment_doses,
             energy=EnergySpec(capacity=self.robots.battery_capacity),

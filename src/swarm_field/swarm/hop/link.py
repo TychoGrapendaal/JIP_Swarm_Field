@@ -12,7 +12,9 @@ from typing import cast
 from swarm_field.contracts import (
     Action,
     Beacon,
+    BeaconKind,
     CellId,
+    Charge,
     FieldGeometry,
     InfestationObservation,
     Message,
@@ -27,7 +29,7 @@ from swarm_field.swarm.guidance import Heading
 from swarm_field.swarm.hop.escape import StuckEscape, cell_ahead
 from swarm_field.swarm.hop.memory import BeaconMemory
 from swarm_field.swarm.hop.pull import obstacle_strength
-from swarm_field.swarm.hop.relay import BeaconConfig, treat_beacon
+from swarm_field.swarm.hop.relay import BeaconConfig, dock_beacon, treat_beacon
 from swarm_field.swarm.steering import SensedSurroundings
 
 logger = logging.getLogger(__name__)
@@ -65,12 +67,15 @@ class BeaconLink:
     def perceive(self, perception: Perception) -> None:
         """Take in a decision's sensing and the beacons and statuses it received.
 
-        First the memory forgets what no longer counts: beacons older than ``fresh_for``,
-        sightings older than ``source_for``, and placed beacons that faded.
+        First the memory forgets what no longer counts: beacons older than their kind's
+        ``fresh_for``, sightings older than ``source_for``, and placed beacons that faded.
         """
         now = perception.time
         self._speed_mps = perception.self_state.speed_mps
-        self.memory.forget(now - self.config.fresh_for, now - self.config.source_for, now)
+        heard_before = {BeaconKind.TREAT: now - self.config.fresh_for}
+        if self.config.dock is not None:
+            heard_before[BeaconKind.DOCK] = now - self.config.dock.fresh_for
+        self.memory.forget(heard_before, now - self.config.source_for, now)
         self.surroundings.sense(perception.sensed)
         for fact in perception.sensed:
             if isinstance(fact, InfestationObservation):
@@ -86,7 +91,8 @@ class BeaconLink:
     def after_step(self, heading: Heading | None, action: Action, robot: CellId, now: Time) -> None:
         """Escape when the robot circles in place: place the beacon its ``StuckEscape`` hands out.
 
-        A treatment starts the escape's record over: the robot stands still on purpose.
+        A treatment or a charge starts the escape's record over: the robot stands still on
+        purpose, and a record of it would place an escape beacon on the pest or the dock.
 
         Args:
             heading: The heading the robot followed at this decision, or ``None``.
@@ -96,7 +102,7 @@ class BeaconLink:
         """
         if self._escape is None:
             return
-        if isinstance(action, Treat):
+        if isinstance(action, Treat | Charge):
             self._escape.forget()
             return
         ahead: CellId | None = None
@@ -108,17 +114,23 @@ class BeaconLink:
             self._place_stronger(escape.cell, now, escape.strength, escape.decay)
 
     def beacon_message(self, perception: Perception) -> Message | None:
-        """The robot's TREAT beacon as a message, or ``None`` if it has no beacon."""
-        beacon = treat_beacon(
-            self.memory, perception.self_state.position, perception.time, self.config
-        )
-        if beacon is None:
+        """The robot's TREAT and DOCK beacons in one message, or ``None`` if it has neither."""
+        position = perception.self_state.position
+        now = perception.time
+        beacons: list[Beacon] = []
+        for beacon in (
+            treat_beacon(self.memory, position, now, self.config),
+            dock_beacon(self.memory, position, now, self.config),
+        ):
+            if beacon is not None:
+                beacons.append(beacon)
+        if not beacons:
             return None
         return Message(
             sender=self._robot_id,
-            sent_at=perception.time,
+            sent_at=now,
             kind=MessageKind.BEACON,
-            payload=(beacon,),
+            payload=tuple(beacons),
         )
 
     def _hear(self, message: Message) -> None:

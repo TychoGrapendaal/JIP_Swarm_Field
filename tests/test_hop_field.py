@@ -1,5 +1,6 @@
 """Tests for the hop field and the pest response on hop beacons."""
 
+from dataclasses import replace
 from random import Random
 
 from swarm_field.contracts import (
@@ -7,6 +8,7 @@ from swarm_field.contracts import (
     BeaconKind,
     BodyType,
     CellId,
+    Charge,
     FieldGeometry,
     InfestationObservation,
     Message,
@@ -17,6 +19,7 @@ from swarm_field.contracts import (
     RobotSelfState,
     Terrain,
     TerrainObservation,
+    TimeUnit,
     Treat,
 )
 from swarm_field.runner import BrainSpec, build_agent
@@ -26,16 +29,19 @@ from swarm_field.swarm import (
     BeaconMemory,
     ComposedAgent,
     DecisionContext,
+    DockBeacons,
     EscapeConfig,
     FollowField,
     Heading,
+    HopDockField,
     HopField,
     KnowledgeSharing,
+    ReturnToDock,
     SharingConfig,
     TreatByBeacon,
     treat_beacon,
 )
-from swarm_field.swarm.hop import cell_ahead
+from swarm_field.swarm.hop import cell_ahead, dock_beacon, hop_pull
 
 _FIELD = FieldGeometry(width=10, height=10, cell_size=10.0, row_sp=0.0, in_row_sp=0.0, headland=0.0)
 _CONFIG = BeaconConfig()
@@ -292,7 +298,7 @@ def test_beacon_memory_forgets_stale_beacons_old_sightings_and_faded_pushes() ->
     memory.place((1, 1), 0, 1.0, decay=10)
     memory.place((2, 1), 0, 1.0, decay=1000)
 
-    memory.forget(heard_before=30, seen_before=30, now=100)
+    memory.forget({BeaconKind.TREAT: 30}, seen_before=30, now=100)
 
     assert [heard.sender for heard in memory.beacons(BeaconKind.TREAT)] == [3]
     assert memory.latest_sighting(since=0) == (4, 4)
@@ -313,5 +319,77 @@ def test_beacon_memory_keeps_at_most_its_cap_of_each_sort_and_forgets_old_killer
     assert memory.killers() == frozenset({2, 3})
     assert memory.latest_sighting(since=0) == (3, 5)
 
-    memory.forget(heard_before=3, seen_before=0, now=3)
+    memory.forget({BeaconKind.TREAT: 3}, seen_before=0, now=3)
     assert memory.killers() == frozenset({3})
+
+
+_DOCKING = BeaconConfig(hop_cells=2.0, max_value=4.0, killer_repulsion=2.0, dock=DockBeacons())
+"""TREAT beacons capped at 4 and repelled by killers; DOCK beacons with neither."""
+
+
+def test_dock_beacons_are_relayed_past_the_treat_cap() -> None:
+    memory = BeaconMemory()
+    memory.hear(2, 0, [Beacon(BeaconKind.TREAT, 8.0, (4, 0)), Beacon(BeaconKind.DOCK, 8.0, (4, 0))])
+
+    assert treat_beacon(memory, (0, 0), 0, _DOCKING) is None
+    relayed = dock_beacon(memory, (0, 0), 0, _DOCKING)
+    assert relayed == Beacon(BeaconKind.DOCK, 10.0, (0, 0))
+
+
+def test_a_killers_dock_beacon_pulls_although_its_treat_beacon_does_not() -> None:
+    memory = BeaconMemory()
+    memory.hear(2, 0, [Beacon(BeaconKind.TREAT, 0.0, (4, 0)), Beacon(BeaconKind.DOCK, 0.0, (4, 0))])
+    memory.note_body(2, BodyType.KILLER, 0)
+
+    to_the_pest = hop_pull(memory, (0, 0), 0, _DOCKING)
+    to_the_dock = HopDockField(_DOCKING, memory).guidance_for(_MAP, (0, 0), 0)
+
+    # A killer's TREAT beacon alone never pulls; its DOCK beacon does, like any other.
+    assert to_the_pest is None
+    assert to_the_dock is not None and to_the_dock.offset[0] > 0
+
+
+def test_dock_beacons_are_kept_long_after_treat_beacons_of_the_same_age_are_forgotten() -> None:
+    killer = _hop_killer(_DOCKING)
+    beacon = Message(
+        sender=2,
+        sent_at=0,
+        kind=MessageKind.BEACON,
+        payload=(Beacon(BeaconKind.TREAT, 0.0, (5, 0)), Beacon(BeaconKind.DOCK, 0.0, (0, 5))),
+    )
+    killer.decide(Perception(time=0, self_state=_self_state((0, 0)), sensed=[], inbox=[beacon]))
+    killer.decide(
+        Perception(time=5 * TimeUnit.MINUTE, self_state=_self_state((0, 0)), sensed=[], inbox=[])
+    )
+
+    memory = _beacons_of(killer)
+    assert list(memory.beacons(BeaconKind.TREAT)) == []
+    assert len(list(memory.beacons(BeaconKind.DOCK))) == 1
+
+
+def test_a_hop_killer_low_on_battery_walks_down_the_dock_beacons_and_charges_on_the_dock() -> None:
+    spec = BrainSpec(
+        behaviors=(TreatByBeacon.name, ReturnToDock.name),
+        seeders=(HopField.name, HopDockField.name),
+        sharing=SharingConfig(facts=KnowledgeSharing.NOTHING),
+        beacons=_DOCKING,
+        keeps_map=False,
+    )
+    killer = build_agent(spec, 1, _FIELD, Random(0), docks=((5, 0),))
+    dock = Message(
+        sender=-500,
+        sent_at=0,
+        kind=MessageKind.BEACON,
+        payload=(Beacon(BeaconKind.DOCK, 0.0, (5, 0)),),
+    )
+    low = replace(_self_state((0, 0)), battery=0.05)
+
+    on_the_way = killer.decide(Perception(time=0, self_state=low, sensed=[], inbox=[dock]))
+    on_the_dock = killer.decide(
+        Perception(
+            time=TimeUnit.MINUTE, self_state=replace(low, position=(5, 0)), sensed=[], inbox=[]
+        )
+    )
+
+    assert on_the_way.action == Move((1, 0))
+    assert on_the_dock.action == Charge()

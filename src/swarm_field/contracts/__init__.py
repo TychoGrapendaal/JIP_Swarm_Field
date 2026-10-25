@@ -42,6 +42,7 @@ from swarm_field.contracts.observations import (
     TerrainObservation,
 )
 from swarm_field.contracts.scenario import (
+    DockBeaconSpec,
     EnergySpec,
     FailureMode,
     FailureSpec,
@@ -71,6 +72,7 @@ __all__ = [
     "CropType",
     "Decision",
     "Direction",
+    "DockBeaconSpec",
     "EnergySpec",
     "FailureMode",
     "FailureSpec",

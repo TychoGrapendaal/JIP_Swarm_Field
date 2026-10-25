@@ -18,7 +18,13 @@ from swarm_field.contracts import (
     TimeUnit,
 )
 from swarm_field.runner import BrainSpec, build_agent
-from swarm_field.swarm import BeaconConfig, ComposedAgent, KnowledgeSharing, SharingConfig
+from swarm_field.swarm import (
+    BeaconConfig,
+    ComposedAgent,
+    DockBeacons,
+    KnowledgeSharing,
+    SharingConfig,
+)
 
 _FIELD = FieldGeometry(width=10, height=10, cell_size=10.0, row_sp=0.0, in_row_sp=0.0, headland=0.0)
 
@@ -143,3 +149,27 @@ def test_a_robot_that_sees_its_pest_gone_is_no_longer_its_source() -> None:
     )
 
     assert _beacon_messages(relay, cleared) == []
+
+
+def test_a_relay_sends_its_treat_and_dock_values_in_one_message() -> None:
+    spec = BrainSpec(
+        behaviors=(),
+        seeders=(),
+        sharing=SharingConfig(facts=KnowledgeSharing.NOTHING),
+        beacons=BeaconConfig(dock=DockBeacons()),
+        keeps_map=False,
+    )
+    relay = build_agent(spec, 1, _FIELD, Random(0))
+    heard = Message(
+        sender=2,
+        sent_at=0,
+        kind=MessageKind.BEACON,
+        payload=(Beacon(BeaconKind.TREAT, 1.0, (2, 0)), Beacon(BeaconKind.DOCK, 3.0, (2, 0))),
+    )
+
+    (message,) = _beacon_messages(relay, _perception(1, (0, 0), inbox=[heard]))
+
+    assert message.payload == (
+        Beacon(BeaconKind.TREAT, 2.0, (0, 0)),
+        Beacon(BeaconKind.DOCK, 4.0, (0, 0)),
+    )

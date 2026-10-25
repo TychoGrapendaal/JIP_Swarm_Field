@@ -47,7 +47,7 @@ A preset is a kind of robot: its name, its body, and its brain (`src/swarm_field
 | `EXPLORER` | `ExplorerPreset` | scout | Explores the field on the EXPLORE field and shares everything it knows. A scout flies, so it plans over the river and the rocks. | `explore`: its `ExploreConfig`; `revisit_sweeps` (0.5): its revisit age in sweep times of the swarm, see [`explore.md`](explore.md), or `None` to keep `explore`'s |
 | `RELAY` | `RelayPreset` | scout | Stands still and only passes on what the swarm's killers read. | — |
 | `SEEDED_KILLER` | `SeededKillerPreset` | killer | Plans a route to a pest it knows of over its map, and treats it. | `claims` (on), `window_blocks` |
-| `HOP_KILLER` | `HopKillerPreset` | killer | Walks down the hop beacons to a pest, without a map. | `beacons`: its `BeaconConfig`, `hop-tuned` by default |
+| `HOP_KILLER` | `HopKillerPreset` | killer | Walks down the hop beacons to a pest, without a map, and down the DOCK beacons the docks broadcast to a dock when its battery or doses run low. | `beacons`: its `BeaconConfig`, `hop-tuned` by default |
 
 A variant is the class with other parameters, and a name of its own keeps it apart in tables:
 
@@ -74,7 +74,7 @@ What a robot broadcasts follows from who listens. Every preset says what the swa
 | `decision_interval` | The time between two decisions of a robot that stands still, 15 s. A moving robot decides again as soon as its move arrives. |
 | `knows_terrain` | Whether robots start with the map. In the obstacle scenarios they do not, and learn obstacles by sensing. |
 | `lattice_starts` | Each group of robots starts on a jittered lattice of its own over the field, from the seed. Otherwise all robots start side by side along the bottom row. |
-| `battery_capacity` | How many standard charges every battery holds, 1 by default. A standard charge lasts a body's endurance in travel, 30 minutes for a scout, so moving explorers have to return to a dock (`MapConfig.docks`) about every hour. A large capacity, e.g. `1000`, keeps robots working without trips to a dock, and keeps hop killers, which cannot return to one yet, from running empty. |
+| `battery_capacity` | How many standard charges every battery holds, 1 by default. A standard charge lasts a body's endurance in travel, 30 minutes for a scout, so moving explorers have to return to a dock (`MapConfig.docks`) about every hour. A large capacity, e.g. `1000`, keeps robots working without trips to a dock. |
 
 ```python
 from dataclasses import replace
@@ -91,7 +91,8 @@ The sparsest relay lattice that keeps nearly all relays in one network is one re
 | `size` | The field's side in cells. |
 | `obstacles` | The blocked cells, as a tuple of `(x, y)`. `river_and_rocks(size)` and `two_rivers_and_rocks(size)` build the two ready maps; `()` is an open field, and `None`, the default, the river. |
 | `cell_size` | The side of a cell in metres. |
-| `docks` | The cells where robots recharge and killers restock, any number at once, in a 5-minute battery swap; `((0, 0),)` by default, and two opposite corners on `RIVERS_LARGE`. Explorers and seeded killers return to one when their battery runs low, seeded killers also when their doses do ([`battery-lifecycle.md`](battery-lifecycle.md)); `()` for none. |
+| `docks` | The cells where robots recharge and killers restock, any number at once, in a 5-minute battery swap; `((0, 0),)` by default, and two opposite corners on `RIVERS_LARGE`. Robots return to one when their battery runs low, killers also when their doses do ([`battery-lifecycle.md`](battery-lifecycle.md)); `()` for none. |
+| `dock_range_m` | How far a dock's own DOCK beacon reaches, for swarms that relay beacons; `None`, the default, for the robots' radio range. A larger one is a stronger dock antenna. |
 
 ```python
 from swarm_field.experiments import RIVERS_LARGE, MapConfig, two_rivers_and_rocks

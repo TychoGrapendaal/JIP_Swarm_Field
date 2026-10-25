@@ -22,7 +22,7 @@ moves again, and when decisions cost nothing its battery never drains to zero ei
 the same way unless a live BATTERY robot still carries a spare that could reach it. Without this
 rule a stranded robot would idle forever while still counted in `active_robots`.
 
-Every `SwarmScenario` has a dock at `(0, 0)`, and its explorers and seeded killers have `return-to-dock`, so they recharge instead of running flat. `MapConfig.docks` moves it, adds more, or removes them all. Hop killers keep no map, so they cannot follow the dock field and do not return yet. The catalogue's presets have the dock and `return-to-dock` too.
+Every `SwarmScenario` has a dock at `(0, 0)`, and its explorers and seeded killers have `return-to-dock`, so they recharge instead of running flat. `MapConfig.docks` moves it, adds more, or removes them all. Hop killers keep no map, so they follow the DOCK beacons instead: in a swarm that relays beacons, every dock broadcasts a DOCK beacon of 0 on its cell (`DockBroadcast`), every robot relays its own DOCK value, and a hop killer walks down them on `HopDockField`, with the same `ReturnToDock` and `Resupply` behaviours. The catalogue's presets have the dock and `return-to-dock` too.
 
 ## Dock charging and restocking
 
@@ -34,7 +34,7 @@ The small ready fields have one dock at `(0, 0)`, and `RIVERS_LARGE` has two, at
 
 ## Restocking
 
-`swarm_field.swarm.Resupply` returns a killer to a dock when its consumable runs low, configured by `ResupplyConfig`. At or below `low_consumable` (0.2, two doses of ten) it bids to follow the dock field, from `low_priority` (0.6, below a treat bid, so a killer with doses left treats first) up to `empty_priority` (0.95, an override) when empty. On a dock it bids `Charge` at `dock_priority`, which restocks at once. A killer with no consumable left proposes no treatment, so it neither stands on a pest it cannot treat nor holds it as a claim. `SeededKillerPreset` carries `Resupply`; hop killers need a map-free dock field first.
+`swarm_field.swarm.Resupply` returns a killer to a dock when its consumable runs low, configured by `ResupplyConfig`. At or below `low_consumable` (0.2, two doses of ten) it bids to follow the dock field, from `low_priority` (0.6, below a treat bid, so a killer with doses left treats first) up to `empty_priority` (0.95, an override) when empty. On a dock it bids `Charge` at `dock_priority`, which restocks at once. A killer with no consumable left proposes no treatment, so it neither stands on a pest it cannot treat nor holds it as a claim. `SeededKillerPreset` carries `Resupply` on the `DockSeeder`, and `HopKillerPreset` on `HopDockField`.
 
 ## Recharge policy
 

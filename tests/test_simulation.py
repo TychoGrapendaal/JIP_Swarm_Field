@@ -15,6 +15,7 @@ from swarm_field.contracts import (
     BodyType,
     CellId,
     Decision,
+    DockBeaconSpec,
     FieldGeometry,
     Idle,
     InfestationObservation,
@@ -31,6 +32,7 @@ from swarm_field.contracts import (
     Treat,
 )
 from swarm_field.simulation import (
+    DockBroadcast,
     PestDynamicsConfig,
     PestSourceBroadcast,
     RobotDecision,
@@ -488,3 +490,27 @@ def test_a_cleared_pest_is_reported_clean_once_then_falls_silent() -> None:
 
     assert severities == [[0.0], []]
     assert kinds == [{MessageKind.KNOWLEDGE}, set()]
+
+
+def test_a_dock_broadcasts_a_dock_beacon_to_the_robots_in_range_under_its_own_id() -> None:
+    near = RobotState(robot_id=1, position=(1, 1), body=BodyType.KILLER, speed_mps=0.1)
+    far = RobotState(robot_id=2, position=(8, 8), body=BodyType.KILLER, speed_mps=0.1)
+    field = FieldGeometry(
+        width=10, height=10, cell_size=10.0, row_sp=0.0, in_row_sp=0.0, headland=0.0
+    )
+    world = WorldState(field, robots=[near, far], docks=[(0, 0)])
+    ctx = SimulationContext(now=0, rng=Random(0), agents={}, world=world)
+    world.cells[(0, 0)].infestation = 0.5
+
+    DockBroadcast(time=0, spec=DockBeaconSpec(radio_range_m=15.0)).handle(ctx)
+    PestSourceBroadcast(time=0, spec=PestSourceSpec(radio_range_m=15.0)).handle(ctx)
+
+    inbox = ctx.channel.take_inbox(1)
+    beacons = [message.payload for message in inbox if message.kind is MessageKind.BEACON]
+    assert beacons == [
+        (Beacon(BeaconKind.DOCK, 0.0, (0, 0)),),
+        (Beacon(BeaconKind.TREAT, 0.0, (0, 0)),),
+    ]
+    senders = {message.sender for message in inbox}
+    assert len(senders) == 2 and max(senders) < 0
+    assert ctx.channel.take_inbox(2) == []

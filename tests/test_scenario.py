@@ -97,6 +97,18 @@ def test_hop_killers_and_explorers_run_together_each_with_its_own_memory() -> No
         assert agent.memory.keeps_map is (preset is EXPLORER)
 
 
+def test_only_a_swarm_that_relays_dock_beacons_gets_the_docks_radio() -> None:
+    seeded = _OPEN.add_robots(EXPLORER, 2).add_robots(SEEDED_KILLER, 1)
+    hop = _OPEN.add_robots(EXPLORER, 2).add_robots(HOP_KILLER, 1)
+    no_docks = hop.with_map(replace(hop.map, docks=()))
+
+    assert seeded.into_experiment().scenario.dock_beacons is None
+    spec = hop.into_experiment().scenario.dock_beacons
+    assert spec is not None and spec.radio_range_m == hop.robots.radio_range_m
+    assert no_docks.into_experiment().scenario.dock_beacons is None
+    assert "dock-hop" in hop.brain(HOP_KILLER).seeders
+
+
 def test_relays_pass_on_what_the_killers_read() -> None:
     seeded = _OPEN.add_robots(RELAY, 4).add_robots(SEEDED_KILLER, 2)
     without_claims = _OPEN.add_robots(RELAY, 4).add_robots(SeededKillerPreset(claims=False), 2)

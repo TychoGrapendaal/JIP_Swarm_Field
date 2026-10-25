@@ -1,8 +1,11 @@
-"""The hop field: the objective field that turns the robot's ``hop_pull`` into a heading."""
+"""The hop fields: the objective fields that turn the robot's ``hop_pull`` into a heading.
+
+``HopField`` follows the TREAT beacons to a pest, ``HopDockField`` the DOCK beacons to a dock.
+"""
 
 from math import hypot
 
-from swarm_field.contracts import CellId, Time
+from swarm_field.contracts import BeaconKind, CellId, Time
 from swarm_field.swarm.guidance import Heading
 from swarm_field.swarm.hop.memory import BeaconView
 from swarm_field.swarm.hop.pull import hop_pull
@@ -17,9 +20,11 @@ class HopField:
 
     Attributes:
         name: How a behaviour asks for this field.
+        kind: The beacons it follows.
     """
 
     name: str = "treat-hop"
+    kind: BeaconKind = BeaconKind.TREAT
 
     def __init__(self, config: BeaconConfig, beacons: BeaconView) -> None:
         self._config: BeaconConfig = config
@@ -31,7 +36,7 @@ class HopField:
         The heading reaches as far as the strongest attracting beacon, whose cell is the target.
         ``memory`` is not read: the field has the robot's beacons of its own.
         """
-        pull = hop_pull(self._beacons, robot, now, self._config)
+        pull = hop_pull(self._beacons, robot, now, self._config, self.kind)
         if pull is None:
             return None
         cell = pull.strongest.beacon.cell
@@ -39,3 +44,18 @@ class HopField:
         length = hypot(pull.vector[0], pull.vector[1])
         offset = (pull.vector[0] / length * reach, pull.vector[1] / length * reach)
         return Heading(offset=offset, target=cell)
+
+
+class HopDockField(HopField):
+    """The DOCK objective field of the hop beacons: a heading down the dock gradient.
+
+    It reads only the robot's beacons, never a dock's cell or the terrain. The heading reaches
+    as far as the strongest attracting DOCK beacon, whose cell is the target.
+
+    Attributes:
+        name: How a behaviour asks for this field.
+        kind: The beacons it follows.
+    """
+
+    name: str = "dock-hop"
+    kind: BeaconKind = BeaconKind.DOCK
