@@ -17,8 +17,10 @@ only variable.
 Each system is run at every spread rate with the same seeds. A run is out of control when its
 infested cells still grow at the end: their mean over the last hour is more than ``GROWTH_FACTOR``
 times, and more than ``GROWTH_FLOOR`` cells above, their mean over the hour before. Hourly means
-rather than single samples keep the ordinary ups and downs of a steady run from counting. A
-system's threshold is the lowest spread rate at which most of its seeds are out of control.
+rather than single samples keep the ordinary ups and downs of a steady run from counting. A run
+whose infestation has filled the field stops growing for want of healthy cells, so it is out of
+control too when at least ``SATURATED_SHARE`` of the crop cells are infested over its last hour.
+A system's threshold is the lowest spread rate at which most of its seeds are out of control.
 
 The runs are measured from their metrics series and run in parallel by ``Experiment``, which
 writes every run's result, the tables and a plot of the infested cells against the spread rate to
@@ -56,6 +58,10 @@ INITIAL_SEVERITY = 0.1
 """The severity of a pest that has just appeared, as ``PestConfig.spawn_severity``."""
 GROWTH_FACTOR = 1.5
 GROWTH_FLOOR = 10
+SATURATED_SHARE = 0.25
+"""The share of the crop cells infested over the last hour from which a run is lost however
+little it still grows, since a field that is mostly infested has few healthy cells left to
+infest."""
 
 
 def _without_new_pests(scenario: SwarmScenario, spread: float) -> SwarmScenario:
@@ -122,11 +128,15 @@ class SpreadResult:
         mean_infested: Infested crop cells, averaged over the samples.
         out_of_control: Whether its infested cells still grew at the end (``is_out_of_control``).
         clean_at: When the field was first free of pests, or ``None`` if it never was.
+        pests_appeared: Pests that appeared over the run, the initial ones included.
+        pests_cleared: Of those, the pests cleared.
     """
 
     mean_infested: float
     out_of_control: bool
     clean_at: Time | None
+    pests_appeared: int
+    pests_cleared: int
 
 
 def with_initial_pests(config: ExperimentConfig, seed: int) -> ExperimentConfig:
@@ -147,7 +157,8 @@ def with_initial_pests(config: ExperimentConfig, seed: int) -> ExperimentConfig:
 
 def measure_spread(run: Run[SpreadSpec]) -> SpreadResult:
     """Run one system, spread rate and seed, and reduce its metrics series to its result."""
-    series = run_experiment(run.config.into_experiment(run.seed))
+    config = run.config.into_experiment(run.seed)
+    series = run_experiment(config)
     clean_at: Time | None = None
     for sample in series:
         if sample.targets_remaining == 0:
@@ -155,13 +166,16 @@ def measure_spread(run: Run[SpreadSpec]) -> SpreadResult:
             break
     return SpreadResult(
         mean_infested=mean(sample.targets_remaining for sample in series),
-        out_of_control=is_out_of_control(series),
+        out_of_control=is_out_of_control(series, len(config.scenario.crops)),
         clean_at=clean_at,
+        pests_appeared=series[-1].pests_appeared,
+        pests_cleared=series[-1].pests_cleared,
     )
 
 
-def is_out_of_control(series: Sequence[MetricsSample]) -> bool:
-    """Whether the run's infested cells still grew over its last hour, by their hourly means.
+def is_out_of_control(series: Sequence[MetricsSample], crop_cells: int) -> bool:
+    """Whether the run's infested cells still grew over its last hour, by their hourly means, or
+    filled at least ``SATURATED_SHARE`` of its ``crop_cells`` then.
 
     A run shorter than two hours compares the second half of its samples with the first.
     """
@@ -179,6 +193,8 @@ def is_out_of_control(series: Sequence[MetricsSample]) -> bool:
         last = [sample.targets_remaining for sample in series[half:]]
     if not before or not last:
         return False
+    if mean(last) >= SATURATED_SHARE * crop_cells:
+        return True
     growth = mean(last) - mean(before)
     return mean(last) > GROWTH_FACTOR * mean(before) and growth > GROWTH_FLOOR
 
@@ -208,6 +224,8 @@ class Point:
         seeds: How many seeds ran.
         clean: How many seeds cleared every pest before the end.
         clean_after: When those seeds' fields were clean, averaged over them, or ``None``.
+        appeared: The pests that appeared, averaged over the seeds.
+        cleared: Of those, the pests cleared, averaged over the seeds.
     """
 
     mean_infested: float
@@ -216,6 +234,8 @@ class Point:
     seeds: int
     clean: int
     clean_after: float | None
+    appeared: float
+    cleared: float
 
     @classmethod
     def from_results(cls, results: list[SpreadResult]) -> Point:
@@ -231,7 +251,16 @@ class Point:
         clean_after = None
         if clean_times:
             clean_after = mean(clean_times)
-        return cls(mean(infested), deviation, lost, len(results), len(clean_times), clean_after)
+        return cls(
+            mean_infested=mean(infested),
+            spread_infested=deviation,
+            out_of_control=lost,
+            seeds=len(results),
+            clean=len(clean_times),
+            clean_after=clean_after,
+            appeared=mean(result.pests_appeared for result in results),
+            cleared=mean(result.pests_cleared for result in results),
+        )
 
     def is_lost(self) -> bool:
         """Whether most seeds ended out of control."""
@@ -272,7 +301,8 @@ def format_tables(
     lines.extend(
         [
             "",
-            "### Field clean: seeds that cleared every pest, and after how many minutes",
+            "### Field clean: seeds that cleared every pest, after how many minutes, and the "
+            "pests cleared of those that appeared",
             "",
             header,
             rule,
@@ -285,7 +315,9 @@ def format_tables(
             after = "-"
             if point.clean_after is not None:
                 after = f"{point.clean_after / TimeUnit.MINUTE:.0f} min"
-            cells.append(f"{point.clean}/{point.seeds}, {after}")
+            cells.append(
+                f"{point.clean}/{point.seeds}, {after}; {point.cleared:.1f} of {point.appeared:.1f}"
+            )
         lines.append(f"| {spread:g} | " + " | ".join(cells) + " |")
     lines.extend(
         ["", "### Threshold: the lowest spread rate at which most seeds are out of control", ""]
