@@ -254,7 +254,7 @@ def test_world_tick_is_deterministic_for_same_seed() -> None:
     assert run(seed=42) == run(seed=42)
 
 
-def test_robot_decision_perceives_acts_and_requeues_at_fixed_interval() -> None:
+def test_robot_decision_decides_on_arrival_and_at_the_interval_when_still() -> None:
     robot = RobotState(
         robot_id=1,
         position=(1, 1),
@@ -278,16 +278,18 @@ def test_robot_decision_perceives_acts_and_requeues_at_fixed_interval() -> None:
 
     SimulationLoop().run(ctx, until=5_000)
 
+    # The 1 m move at 1 m/s arrives after 1 s, when the robot decides again; it then idles,
+    # so its next decision comes a full interval later.
     assert len(agent.perceptions) == 2
     assert agent.perceptions[0].time == 0
     assert agent.perceptions[0].self_state.position == (1, 1)
-    assert agent.perceptions[1].time == 5_000
+    assert agent.perceptions[1].time == 1_000
     assert agent.perceptions[1].self_state.position == (2, 1)
     assert world.positions()[1] == (2, 1)
 
     next_event = ctx.queue.peek()
     assert isinstance(next_event, RobotDecision)
-    assert next_event.time == 10_000
+    assert next_event.time == 6_000
     assert next_event.robot == 1
 
 

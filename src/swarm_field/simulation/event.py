@@ -81,16 +81,17 @@ class EventQueue:
 
 @dataclass
 class RobotDecision:
-    """Run one robot decision point and schedule the next one at a fixed interval.
+    """Run one robot decision point and schedule the next one.
 
-    Every robot has its own decision cadence. The cadence is independent of how long the
-    previously requested movement takes, so finishing an action does not determine when the
-    robot gets its next perception.
+    A robot decides again as soon as the move it is making arrives, so it moves at its full
+    speed, and every ``decision_interval`` while it stands still. A move cannot be changed
+    once started, so a robot that is moving has nothing to decide before it arrives.
 
     Attributes:
         time: When the robot receives its next perception and decides.
         robot: Which robot acts.
-        decision_interval: Time between this decision and the robot's next decision.
+        decision_interval: Time between this decision and the robot's next one while the robot
+            stands still.
     """
 
     time: Time
@@ -121,11 +122,14 @@ class RobotDecision:
             # here rather than at the next sample, which would only see the latest sensing.
             ctx.metrics.observe(perception.sensed, self.time)
         decision = ctx.agents[self.robot].decide(perception)
-        ctx.world.apply_action(self.robot, decision.action, self.time)
+        arrival = ctx.world.apply_action(self.robot, decision.action, self.time)
         ctx.channel.broadcast(ctx.world, self.time, decision.outbox)
+        next_time = self.time + self.decision_interval
+        if arrival is not None and arrival > self.time:
+            next_time = arrival
         ctx.schedule(
             RobotDecision(
-                time=self.time + self.decision_interval,
+                time=next_time,
                 robot=self.robot,
                 decision_interval=self.decision_interval,
             )

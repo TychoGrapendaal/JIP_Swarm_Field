@@ -71,7 +71,7 @@ What a robot broadcasts follows from who listens. Every preset says what the swa
 | --- | --- |
 | `speed_mps_drone`, `speed_mps_ground` | The scouts' speed (2 m/s) and the killers' (0.5 m/s). |
 | `radio_range_m` | How far every robot's broadcasts reach. |
-| `decision_interval` | The time between two decisions, 15 s. |
+| `decision_interval` | The time between two decisions of a robot that stands still, 15 s. A moving robot decides again as soon as its move arrives. |
 | `knows_terrain` | Whether robots start with the map. In the obstacle scenarios they do not, and learn obstacles by sensing. |
 | `lattice_starts` | Each group of robots starts on a jittered lattice of its own over the field, from the seed. Otherwise all robots start side by side along the bottom row. |
 | `battery_capacity` | How many standard charges every battery holds, 1 by default. A standard charge lasts a body's endurance in travel, 30 minutes for a scout, so moving explorers have to return to a dock (`MapConfig.docks`) about every hour. A large capacity, e.g. `1000`, keeps robots working without trips to a dock, and keeps hop killers, which cannot return to one yet, from running empty. |

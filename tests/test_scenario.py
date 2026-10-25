@@ -155,9 +155,9 @@ def test_the_pest_responses_keep_the_number_of_killers() -> None:
 
 
 def test_explorers_revisit_after_half_the_time_their_swarm_needs_to_sweep_the_field() -> None:
-    # 256 free cells, 4 explorers; a 10 m move at 2 m/s takes 5 s, a step a whole 15 s interval.
+    # 256 free cells, 4 explorers; a 10 m move at 2 m/s takes 5 s, and the next starts on arrival.
     scenario = _OPEN.add_robots(EXPLORER, 4).add_robots(SEEDED_KILLER, 1)
-    sweep = 256 * 15 * TimeUnit.SECOND // 4
+    sweep = 256 * 5 * TimeUnit.SECOND // 4
 
     assert scenario.sweep_time() == sweep
     assert scenario.brain(EXPLORER).params["explore"].revisit_age == sweep // 2

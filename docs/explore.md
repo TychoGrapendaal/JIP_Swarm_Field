@@ -178,21 +178,20 @@ A revisit age that suits one swarm does not suit another. With 20 explorers on t
 
 The revisit age should therefore follow the time the swarm needs to sweep its field once, if every explorer visits new cells:
 
-$$S = \frac{C \cdot t_\text{step}}{n}, \qquad t_\text{step} = \left\lceil \frac{d / v}{\Delta t} \right\rceil \Delta t, \qquad A = k \cdot S$$
+$$S = \frac{C \cdot t_\text{step}}{n}, \qquad t_\text{step} = \frac{d}{v}, \qquad A = k \cdot S$$
 
 | Symbol | Meaning |
 | --- | --- |
 | $S$ | The sweep time: how long the explorers need to visit every free cell once (`SwarmScenario.sweep_time`). |
 | $C$ | The free cells of the field. |
 | $n$ | The explorers: the robots of an `ExplorerPreset`. |
-| $t_\text{step}$ | The time an explorer needs per cell. A robot moves one cell per decision at most, so a move is rounded up to whole decision intervals. |
+| $t_\text{step}$ | The time an explorer needs per cell. A robot decides again as soon as a move arrives, so this is one straight move. |
 | $d$ | The side of a cell. |
 | $v$ | The explorers' speed. |
-| $\Delta t$ | The decision interval. |
 | $A$ | The revisit age. |
 | $k$ | The revisit age in sweep times (`ExplorerPreset.revisit_sweeps`, `REVISIT_SWEEPS` = 0.5 by default). |
 
-The default fits this rule: five explorers on 32 × 32 cells, with 10 s per cell, sweep the field in 34 minutes, and 28 minutes is 0.8 sweeps. To choose $k$, explorers ran alone on the river field of `river_and_rocks` with flying explorers, for 4 h, two seeds each, idleness measured over the last 2 h. The mean idleness in minutes, by $k$:
+The values below were measured when a robot started at most one move per decision, so a step took a whole decision interval; they should be checked again now that a robot decides on arrival. The default fits this rule: five explorers on 32 × 32 cells, with 10 s per cell, sweep the field in 34 minutes, and 28 minutes is 0.8 sweeps. To choose $k$, explorers ran alone on the river field of `river_and_rocks` with flying explorers, for 4 h, two seeds each, idleness measured over the last 2 h. The mean idleness in minutes, by $k$:
 
 | Setup | $S$ (min) | $k$ = 0.25 | 0.5 | 0.8 | 1.2 | 2 |
 | --- | --- | --- | --- | --- | --- | --- |

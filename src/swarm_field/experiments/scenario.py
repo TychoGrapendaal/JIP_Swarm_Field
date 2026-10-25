@@ -114,7 +114,8 @@ class RobotConfig:
         speed_mps_drone: The scouts' speed; a straight move takes ``cell_size / speed`` seconds.
         speed_mps_ground: The killers' speed.
         radio_range_m: How far a robot's broadcasts reach.
-        decision_interval: The time between two decisions of a robot.
+        decision_interval: The time between two decisions of a robot that stands still; a
+            moving robot decides again when its move arrives.
         knows_terrain: Whether every robot starts with the field's terrain map; a robot that
             keeps no map drops it.
         lattice_starts: Whether the robots of every preset start on a jittered lattice of their
@@ -260,9 +261,8 @@ class SwarmScenario:
     def sweep_time(self) -> Time:
         """How long the explorers need to visit every free cell once, if they split it evenly.
 
-        A robot moves one cell per decision at most, so a step takes the move rounded up to
-        whole decision intervals. The explorers are the robots of an ``ExplorerPreset``; without
-        any, the sweep time is 0.
+        A robot decides again as soon as a move arrives, so a step takes one straight move. The
+        explorers are the robots of an ``ExplorerPreset``; without any, the sweep time is 0.
         """
         explorers = 0
         for group in self.swarm:
@@ -270,9 +270,7 @@ class SwarmScenario:
                 explorers += group.count
         if explorers == 0:
             return 0
-        interval = self.robots.decision_interval
-        move = math.ceil(self.map.cell_size / self.robots.speed_mps_drone * TimeUnit.SECOND)
-        step = math.ceil(move / interval) * interval
+        step = math.ceil(self.map.cell_size / self.robots.speed_mps_drone * TimeUnit.SECOND)
         return self.map.free_cells() * step // explorers
 
     def context(self) -> SwarmContext:
