@@ -107,7 +107,6 @@ class RobotState:
     energy_spent: float = 0.0
     failed: bool = False
     failure_mode: FailureMode | None = None
-    charging_requested_at: Time | None = None
 
 
 class WorldState:
@@ -143,8 +142,6 @@ class WorldState:
         self.docks: frozenset[CellId] = frozenset(docks)
         if any(not self.is_inside(cell) for cell in self.docks):
             raise ValueError("dock outside field")
-        self._charging_slots: dict[CellId, RobotId] = {}
-        self._charging_queues: dict[CellId, list[RobotId]] = {dock: [] for dock in self.docks}
         self.energy: EnergyConfig = energy if energy is not None else EnergyConfig()
         if treatment_rate <= 0:
             raise ValueError("treatment_rate must be positive")
@@ -337,7 +334,7 @@ class WorldState:
             return
         robot.failed = True
         robot.failure_mode = mode
-        self._stop_charging(robot, time)
+        self._stop_charging(robot)
         match mode:
             case FailureMode.DEAD_BATTERY:
                 robot.battery = 0.0
@@ -353,7 +350,6 @@ class WorldState:
                 robot.radio_range_m = 0.0
             case _:
                 assert_never(mode)
-        self._refresh_dock_slots(time)
 
     def battery_failure_count(self) -> int:
         """Count distinct robots recorded as failed because of battery depletion."""
@@ -397,27 +393,23 @@ class WorldState:
             if robot.position not in self.docks:
                 self._settle_battery_failure(robot, time)
             else:
-                robot.current_action = (
-                    Charge() if robot.charging_requested_at is not None else Idle()
-                )
-            self._refresh_dock_slots(time)
+                robot.current_action = Charge() if robot.charging_updated_at is not None else Idle()
             return None
 
-        # An empty robot at a dock can only request/wait for charging, not start other work.
+        # An empty robot at a dock can only charge, not start other work.
         if robot.battery <= 0.0 and robot.position in self.docks and not isinstance(action, Charge):
-            robot.current_action = Charge() if robot.charging_requested_at is not None else Idle()
+            robot.current_action = Charge() if robot.charging_updated_at is not None else Idle()
             self._settle_battery_failure(robot, time)
-            self._refresh_dock_slots(time)
             return None
 
         next_event: Time | None = None
         if isinstance(action, Move):
             self._stop_treatment(robot)
-            self._stop_charging(robot, time)
+            self._stop_charging(robot)
             self._stop_battery_replacement(robot)
             next_event = self._start_move(robot, action.to, time)
         elif isinstance(action, Treat):
-            self._stop_charging(robot, time)
+            self._stop_charging(robot)
             self._stop_battery_replacement(robot)
             if not self._affords(robot, self.energy.treat_per_action):
                 self._stop_treatment(robot)
@@ -427,7 +419,7 @@ class WorldState:
                 self._apply_treat(robot, action.cell, time)
         elif isinstance(action, ReplaceBattery):
             self._stop_treatment(robot)
-            self._stop_charging(robot, time)
+            self._stop_charging(robot)
             self._apply_replace_battery(robot, action.robot_id, time)
         elif isinstance(action, Charge):
             self._stop_treatment(robot)
@@ -435,11 +427,10 @@ class WorldState:
             self._start_charging(robot, time)
         elif isinstance(action, Idle):
             self._stop_treatment(robot)
-            self._stop_charging(robot, time)
+            self._stop_charging(robot)
             self._stop_battery_replacement(robot)
 
         self._settle_battery_failure(robot, time)
-        self._refresh_dock_slots(time)
         return next_event
 
     def energy_spent(self) -> float:
@@ -483,7 +474,6 @@ class WorldState:
 
         self._advance_charging(time)
         self._settle_battery_failures(time)
-        self._refresh_dock_slots(time)
 
     def continuous_position(self, robot_id: RobotId, time: Time) -> tuple[float, float]:
         """Return the robot position in cell coordinates, interpolated during a move."""
@@ -658,155 +648,54 @@ class WorldState:
         support.current_action = Idle()
 
     def _start_charging(self, robot: RobotState, time: Time) -> None:
-        """Request charging at a dock; each dock serves one robot in FIFO order."""
+        """Serve a robot that asks a dock for service; a dock serves every robot at once.
+
+        The service swaps what can be swapped at once: a killer's treatment consumable and a
+        battery robot's spares are full again. The battery then charges with simulated time,
+        over the body's ``dock_recharge_seconds`` from empty to full.
+        """
         from swarm_field.swarm.capabilities import capabilities_for
 
         if robot.position not in self.docks:
-            self._stop_charging(robot, time)
+            self._stop_charging(robot)
             robot.current_action = Idle()
             return
 
         profile = capabilities_for(robot.body)
         if robot.body is BodyType.BATTERY:
             robot.spare_batteries = profile.spare_battery_capacity
+        if robot.body is BodyType.KILLER:
+            robot.consumable = 1.0
 
         if robot.battery >= 1.0 or profile.dock_recharge_seconds <= 0.0:
-            self._stop_charging(robot, time)
+            self._stop_charging(robot)
             robot.current_action = Idle()
             return
 
-        if robot.charging_updated_at is not None or robot.charging_requested_at is not None:
-            robot.current_action = Charge()
-            return
-
-        robot.charging_requested_at = time
-        self._charging_queues.setdefault(robot.position, []).append(robot.robot_id)
+        if robot.charging_updated_at is None:
+            robot.charging_updated_at = time
         robot.current_action = Charge()
-        self._start_next_charger(robot.position, time)
 
     def _advance_charging(self, time: Time) -> None:
-        """Advance each dock's active charger and perform exact simulated-time handoffs."""
+        """Charge every robot charging on a dock up to ``time``, each on its own clock."""
         from swarm_field.swarm.capabilities import capabilities_for
 
-        for dock in sorted(self.docks):
-            while True:
-                charger_id = self._charging_slots.get(dock)
-                if charger_id is None:
-                    self._start_next_charger(dock, time)
-                    charger_id = self._charging_slots.get(dock)
-                    if charger_id is None:
-                        break
-
-                charger = self.robots.get(charger_id)
-                if (
-                    charger is None
-                    or charger.failed
-                    or charger.position != dock
-                    or charger.charging_updated_at is None
-                ):
-                    self._charging_slots.pop(dock, None)
-                    self._start_next_charger(dock, time)
-                    continue
-
-                recharge_ms = capabilities_for(charger.body).dock_recharge_seconds * TimeUnit.SECOND
-                if recharge_ms <= 0.0:
-                    self._stop_charging(charger, time)
-                    charger.current_action = Idle()
-                    continue
-
-                updated_at = charger.charging_updated_at
-                elapsed = max(0, time - updated_at)
-                remaining = max(0.0, 1.0 - charger.battery)
-                completion_at = updated_at + ceil(remaining * recharge_ms)
-                if charger.battery >= 1.0 or completion_at <= time:
-                    charger.battery = 1.0
-                    self._release_charging_slot(dock, charger, completion_at)
-                    charger.current_action = Idle()
-                    self._start_next_charger(dock, completion_at)
-                    continue
-
-                if elapsed > 0:
-                    charger.battery = min(1.0, charger.battery + elapsed / recharge_ms)
-                charger.charging_updated_at = time
-                break
-
-    def _start_next_charger(self, dock: CellId, time: Time) -> None:
-        """Promote the earliest waiting robot when a dock's charging slot is free."""
-        from swarm_field.swarm.capabilities import capabilities_for
-
-        if dock in self._charging_slots:
-            return
-        queue = self._charging_queues.setdefault(dock, [])
-        while queue:
-            robot_id = queue.pop(0)
-            charger = self.robots.get(robot_id)
-            if (
-                charger is None
-                or charger.failed
-                or charger.position != dock
-                or charger.charging_requested_at is None
-                or charger.battery >= 1.0
-                or capabilities_for(charger.body).dock_recharge_seconds <= 0.0
-            ):
-                if charger is not None:
-                    charger.charging_requested_at = None
-                    if not charger.failed:
-                        charger.current_action = Idle()
+        for robot in self.robots.values():
+            updated_at = robot.charging_updated_at
+            if updated_at is None:
                 continue
-            charger.charging_requested_at = None
-            charger.charging_updated_at = time
-            charger.current_action = Charge()
-            self._charging_slots[dock] = robot_id
-            return
-
-    def _release_charging_slot(self, dock: CellId, robot: RobotState, time: Time) -> None:
-        """Release a completed slot and clear the robot's charging state."""
-        if self._charging_slots.get(dock) == robot.robot_id:
-            self._charging_slots.pop(dock, None)
-        robot.charging_updated_at = None
-        robot.charging_requested_at = None
-        self._start_next_charger(dock, time)
-
-    def _refresh_dock_slots(self, time: Time) -> None:
-        """Remove stale queue entries and ensure every free dock serves its next request."""
-        from swarm_field.swarm.capabilities import capabilities_for
-
-        for dock in sorted(self.docks):
-            active_id = self._charging_slots.get(dock)
-            if active_id is not None:
-                active = self.robots.get(active_id)
-                if (
-                    active is None
-                    or active.failed
-                    or active.position != dock
-                    or active.charging_updated_at is None
-                    or active.battery >= 1.0
-                    or capabilities_for(active.body).dock_recharge_seconds <= 0.0
-                ):
-                    if active is not None:
-                        active.charging_updated_at = None
-                        active.charging_requested_at = None
-                    self._charging_slots.pop(dock, None)
-            queue = self._charging_queues.setdefault(dock, [])
-            eligible: list[RobotId] = []
-            for robot_id in queue:
-                robot = self.robots.get(robot_id)
-                if (
-                    robot is not None
-                    and not robot.failed
-                    and robot.position == dock
-                    and robot.charging_requested_at is not None
-                    and robot.charging_updated_at is None
-                    and robot.battery < 1.0
-                    and capabilities_for(robot.body).dock_recharge_seconds > 0.0
-                ):
-                    eligible.append(robot_id)
-                elif robot is not None:
-                    robot.charging_requested_at = None
-                    if not robot.failed and robot.current_action == Charge():
-                        robot.current_action = Idle()
-            queue[:] = eligible
-            self._start_next_charger(dock, time)
+            if robot.failed or robot.position not in self.docks:
+                self._stop_charging(robot)
+                continue
+            recharge_ms = capabilities_for(robot.body).dock_recharge_seconds * TimeUnit.SECOND
+            completion_at = updated_at + ceil(max(0.0, 1.0 - robot.battery) * recharge_ms)
+            if recharge_ms <= 0.0 or completion_at <= time:
+                robot.battery = 1.0
+                self._stop_charging(robot)
+                robot.current_action = Idle()
+                continue
+            robot.battery = min(1.0, robot.battery + max(0, time - updated_at) / recharge_ms)
+            robot.charging_updated_at = time
 
     def _settle_battery_failures(self, time: Time) -> None:
         """Fail empty robots after time advances, once committed transit is settled."""
@@ -840,22 +729,9 @@ class WorldState:
         robot.treating_cell: CellId | None = None
         robot.treatment_updated_at: Time | None = None
 
-    def _stop_charging(self, robot: RobotState, time: Time) -> None:
-        """Cancel an active or queued charging request and free its dock if needed."""
-        freed_dock: CellId | None = None
-        for dock, active_id in tuple(self._charging_slots.items()):
-            if active_id == robot.robot_id:
-                self._charging_slots.pop(dock, None)
-                freed_dock = dock
-        for dock, queue in self._charging_queues.items():
-            if robot.robot_id in queue:
-                queue[:] = [queued_id for queued_id in queue if queued_id != robot.robot_id]
-                if freed_dock is None:
-                    freed_dock = dock
-        robot.charging_updated_at = None
-        robot.charging_requested_at = None
-        if freed_dock is not None:
-            self._start_next_charger(freed_dock, time)
+    @staticmethod
+    def _stop_charging(robot: RobotState) -> None:
+        robot.charging_updated_at: Time | None = None
 
     @staticmethod
     def _stop_battery_replacement(robot: RobotState) -> None:

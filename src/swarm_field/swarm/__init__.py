@@ -47,7 +47,8 @@ from swarm_field.swarm.hop import (
 from swarm_field.swarm.memory import AgentMemory, DecayConfig, KnowledgeSnapshot, MemoryView
 from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.provider import FieldProvider
-from swarm_field.swarm.recharge import RechargeConfig
+from swarm_field.swarm.recharge import RechargeConfig, ResupplyConfig
+from swarm_field.swarm.resupply import Resupply
 from swarm_field.swarm.seeder import (
     BatteryRequestSeeder,
     DockSeeder,
@@ -112,6 +113,8 @@ __all__ = [
     "RechargeConfig",
     "Regroup",
     "RegroupSeeder",
+    "Resupply",
+    "ResupplyConfig",
     "ReturnToDock",
     "SeededField",
     "SensedSurroundings",

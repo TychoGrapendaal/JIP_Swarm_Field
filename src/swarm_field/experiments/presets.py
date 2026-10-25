@@ -38,6 +38,7 @@ from swarm_field.swarm import (
     ExploreSeeder,
     HopField,
     KnowledgeSharing,
+    Resupply,
     ReturnToDock,
     SharingConfig,
     TreatByBeacon,
@@ -201,7 +202,7 @@ class RelayPreset:
 @dataclass(frozen=True)
 class SeededKillerPreset:
     """A seeded killer: ``TreatInfestation`` on the TREAT field of its map, returning to a dock
-    of the field when its battery runs low.
+    of the field when its battery runs low (``ReturnToDock``) or its doses do (``Resupply``).
 
     With ``claims`` it leaves a pest to a closer killer that claimed it and waits on a pest a
     lower-id killer already treats, and the swarm passes on the killers' claims with the pests.
@@ -226,7 +227,7 @@ class SeededKillerPreset:
 
     def brain(self, swarm: SwarmContext) -> BrainSpec:
         return BrainSpec(
-            behaviors=(TreatInfestation.name, ReturnToDock.name),
+            behaviors=(TreatInfestation.name, ReturnToDock.name, Resupply.name),
             seeders=(TreatSeeder.name, DockSeeder.name),
             params={"treat_window_blocks": self.window_blocks, "treat_yield": self.claims},
             arbiter=swarm.arbiter,

@@ -101,7 +101,7 @@ def test_capability_profiles_match_the_three_body_roles() -> None:
     assert scout.pest_sensing_radius == 1
     assert scout.speed_mps == 8.0
     assert scout.endurance_seconds == 30 * 60
-    assert scout.dock_recharge_seconds == 45 * 60
+    assert scout.dock_recharge_seconds == 5 * 60
     assert not scout.can(Treat) and not scout.can(ReplaceBattery)
 
     assert not killer.can_fly and killer.can_detect_pests and killer.can_treat

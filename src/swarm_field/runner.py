@@ -71,6 +71,8 @@ from swarm_field.swarm import (
     RechargeConfig,
     Regroup,
     RegroupSeeder,
+    Resupply,
+    ResupplyConfig,
     ReturnToDock,
     SensedSurroundings,
     SharingConfig,
@@ -198,6 +200,15 @@ def _build_return_to_dock(params: dict[str, Any], rng: Random) -> ReturnToDock:
     seeders: tuple[str, ...] = tuple(params.get("seeders", ("dock",)))
     seeder = next((name for name in seeders if name == "dock"), "dock")
     return ReturnToDock(seeder, docks=docks, recharge_config=recharge)
+
+
+@BEHAVIORS.register(Resupply.name)
+def _build_resupply(params: dict[str, Any], rng: Random) -> Resupply:
+    """Build the restock behaviour with the scenario's docks and an optional ``"resupply"``
+    config, following the dock field."""
+    docks: tuple[CellId, ...] = tuple(params.get("docks", ()))
+    config: ResupplyConfig | None = params.get("resupply")
+    return Resupply(DockSeeder.name, docks=docks, config=config)
 
 
 @SEEDERS.register("battery-support")

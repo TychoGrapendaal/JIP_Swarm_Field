@@ -20,9 +20,9 @@ class MapConfig:
         size: The field's side in cells.
         obstacles: The blocked cells; ``None`` for ``river_and_rocks``, ``()`` for an open field.
         cell_size: The side of a cell in metres.
-        docks: The cells where robots recharge, one robot at a time each. Explorers and seeded
-            killers return to one when their battery runs low; ``()`` for none, so that a robot
-            fails once its battery runs out.
+        docks: The cells where robots recharge and killers restock, any number of robots at
+            once. Explorers and seeded killers return to one when their battery runs low;
+            ``()`` for none, so that a robot fails once its battery runs out.
     """
 
     size: int = 32

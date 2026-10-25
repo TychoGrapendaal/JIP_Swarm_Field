@@ -24,18 +24,17 @@ rule a stranded robot would idle forever while still counted in `active_robots`.
 
 Every `SwarmScenario` has a dock at `(0, 0)`, and its explorers and seeded killers have `return-to-dock`, so they recharge instead of running flat. `MapConfig.docks` moves it, adds more, or removes them all. Hop killers keep no map, so they cannot follow the dock field and do not return yet. The catalogue's presets have the dock and `return-to-dock` too.
 
-## Dock charging
+## Dock charging and restocking
 
-A `Charge` action is effective only at a configured dock. Charging progresses in simulation time
-according to the robot body's `CapabilitySet.dock_recharge_seconds`; the duration is the time for a
-full charge from empty. Each dock has one active charging slot. Further requests are queued in FIFO
-order of requests processed by the deterministic simulation event queue.
-When the active robot completes charging, leaves, or fails, the next eligible waiter can use the
-slot. Waiting robots do not gain charge while queued.
+A `Charge` action is effective only at a configured dock. A dock serves every robot that asks at once, with no queue. It simulates a battery swap: the battery charges with simulated time, from empty to full in `CapabilitySet.dock_recharge_seconds`, 5 minutes for every body (`DOCK_SWAP_SECONDS`). A robot that leaves the dock or fails stops charging.
 
-BATTERY robots replenish their spare-battery inventory when they request dock service. They still
-use their own body-specific charge rate, independently of their spare inventory. Battery replacement
-between a BATTERY robot and a co-located SCOUT/KILLER remains a separate timed operation.
+The service also swaps what can be swapped at once. A KILLER's treatment consumable is full again as soon as it asks a dock for service, even with a full battery, and a BATTERY robot's spare batteries are replenished. Battery replacement between a BATTERY robot and a co-located SCOUT/KILLER remains a separate timed operation.
+
+The small ready fields have one dock at `(0, 0)`, and `RIVERS_LARGE` has two, at `(0, 0)` and `(63, 63)`.
+
+## Restocking
+
+`swarm_field.swarm.Resupply` returns a killer to a dock when its consumable runs low, configured by `ResupplyConfig`. At or below `low_consumable` (0.2, two doses of ten) it bids to follow the dock field, from `low_priority` (0.6, below a treat bid, so a killer with doses left treats first) up to `empty_priority` (0.95, an override) when empty. On a dock it bids `Charge` at `dock_priority`, which restocks at once. A killer with no consumable left proposes no treatment, so it neither stands on a pest it cannot treat nor holds it as a claim. `SeededKillerPreset` carries `Resupply`; hop killers need a map-free dock field first.
 
 ## Recharge policy
 
@@ -84,6 +83,6 @@ Run the focused acceptance tests with:
 uv run pytest tests/test_battery_lifecycle.py
 ```
 
-They cover exclusive charging and queue hand-off, recovery at a dock from zero battery, off-dock
+They cover charging several robots at once, restocking, recovery at a dock from zero battery, off-dock
 failure and metrics, the rejection of off-dock charging, unaffordable movement, battery bounds, the
 PR #61 numeric-default feedback, and recharge-policy validation.

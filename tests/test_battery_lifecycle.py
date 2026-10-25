@@ -55,40 +55,35 @@ def _robot(
     )
 
 
-def test_dock_charges_only_one_robot_and_queues_the_next_fifo() -> None:
+def test_a_dock_charges_every_robot_at_once() -> None:
     dock = (2, 2)
-    first = _robot(1, position=dock, battery=0.5)
-    second = _robot(2, position=dock, battery=0.5)
-    third = _robot(3, position=dock, battery=0.5)
-    world = WorldState(_field(), robots=[first, second, third], docks=[dock])
+    robots = [_robot(1, position=dock, battery=0.5), _robot(2, position=dock, battery=0.0)]
+    world = WorldState(_field(), robots=robots, docks=[dock])
 
     world.apply_action(1, Charge(), time=0)
     world.apply_action(2, Charge(), time=0)
-    world.apply_action(3, Charge(), time=0)
-
-    active = [robot for robot in world.robots.values() if robot.charging_updated_at is not None]
-    assert [robot.robot_id for robot in active] == [1]
-    assert world.robots[2].battery == pytest.approx(0.5)
-    assert world.robots[3].battery == pytest.approx(0.5)
-    assert world.robots[2].charging_requested_at == 0
-    assert world.robots[3].charging_requested_at == 0
-
-    # A KILLER with 50% battery needs exactly 30 minutes at its one-hour full-charge rate.
-    handoff = 30 * TimeUnit.MINUTE
-    world.advance_to(handoff)
+    # Half a battery takes half of the 5-minute swap; an empty one all of it.
+    world.advance_to(150 * TimeUnit.SECOND)
 
     assert world.robots[1].battery == pytest.approx(1.0)
+    assert world.robots[1].charging_updated_at is None
     assert world.robots[2].battery == pytest.approx(0.5)
-    assert world.robots[2].charging_updated_at == handoff
-    assert world.robots[3].charging_updated_at is None
-    assert (
-        len([robot for robot in world.robots.values() if robot.charging_updated_at is not None])
-        == 1
-    )
+    assert world.robots[2].charging_updated_at == 150 * TimeUnit.SECOND
 
-    world.advance_to(60 * TimeUnit.MINUTE)
+    world.advance_to(300 * TimeUnit.SECOND)
     assert world.robots[2].battery == pytest.approx(1.0)
-    assert world.robots[3].charging_updated_at == 60 * TimeUnit.MINUTE
+
+
+def test_a_killer_restocks_its_consumable_at_a_dock_even_with_a_full_battery() -> None:
+    dock = (2, 2)
+    killer = _robot(1, position=dock)
+    killer.consumable = 0.0
+    world = WorldState(_field(), robots=[killer], docks=[dock])
+
+    world.apply_action(1, Charge(), time=0)
+
+    assert world.robots[1].consumable == 1.0
+    assert world.robots[1].charging_updated_at is None
 
 
 def test_an_empty_robot_at_a_dock_can_recover_by_charging() -> None:
@@ -218,9 +213,9 @@ def test_recharge_config_validates_critical_threshold_below_low_threshold() -> N
 @pytest.mark.parametrize(
     ("body", "full_charge_minutes"),
     [
-        (BodyType.SCOUT, 45),
-        (BodyType.KILLER, 60),
-        (BodyType.BATTERY, 60),
+        (BodyType.SCOUT, 5),
+        (BodyType.KILLER, 5),
+        (BodyType.BATTERY, 5),
     ],
 )
 def test_each_body_charges_at_its_configured_rate(body: BodyType, full_charge_minutes: int) -> None:

@@ -158,6 +158,9 @@ class TreatInfestation:
     pest is cleared, so two killers do not spend two doses on one pest. Without it, every known
     pest counts.
 
+    A killer whose consumable is used up proposes nothing, so it neither stands on a pest it
+    cannot treat nor holds it as a claim.
+
     Attributes:
         yield_to_treating_peer: Whether the killer claims pests and leaves them to its peers.
         claim_fresh_for: How old a peer's report of treating a cell may be to count.
@@ -176,6 +179,9 @@ class TreatInfestation:
         self.claim_fresh_for: Time = claim_fresh_for
 
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
+        # An empty killer cannot treat, and a bid would claim a pest it can never clear.
+        if ctx.self_state.consumable <= 0.0:
+            return ()
         position = ctx.self_state.position
         here = ctx.memory.infestation_at(position)
         if here is not None and here.severity > 0:

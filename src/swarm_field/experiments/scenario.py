@@ -469,12 +469,13 @@ relay. No robot knows the terrain; killers learn obstacles by sensing.
 
 RIVERS_LARGE = (
     RIVER_SMALL.without_robots()
-    .with_map(MapConfig(size=64, obstacles=two_rivers_and_rocks(64)))
+    .with_map(MapConfig(size=64, obstacles=two_rivers_and_rocks(64), docks=((0, 0), (63, 63))))
     .with_pests(replace(RIVER_SMALL.pests, pests_per_hour=48.0))
     .add_robots(RELAY, 256)
     .add_robots(SEEDED_KILLER, 18)
 )
-"""``RIVER_SMALL`` on four times the area: two rivers with three bridges, and eight rocks."""
+"""``RIVER_SMALL`` on four times the area: two rivers with three bridges, eight rocks, and a
+dock in each of two opposite corners."""
 
 EXPLORE = SwarmScenario(
     map=MapConfig(obstacles=()),
