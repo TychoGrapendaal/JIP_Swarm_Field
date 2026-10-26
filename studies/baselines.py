@@ -93,21 +93,26 @@ class GridSweepSeeder:
 
     The field's columns are split into one strip per robot. A robot sweeps its strip in a lawnmower
     pattern, up one column and down the next, through every cell memory says is worth monitoring,
-    and starts over at the end. Its strip is the one numbered by its starting column, so the robots
-    must start side by side from column 0, as ``PestScenario.starts`` puts them.
+    and starts over at the end. Its strip is ``strip`` if given, else the one numbered by its
+    starting column; the latter needs the robots side by side from column 0 with no obstacle in
+    between, since a robot that starts past an obstacle would skip a strip.
     """
 
     name: str = "grid-sweep"
     window_blocks: int = 1
 
-    def __init__(self, robots: int) -> None:
+    def __init__(self, robots: int, strip: int | None = None) -> None:
         self._robots: int = robots
+        self._strip: int | None = strip
         self._route: tuple[CellId, ...] = ()
         self._next: int = 0
 
     def field_key(self, memory: MemoryView, robot: CellId, now: Time) -> Hashable:
         if not self._route:
-            self._route = sweep_route(memory.monitorable_cells(), robot[0], self._robots)
+            strip = robot[0]
+            if self._strip is not None:
+                strip = self._strip
+            self._route = sweep_route(memory.monitorable_cells(), strip, self._robots)
         if not self._route:
             return None
         if robot == self._route[self._next]:
@@ -149,19 +154,25 @@ def _build_grid_sweep(params: dict[str, Any], rng: Random) -> FollowSeederField:
 
 @SEEDERS.register(GridSweepSeeder.name)
 def _build_grid_sweep_seeder(params: dict[str, Any], rng: Random) -> GridSweepSeeder:
-    """The baseline's seeder, for the number of robots under ``"grid-sweep-robots"``."""
-    return GridSweepSeeder(int(params["grid-sweep-robots"]))
+    """The baseline's seeder, for the number of robots under ``"grid-sweep-robots"`` and the
+    robot's strip under ``"grid-sweep-strip"``, if given."""
+    strip: int | None = params.get("grid-sweep-strip")
+    return GridSweepSeeder(int(params["grid-sweep-robots"]), strip)
 
 
-def grid_sweep_brain(robots: int) -> BrainSpec:
+def grid_sweep_brain(robots: int, strip: int | None = None) -> BrainSpec:
     """The brain of a grid-sweep utility robot among ``robots``: treat the pest underfoot, sweep.
 
     ``TreatInfestation`` treats a pest the robot stands on, with an override bid, and otherwise
     sends it to the pests it knows of; a robot that shares nothing only knows the pests it has
-    driven over, which it has treated, so in effect it sweeps and treats what it finds.
+    driven over, which it has treated, so in effect it sweeps and treats what it finds. With
+    ``strip`` the robot sweeps that strip, else the one numbered by its starting column.
     """
+    params: dict[str, int] = {"grid-sweep-robots": robots}
+    if strip is not None:
+        params["grid-sweep-strip"] = strip
     return BrainSpec(
         behaviors=("treat-infestation", GridSweepSeeder.name),
         seeders=("treat", GridSweepSeeder.name),
-        params={"grid-sweep-robots": robots},
+        params=params,
     )

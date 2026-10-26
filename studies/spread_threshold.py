@@ -1,13 +1,15 @@
 """Study from which pest spread rate a swarm is needed, against a grid-search baseline (#74).
 
 Question: up to which spread rate do utility robots that each sweep a strip of the field keep the
-pests under control, and does the swarm hold out longer? Three systems, on the field, pests and
+pests under control, and does the swarm hold out longer? Five systems, on the field, pests and
 robots of the base demo of #67 (``SMOKE``):
 
 - ``grid-10``: ten utility robots at 0.5 m/s that sweep their own strip and treat what they drive
   over, sharing nothing (``studies/baselines.py``);
 - ``swarm-5+5``: the base demo itself: five explorers, five seeded killers;
-- ``swarm-10+10``: the same swarm with twice the robots of each kind.
+- ``swarm-10+10`` and ``swarm-20+20``: the same swarm with two and four times the robots of each
+  kind;
+- ``grid-20``: twenty sweepers, as many treating robots as ``swarm-20+20``.
 
 Every run starts with ``INITIAL_PESTS`` pests of severity ``INITIAL_SEVERITY`` on random cells
 off the bottom row, drawn from the seed, so all systems face the same pests for the same seed. No
@@ -39,7 +41,7 @@ from random import Random
 from statistics import mean, stdev
 
 from studies.baselines import grid_sweep_brain
-from swarm_field.contracts import MetricsSample, Time, TimeUnit
+from swarm_field.contracts import MetricsSample, RobotId, Time, TimeUnit
 from swarm_field.experiments import (
     EXPLORER,
     SEEDED_KILLER,
@@ -50,9 +52,9 @@ from swarm_field.experiments import (
     by_arm,
     runs_for,
 )
-from swarm_field.runner import ExperimentConfig, run_experiment
+from swarm_field.runner import BrainSpec, ExperimentConfig, run_experiment
 
-DEFAULT_SPREADS = (0.0, 0.005, 0.01, 0.02, 0.05)
+DEFAULT_SPREADS = (0.0, 0.005, 0.01, 0.02, 0.03, 0.05, 0.1)
 INITIAL_PESTS = 10
 INITIAL_SEVERITY = 0.1
 """The severity of a pest that has just appeared, as ``PestConfig.spawn_severity``."""
@@ -74,9 +76,14 @@ def _grid_sweep(robots: int) -> Callable[[SwarmScenario, float], ExperimentConfi
     def build(base: SwarmScenario, spread: float) -> ExperimentConfig:
         scenario = _without_new_pests(base, spread).without_robots()
         scenario = scenario.add_robots(SEEDED_KILLER, robots)
-        # Utility robots share nothing, and each sweeps its strip with the grid-sweep brain.
+        # Utility robots share nothing, and each sweeps its own strip, numbered by the robot:
+        # by start column, the river in the start row would leave strips unswept.
         scenario = scenario.with_robot_config(replace(scenario.robots, radio_range_m=0.0))
-        return replace(scenario.into_experiment(), brain=grid_sweep_brain(robots))
+        config = scenario.into_experiment()
+        brains: dict[RobotId, BrainSpec] = {}
+        for strip, robot in enumerate(config.scenario.robots):
+            brains[robot.robot_id] = grid_sweep_brain(robots, strip)
+        return replace(config, brain=grid_sweep_brain(robots), brains_by_robot=brains)
 
     return build
 
@@ -92,8 +99,10 @@ def _swarm(explorers: int, killers: int) -> Callable[[SwarmScenario, float], Exp
 
 SYSTEMS: dict[str, Callable[[SwarmScenario, float], ExperimentConfig]] = {
     "grid-10": _grid_sweep(10),
+    "grid-20": _grid_sweep(20),
     "swarm-5+5": _swarm(5, 5),
     "swarm-10+10": _swarm(10, 10),
+    "swarm-20+20": _swarm(20, 20),
 }
 """Each system by name, building its run from ``SMOKE`` with a seed and horizon, at a spread."""
 
