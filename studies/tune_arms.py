@@ -31,12 +31,12 @@ import logging
 from dataclasses import dataclass, replace
 from statistics import mean, stdev
 
-from studies.explorer_hop_killers import PESTS_PER_KILLER_HOUR, explorer_scenario
 from swarm_field.contracts import TimeUnit
 from swarm_field.experiments import (
     EXPLORER,
     HOP_BEST,
     HOP_KILLER,
+    PESTS_PER_KILLER_HOUR,
     RIVER_SMALL,
     RIVERS_LARGE,
     SEEDED_BEST,
@@ -44,14 +44,15 @@ from swarm_field.experiments import (
     Experiment,
     ExplorerPreset,
     HopKillerPreset,
+    MapConfig,
     PestResponse,
     PestRunSpec,
     RobotPreset,
     SeededKillerPreset,
-    SwarmScenario,
     by_arm,
     markdown_table,
     measure_pest_response,
+    moving_explorer_scenario,
     paired_difference,
     pest_table_cells,
     pest_table_headers,
@@ -190,19 +191,8 @@ def verify_variants() -> list[Variant]:
 
 FIELD_ROBOTS: dict[str, tuple[int, int]] = {"small": (20, 4), "large": (40, 8)}
 """The explorers and killers of each field by default."""
-
-
-def field_scenario(
-    field: str, killer: RobotPreset, explorer: RobotPreset, explorers: int, killers: int
-) -> SwarmScenario:
-    """The moving-explorer scenario on the small river field, or on the large field with two
-    rivers and its two docks."""
-    scenario = explorer_scenario(
-        killer, explorers, killers, RIVER_SMALL.robots.radio_range_m, explorer
-    )
-    if field == "large":
-        scenario = scenario.with_map(RIVERS_LARGE.map)
-    return scenario
+FIELD_MAPS: dict[str, MapConfig] = {"small": RIVER_SMALL.map, "large": RIVERS_LARGE.map}
+"""Each field: the small one with one river, and the large one with two rivers and two docks."""
 
 
 def parse_args() -> argparse.Namespace:
@@ -253,7 +243,9 @@ def main() -> None:
         found = verify_variants()
     specs: dict[str, PestRunSpec] = {}
     for variant in found:
-        scenario = field_scenario(args.field, variant.killer, variant.explorer, explorers, killers)
+        scenario = moving_explorer_scenario(
+            variant.killer, explorers, killers, radio, variant.explorer, FIELD_MAPS[args.field]
+        )
         specs[variant.name] = PestRunSpec(scenario, args.hours, rate, args.warmup_hours)
 
     experiment = Experiment(f"tune_arms_{args.stage}_{args.field}")

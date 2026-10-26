@@ -3,9 +3,9 @@
 Question: on the small river field (``RIVER_SMALL``'s map), do hop killers find and treat the
 pests when the only robots that relay their beacons are explorers that keep moving? There are no
 standing relays and no mock sources on the pests: an explorer that senses a pest is its source,
-and every explorer relays the hop values it hears. Every battery holds ``BATTERY_CAPACITY``
-charges and every killer carries ``TREATMENT_DOSES`` doses, so that no robot needs a dock and
-the comparison is about the pest response alone; ``studies/hop_dock_return.py`` adds the dock
+and every explorer relays the hop values it hears. This is ``moving_explorer_scenario``: battery
+and doses are unlimited, so that no robot needs a dock and the comparison is about the pest
+response alone; ``studies/hop_dock_return.py`` adds the dock
 trips. The explorers set their revisit age from the swarm's sweep time, as every
 ``ExplorerPreset`` does. Seeded killers with the same explorers run as a reference, on the same
 seeds, so every row differs from ``seeded`` only in the pest response.
@@ -22,23 +22,22 @@ from __future__ import annotations
 
 import argparse
 import logging
-from dataclasses import replace
 
 from swarm_field.contracts import TimeUnit
 from swarm_field.experiments import (
-    EXPLORER,
     HOP_KILLER,
+    PESTS_PER_KILLER_HOUR,
     REVISIT_SWEEPS,
     RIVER_SMALL,
     SEEDED_KILLER,
     Experiment,
     PestRunSpec,
     RobotPreset,
-    SwarmScenario,
     arm_name,
     by_arm,
     markdown_table,
     measure_pest_response,
+    moving_explorer_scenario,
     paired_difference,
     pest_table_cells,
     pest_table_headers,
@@ -51,12 +50,6 @@ KILLERS: dict[str, RobotPreset] = {"seeded": SEEDED_KILLER, "hop": HOP_KILLER}
 """The pest responses compared, by the name used in arm names and tables."""
 BASELINE = "seeded"
 """The response every other is compared with, seed by seed."""
-BATTERY_CAPACITY = 1000.0
-"""Charges in every robot's battery: enough that no robot runs empty during a run."""
-TREATMENT_DOSES = 1000
-"""Doses every killer carries: enough that no killer runs out during a run."""
-PESTS_PER_KILLER_HOUR = RIVER_SMALL.pests.pests_per_hour / RIVER_SMALL.killers
-"""The load of ``RIVER_SMALL`` on each killer, which sets the default pest rate."""
 
 
 def parse_args() -> argparse.Namespace:
@@ -83,29 +76,6 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def explorer_scenario(
-    killer: RobotPreset,
-    explorers: int,
-    killers: int,
-    radio_range_m: float,
-    explorer: RobotPreset = EXPLORER,
-) -> SwarmScenario:
-    """``RIVER_SMALL``'s field with explorers and killers of one preset each, and no mock
-    sources."""
-    robots = replace(
-        RIVER_SMALL.robots, radio_range_m=radio_range_m, battery_capacity=BATTERY_CAPACITY
-    )
-    return (
-        RIVER_SMALL.without_robots()
-        .with_pests(
-            replace(RIVER_SMALL.pests, source_range_m=None, treatment_doses=TREATMENT_DOSES)
-        )
-        .with_robot_config(robots)
-        .add_robots(explorer, explorers)
-        .add_robots(killer, killers)
-    )
-
-
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     args = parse_args()
@@ -116,7 +86,7 @@ def main() -> None:
     specs: dict[str, PestRunSpec] = {}
     arms: dict[str, str] = {}
     for name, killer in KILLERS.items():
-        scenario = explorer_scenario(killer, args.explorers, args.killers, args.radio)
+        scenario = moving_explorer_scenario(killer, args.explorers, args.killers, args.radio)
         arm = arm_name(name, explorers=args.explorers, killers=args.killers, rate=rate)
         specs[arm] = PestRunSpec(scenario, args.hours, rate, args.warmup_hours)
         arms[name] = arm
@@ -137,7 +107,7 @@ def main() -> None:
         cells = pest_table_cells(name, arm_results, args.hours)
         cells.extend([treated_share(arm_results), difference])
         rows.append(cells)
-    sweep_time = explorer_scenario(
+    sweep_time = moving_explorer_scenario(
         HOP_KILLER, args.explorers, args.killers, args.radio
     ).sweep_time()
     revisit_age = REVISIT_SWEEPS * sweep_time

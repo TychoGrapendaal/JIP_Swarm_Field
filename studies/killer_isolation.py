@@ -23,9 +23,9 @@ import argparse
 import logging
 from dataclasses import replace
 
-from studies.explorer_hop_killers import PESTS_PER_KILLER_HOUR, explorer_scenario
 from swarm_field.contracts import TimeUnit
 from swarm_field.experiments import (
+    PESTS_PER_KILLER_HOUR,
     RIVER_SMALL,
     SEEDED_KILLER,
     Experiment,
@@ -37,6 +37,7 @@ from swarm_field.experiments import (
     by_arm,
     markdown_table,
     measure_pest_response,
+    moving_explorer_scenario,
     pest_isolation_cells,
     pest_isolation_headers,
     pest_table_cells,
@@ -91,7 +92,7 @@ def main() -> None:
     specs: dict[str, PestRunSpec] = {}
     for radio in RADII_M:
         for name, killer in killers(radio).items():
-            scenario = explorer_scenario(killer, args.explorers, args.killers, radio)
+            scenario = moving_explorer_scenario(killer, args.explorers, args.killers, radio)
             specs[arm_name(name, radio=f"{radio:g}m")] = PestRunSpec(
                 scenario, args.hours, rate, args.warmup_hours
             )

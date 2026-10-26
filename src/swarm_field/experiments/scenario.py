@@ -19,8 +19,10 @@ found it.
 
 The ready scenarios are ``RIVER_SMALL``, ``RIVERS_LARGE`` and ``RELAYED_KILLERS``, the fields of
 the pest-response benchmarks, ``EXPLORE``, explorers alone on an open field, and ``PESTS``,
-explorers and seeded killers on the river field. ``pest_response_configurations`` turns a
-scenario into the compared pest responses.
+explorers and seeded killers on the river field. ``moving_explorer_scenario`` builds the
+scenario of the comparison experiments, moving explorers and killers without relays or mock
+sources, and ``pest_response_configurations`` turns a scenario into the compared pest
+responses.
 """
 
 from __future__ import annotations
@@ -512,6 +514,58 @@ PESTS = (
 Killers treat with ``FAST_TREATMENT``: at the default rate of one severity per hour a pest grows
 faster than it is treated and never clears.
 """
+
+
+UNLIMITED_BATTERY_CAPACITY = 1000.0
+"""Charges in every robot's battery in ``moving_explorer_scenario``: enough that no robot runs
+empty during a run."""
+
+UNLIMITED_DOSES = 1000
+"""Doses every killer carries in ``moving_explorer_scenario``: enough that no killer runs out
+during a run."""
+
+PESTS_PER_KILLER_HOUR = RIVER_SMALL.pests.pests_per_hour / RIVER_SMALL.killers
+"""The load of ``RIVER_SMALL`` on each killer: multiplied by the killers, the pest rate of a
+``moving_explorer_scenario`` that loads its killers as ``RIVER_SMALL`` does."""
+
+
+def moving_explorer_scenario(
+    killer: RobotPreset,
+    explorers: int,
+    killers: int,
+    radio_range_m: float,
+    explorer: RobotPreset = EXPLORER,
+    field: MapConfig = RIVER_SMALL.map,
+) -> SwarmScenario:
+    """The scenario of the comparison experiments: moving explorers and killers on ``field``.
+
+    Explorers of one preset find the pests and killers of another treat them, with no relays and
+    no mock sources. Every robot shares ``RIVER_SMALL``'s settings but the radio, and battery
+    and doses are unlimited (``UNLIMITED_BATTERY_CAPACITY``, ``UNLIMITED_DOSES``), so that a run
+    measures the pest response alone. The pests are ``RIVER_SMALL``'s; set the rate with the
+    ``PestRunSpec``, e.g. ``PESTS_PER_KILLER_HOUR`` times the killers.
+
+    Args:
+        killer: The killers' preset.
+        explorers: How many explorers there are.
+        killers: How many killers there are.
+        radio_range_m: Every robot's radio range.
+        explorer: The explorers' preset.
+        field: The field: ``RIVER_SMALL``'s map, the small field with one river, by default, or
+            e.g. ``RIVERS_LARGE``'s, the large one with two rivers.
+    """
+    robots = replace(
+        RIVER_SMALL.robots, radio_range_m=radio_range_m, battery_capacity=UNLIMITED_BATTERY_CAPACITY
+    )
+    pests = replace(RIVER_SMALL.pests, source_range_m=None, treatment_doses=UNLIMITED_DOSES)
+    return (
+        RIVER_SMALL.without_robots()
+        .with_map(field)
+        .with_pests(pests)
+        .with_robot_config(robots)
+        .add_robots(explorer, explorers)
+        .add_robots(killer, killers)
+    )
 
 
 def pest_response_configurations(

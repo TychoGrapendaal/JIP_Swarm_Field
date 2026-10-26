@@ -25,9 +25,10 @@ import logging
 from dataclasses import dataclass, field, replace
 from statistics import mean
 
-from studies.explorer_hop_killers import KILLERS, PESTS_PER_KILLER_HOUR, explorer_scenario
+from studies.explorer_hop_killers import KILLERS
 from swarm_field.contracts import FailureMode, RobotId, Time, TimeUnit
 from swarm_field.experiments import (
+    PESTS_PER_KILLER_HOUR,
     RIVER_SMALL,
     Experiment,
     PestResponse,
@@ -37,6 +38,7 @@ from swarm_field.experiments import (
     by_arm,
     markdown_table,
     mean_and_error,
+    moving_explorer_scenario,
     pest_table_cells,
     pest_table_headers,
     runs_for,
@@ -139,7 +141,7 @@ def main() -> None:
     specs: dict[str, PestRunSpec] = {}
     for condition, (capacity, doses) in CONDITIONS.items():
         for name, killer in KILLERS.items():
-            scenario = explorer_scenario(killer, args.explorers, args.killers, radio)
+            scenario = moving_explorer_scenario(killer, args.explorers, args.killers, radio)
             scenario = scenario.with_robot_config(
                 replace(scenario.robots, battery_capacity=capacity)
             ).with_pests(replace(scenario.pests, treatment_doses=doses))
