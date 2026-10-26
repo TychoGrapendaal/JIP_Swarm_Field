@@ -154,8 +154,7 @@ The other fields diagnose why an arm did as it did:
 | `no_doses` | The share of the killers' time without doses. |
 | `shared_target` | Of the samples with two or more killers committed to treating, the share in which two report the same target: a duplicate trip. |
 | `co_treating` | Of the samples with a treatment under way, the share in which two killers treat the same cell. |
-| `isolated`, `idle_isolated`, `isolation_spells`, `crowded` | How often a killer has no other robot in radio range, also while it does not treat, for how long in one go, and how often an idle killer has another killer in range (`pest_isolation_headers`, `pest_isolation_cells`). |
-| `unknown_infested`, `cut_off_infested` | Pests per sample that no robot knows of, and that some robot knows of but no killer can hear of. |
+| `isolated` | The share of the killers' time with no other robot in radio range. |
 | `doses_used` | Doses used by all killers together. |
 | `drift` | The killers' mean distance in cells from their start, after each hour. |
 | `worst_idleness_minutes` | The longest idleness, over the same samples as `idleness_minutes`. |

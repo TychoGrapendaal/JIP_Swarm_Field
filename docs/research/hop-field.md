@@ -216,7 +216,7 @@ An explorer that senses a pest is its source for `source_for`, 1 minute in `hop-
 
 ### Isolated killers, and spreading idle killers (tried, dropped)
 
-Same scenario as the section above, 8 seeds (0 to 7), 3 h with a 1 h warm-up, and the hop arm with a 3-minute `source_for` (`studies/killer_isolation.py`). The isolation table measures from the ground truth. "Cut off" counts the pests that some robot knows of, in the hop arm that some robot is the source of, while no robot in that robot's radio network is a killer; it is at most what perfect cohesion could save. "Unknown" counts the pests no robot knows of.
+Same scenario as the section above, 8 seeds (0 to 7), 3 h with a 1 h warm-up, and the hop arm with a 3-minute `source_for` (`studies/killer_isolation.py`, removed after this question was answered; it is in commit f961e8b). The isolation table measures from the ground truth. "Cut off" counts the pests that some robot knows of, in the hop arm that some robot is the source of, while no robot in that robot's radio network is a killer; it is at most what perfect cohesion could save. "Unknown" counts the pests no robot knows of.
 
 | Arm | Infested | Killer isolated | Idle and isolated | Isolation spell, p90 (min) | Unknown | Cut off |
 | --- | --- | --- | --- | --- | --- | --- |
