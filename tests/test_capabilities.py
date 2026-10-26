@@ -1,5 +1,7 @@
 """Tests for the body capability profiles, their gate in the brain, and the bodies' behaviours."""
 
+from dataclasses import replace
+
 from swarm_field.contracts import (
     BodyType,
     Charge,
@@ -13,6 +15,7 @@ from swarm_field.contracts import (
     ScenarioConfig,
     Terrain,
     TerrainObservation,
+    TimeUnit,
     Treat,
 )
 from swarm_field.simulation import RobotState, WorldState
@@ -193,23 +196,48 @@ def test_body_mismatch_cannot_expand_capabilities() -> None:
     assert agent.decide(_perception(BodyType.SCOUT)).action == Idle()
 
 
-def test_return_to_dock_charges_when_at_a_configured_dock() -> None:
-    agent = _manual_agent(
-        BodyType.SCOUT, ReturnToDock(docks=((2, 2),)), seeders=(DockSeeder(((2, 2),)),)
-    )
-    state = RobotSelfState(
-        robot_id=1,
-        position=(2, 2),
-        battery=0.8,
-        body=BodyType.SCOUT,
-        speed_mps=8.0,
-        consumable=1.0,
-        health=1.0,
-    )
+def test_a_robot_passing_a_dock_with_a_full_enough_battery_does_not_stop_to_charge() -> None:
+    agent = _docking_agent(BodyType.SCOUT)
+
+    decision = agent.decide(Perception(0, _on_the_dock(BodyType.SCOUT, battery=0.99), [], []))
+
+    assert decision.action != Charge()
+
+
+def test_a_robot_that_came_to_charge_keeps_charging_until_its_battery_is_full() -> None:
+    agent = _docking_agent(BodyType.SCOUT)
+    later = 15 * TimeUnit.SECOND
+
+    low = agent.decide(Perception(0, _on_the_dock(BodyType.SCOUT, battery=0.2), [], []))
+    charging = agent.decide(Perception(later, _on_the_dock(BodyType.SCOUT, battery=0.6), [], []))
+
+    assert low.action == Charge()
+    assert charging.action == Charge()
+
+
+def test_a_battery_robot_without_spares_charges_on_a_dock() -> None:
+    agent = _docking_agent(BodyType.BATTERY)
+    state = replace(_on_the_dock(BodyType.BATTERY, battery=0.99), spare_batteries=0)
 
     decision = agent.decide(Perception(0, state, [], []))
 
     assert decision.action == Charge()
+
+
+def _docking_agent(body: BodyType) -> ComposedAgent:
+    return _manual_agent(body, ReturnToDock(docks=((2, 2),)), seeders=(DockSeeder(((2, 2),)),))
+
+
+def _on_the_dock(body: BodyType, battery: float) -> RobotSelfState:
+    return RobotSelfState(
+        robot_id=1,
+        position=(2, 2),
+        battery=battery,
+        body=body,
+        speed_mps=1.0,
+        consumable=1.0,
+        health=1.0,
+    )
 
 
 def test_scout_can_move_across_obstacles_but_killer_cannot() -> None:

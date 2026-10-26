@@ -401,6 +401,11 @@ class SupplyBattery:
 class ReturnToDock:
     """Return to a known dock when energy is low or a battery robot is out of spares.
 
+    A robot charges on a dock only when it came to charge: it bids ``Charge`` there at or below
+    ``RechargeConfig.low_battery_threshold``, and once it has started it keeps bidding until its
+    battery is full. A robot that only passes a dock does not stop. A battery robot short of
+    spares also bids ``Charge`` on a dock, which refills them.
+
     Dock membership is checked from the configured dock cells. The dock field is not queried by
     this behaviour; it is built only when the follow-field intent wins arbitration.
     """
@@ -417,6 +422,7 @@ class ReturnToDock:
         self._seeder = seeder
         self._docks = frozenset(docks)
         self._recharge_config = recharge_config or RechargeConfig()
+        self._charging: bool = False
 
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
         profile = ctx.capabilities
@@ -424,12 +430,17 @@ class ReturnToDock:
             profile = capabilities_for(ctx.self_state.body)
 
         position = ctx.self_state.position
+        battery = ctx.self_state.battery
         at_dock = position in self._docks
+        if not at_dock or battery >= 1.0:
+            self._charging = False
         needs_spares = (
             ctx.self_state.body is BodyType.BATTERY
             and ctx.self_state.spare_batteries < profile.spare_battery_capacity
         )
-        if at_dock and (ctx.self_state.battery < 1.0 or needs_spares):
+        low = battery <= self._recharge_config.low_battery_threshold
+        if at_dock and (low or self._charging or needs_spares):
+            self._charging = True
             return (
                 ActionCandidate(
                     action=Charge(),
@@ -443,7 +454,6 @@ class ReturnToDock:
         if not self._docks:
             return ()
 
-        battery = ctx.self_state.battery
         if battery <= self._recharge_config.critical_battery_threshold:
             priority = self._recharge_config.critical_priority
         elif battery <= self._recharge_config.low_battery_threshold:

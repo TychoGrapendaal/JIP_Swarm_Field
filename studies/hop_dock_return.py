@@ -152,7 +152,7 @@ def main() -> None:
     results = by_arm(experiment.run(runs, measure_dock_response, args.jobs))
 
     headers = pest_table_headers(args.hours)
-    headers.extend(["trips", "done", "trip min", "longest", "open", "dead", "no doses"])
+    headers.extend(["trips", "done", "trip min", "longest", "open", "dead"])
     rows: list[list[str]] = []
     for arm, arm_results in results.items():
         cells = pest_table_cells(arm, [result.pest for result in arm_results], args.hours)
@@ -170,7 +170,6 @@ def main() -> None:
         cells.extend([trip_minutes, longest])
         cells.append(f"{mean(result.open_trips for result in arm_results):.2f}")
         cells.append(f"{mean(result.dead_killers for result in arm_results):.2f}")
-        cells.append(f"{mean(result.pest.no_doses for result in arm_results):.3f}")
         rows.append(cells)
     title = (
         f"river-small, docks at {docks}: "

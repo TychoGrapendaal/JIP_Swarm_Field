@@ -38,7 +38,7 @@ The small ready fields have one dock at `(0, 0)`, and `RIVERS_LARGE` has two, at
 
 ## Recharge policy
 
-`swarm_field.swarm.RechargeConfig` configures the current return-to-dock policy:
+`swarm_field.swarm.RechargeConfig` configures the current return-to-dock policy. A robot charges on a dock only when it came to charge: `ReturnToDock` bids `Charge` there at or below `low_battery_threshold`, and once the robot has started, it keeps bidding until the battery is full or the robot leaves the dock. A robot that only passes a dock, with a battery that is merely not quite full, does not stop, since a `Charge` starts no move and would hold it for a whole decision interval. A BATTERY robot short of spares still bids `Charge` on a dock, which refills them.
 
 | Setting | Default | Meaning |
 | --- | ---: | --- |
@@ -47,7 +47,7 @@ The small ready fields have one dock at `(0, 0)`, and `RIVERS_LARGE` has two, at
 | `low_priority` | `0.91` | Score used at the low threshold |
 | `critical_priority` | `1.0` | Score used at the critical threshold |
 | `no_spares_priority` | `0.95` | BATTERY robot return priority with no spares |
-| `dock_priority` | `1.0` | Priority when a robot at the dock requests service |
+| `dock_priority` | `1.0` | Priority of `Charge` for a robot on a dock that came to charge |
 
 For custom agent assembly, pass an instance to `ReturnToDock(..., recharge_config=...)`. With the
 registry-based experiment runner, put a `RechargeConfig` instance in `BrainSpec.params["recharge"]`,
