@@ -251,17 +251,17 @@ The first sweep, on the small field with 8 seeds, varied the hop arm's `source_f
 
 Two values hold on both fields. **A heard hop beacon counts for 3 minutes instead of 1**, the same as `source_for`: on the small field 2 and 3 minutes are as good, and on the large field, with fewer robots per cell, 3 minutes is clearly best, while 4 is worse on both. A sparser swarm relays a beacon less often, so it must count for longer. **A seeded claim counts for 10 minutes instead of 2**: claims reach far-away killers late through the moving explorers, which only matters on the large field. Every other change is within its error on at least one field, so the defaults stay. The two values are times, the cap stays in radio ranges, and `hop_beacon_variants` derives the hop length from the radio, so the presets carry over to other fields and radios as far as these two fields show; denser or sparser swarms may want another `fresh_for`.
 
-The frozen presets, on seeds 100 onwards, which tuning did not use:
+The frozen presets, on seeds 100 onwards, which tuning did not use. They were verified again after the refactoring pass that followed the tuning: whole doses, charging on a dock only when a robot came to charge, hop killers that restock only an empty tank, and DOCK beacons that never expire. With unlimited battery and doses, only the first two can touch these runs, and only the second did: a hop killer used to stop on every dock it crossed.
 
 | Arm | Small field, 16 seeds | Paired | Large field, 8 seeds | Paired |
 | --- | --- | --- | --- | --- |
 | `SEEDED_KILLER` | 1.23 ± 0.09 | | 5.35 ± 0.52 | |
-| `SEEDED_BEST` | 1.24 ± 0.10 | +0.00 ± 0.05 | 4.03 ± 0.25 | −1.33 ± 0.35 |
-| `HOP_KILLER` | 4.99 ± 0.42 | | 18.59 ± 1.11 | |
-| `HOP_BEST` | 3.05 ± 0.33 | −1.94 ± 0.46 | 12.92 ± 1.14 | −5.66 ± 1.26 |
-| `HOP_BEST` against `SEEDED_BEST` | | +1.81 ± 0.29 | | +8.90 ± 1.11 |
+| `SEEDED_BEST` | 1.23 ± 0.10 | +0.00 ± 0.05 | 4.03 ± 0.25 | −1.33 ± 0.35 |
+| `HOP_KILLER` | 4.92 ± 0.42 | | 18.59 ± 1.11 | |
+| `HOP_BEST` | 2.78 ± 0.27 | −2.15 ± 0.38 | 13.38 ± 1.24 | −5.20 ± 1.23 |
+| `HOP_BEST` against `SEEDED_BEST` | | +1.54 ± 0.20 | | +9.36 ± 1.21 |
 
-Tuning improves the hop arm by 30 to 40 % and the seeded arm by a quarter on the large field, but the seeded arm still leaves far fewer infested cells, by a factor of 2.5 on the small field and 3.2 on the large one. This is the starting point of the comparison experiments.
+Before the refactoring pass, `HOP_BEST` left 3.05 ± 0.33 infested cells on the small field and 12.92 ± 1.14 on the large one, and the seeded rows were the same as now, so both presets still beat their defaults on the fields where they did. Tuning improves the hop arm by 30 to 45 % and the seeded arm by a quarter on the large field, but the seeded arm still leaves far fewer infested cells, by a factor of 2.3 on the small field and 3.3 on the large one. This is the starting point of the comparison experiments.
 
 ### Earlier: limiting recruitment
 
