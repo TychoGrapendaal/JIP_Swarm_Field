@@ -208,12 +208,12 @@ class Message:
 
 @dataclass(frozen=True)
 class Beacon:                   # a BEACON payload item, relayed to guide robots to an objective
-    objective: AgentObjective
+    kind: BeaconKind            # TREAT guides killers to a pest, DOCK robots to a dock
     value: float                # hops to the objective, whole or metric; 0 is the objective itself
     cell: CellId                # the sender's cell, or the objective's cell for a source
 ```
 
-`Beacon` sits in `contracts` because B sends one too: the mock pest sources of `PestSourceSpec` broadcast a TREAT beacon of 0 from each infested cell.
+`Beacon` sits in `contracts` because B sends one too: the mock pest sources of `PestSourceSpec` broadcast a TREAT beacon of 0 from each infested cell, and with `DockBeaconSpec` every dock broadcasts a DOCK beacon of 0 from its own cell.
 
 ### 3.6 The per‑robot exchange (B ⇄ A)
 
@@ -350,11 +350,17 @@ class ScenarioConfig:
     robots: list[RobotSpec]
     seed: int                        # determinism for reproducible benchmarks
     pest_sources: PestSourceSpec | None   # mock broadcasts from every pest, standing in for an explorer above it
+    dock_beacons: DockBeaconSpec | None   # a DOCK beacon from every dock, for swarms that relay beacons
 
 @dataclass(frozen=True)
 class PestSourceSpec:
     period: Time                     # time between two broadcasts
     radio_range_m: float             # how far each broadcast reaches; infinite is an oracle
+
+@dataclass(frozen=True)
+class DockBeaconSpec:
+    period: Time                     # time between two broadcasts of every dock
+    radio_range_m: float             # how far a dock's broadcast reaches
 
 @dataclass(frozen=True)
 class MetricsSample:
@@ -494,7 +500,7 @@ Owns ground truth, drives time, delivers messages, defines scenarios, records me
 - **Requirements:** at a robot's broadcast, deliver the message immediately to every robot within the sender's radio range and append it to their inbox (read at the recipient's next decision); range is computed from robots' whole‑cell positions (radio range is fuzzy, so sub‑cell error is irrelevant); **treat payload as opaque**.
 - **Consumes:** `outbox` from each robot + robot positions from B.1. **Provides:** each robot's `inbox`.
 - **NOT its concern:** message *meaning* (A owns that); knowledge merging (A.4).
-- **Status:** `Channel.broadcast_from_cell` also delivers a message sent from a cell rather than a robot, for the mock pest sources of `PestSourceBroadcast`. Those messages are left out of the robots' message counts.
+- **Status:** `Channel.broadcast_from_cell` also delivers a message sent from a cell rather than a robot, for the mock pest sources of `PestSourceBroadcast` and the docks of `DockBroadcast`. Those messages are left out of the robots' message counts.
 - **Seam for later:** two‑tier radio / aerial relay / store‑and‑forward (lit review §2.4.4) refine this module only.
 
 ### B.4 Scenarios & Robots

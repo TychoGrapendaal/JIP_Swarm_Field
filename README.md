@@ -113,10 +113,7 @@ Every run is measured with `measure_pest_response`. The run prints one row per c
 
 ## Integrated battery and live-field demonstrations
 
-The Issue #77 battery lifecycle adds simulated-time energy depletion, exclusive dock charging with
-FIFO queues, and explicit off-dock `DEAD_BATTERY` failures while preserving the current behaviour,
-arbitration, potential-field and discrete-event architecture. See
-[`docs/battery-lifecycle.md`](docs/battery-lifecycle.md) for policy and test details.
+The Issue #77 battery lifecycle adds simulated-time energy depletion, dock charging, and explicit off-dock `DEAD_BATTERY` failures while preserving the current behaviour, arbitration, potential-field and discrete-event architecture. A dock serves every robot at once, in a 5-minute battery swap, and restocks killers' doses. See [`docs/battery-lifecycle.md`](docs/battery-lifecycle.md) for policy and test details.
 
 The styled live simulation shows the actual runner-built swarm, selected robot's potential field,
 infestation, docks, radio links and battery telemetry in one interactive window. It does not save

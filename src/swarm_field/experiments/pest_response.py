@@ -32,6 +32,12 @@ over the seeds and its standard error (±) where it matters:
 - ``isolated``: the share of the killer samples in which no other robot is within radio range;
 - ``no beacon``: the share of the samples of killers with beacons in which the killer heard no
   fresh TREAT beacon;
+- ``coverage``: the share of the crop cells some robot sensed by the end;
+- ``idle``: minutes since a robot last sensed a crop cell, averaged over the cells and the
+  samples after the warm-up: the expected wait of a pest for its first sighting;
+- ``redund``: the share of the robots' visits to a cell sensed less than ``fresh_age`` before;
+- ``drift 1/2/3 h``: mean distance in cells of the killers from their start after each hour;
+- ``wall``: seconds of computation per run.
 
 ``pest_isolation_headers`` and ``pest_isolation_cells`` give a second table, on whether killers
 lose contact with the swarm and what that costs:
@@ -44,12 +50,6 @@ lose contact with the swarm and what that costs:
 - ``unknown``: pests per sample, after the warm-up, that no robot knows of;
 - ``cut off``: pests per sample, after the warm-up, that some robot knows of but no robot in the
   radio network of any robot that knows is a killer; at most what perfect cohesion could save.
-- ``coverage``: the share of the crop cells some robot sensed by the end;
-- ``idle``: minutes since a robot last sensed a crop cell, averaged over the cells and the
-  samples after the warm-up: the expected wait of a pest for its first sighting;
-- ``redund``: the share of the robots' visits to a cell sensed less than ``fresh_age`` before;
-- ``drift 1/2/3 h``: mean distance in cells of the killers from their start after each hour;
-- ``wall``: seconds of computation per run.
 
 The tracker reads the killers' goals and beacons, which the simulation's own metrics may not,
 so it lives here, at the composition level, next to ``LiveRun``. Coverage, idleness and

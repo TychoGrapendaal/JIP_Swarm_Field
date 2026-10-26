@@ -459,7 +459,7 @@ class WorldState:
         return sum(robot.energy_spent for robot in self.robots.values())
 
     def advance_to(self, time: Time) -> None:
-        """Advance active jobs, charging queues, and battery failure through ``time``."""
+        """Advance active jobs, charging, and battery failure through ``time``."""
         if time < 0:
             raise ValueError("simulation time cannot be negative")
         for robot in self.robots.values():

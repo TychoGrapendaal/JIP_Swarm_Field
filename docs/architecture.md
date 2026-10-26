@@ -338,12 +338,12 @@ flowchart LR
 
 | Event | On handling | Schedules |
 |---|---|---|
-| `RobotDecision` | build the robot's `Perception`, call `SwarmAgent.decide`, apply the action, hand `outbox` to the channel | the robot's next fixed decision interval |
-| *CellArrival* (to add) | update the robot's cell / occupancy | usually a `RobotDecision` on arrival |
+| `RobotDecision` | build the robot's `Perception`, call `SwarmAgent.decide`, apply the action, hand `outbox` to the channel | itself, at the arrival of the move the robot started, or a `decision_interval` later when it stands still |
 | `WorldTick` | advance infestation dynamics one step | itself, at the next coarse cadence |
 | `MetricSample` | record a metrics sample, and hand the world to the run's `Renderer` if it has one | itself, periodically |
 | `FailureCheck` | fail each live robot that draws a fault from `ctx.noise` | itself, at the next coarse cadence |
 | `PestSourceBroadcast` | broadcast each pest's infestation fact and a TREAT beacon of 0 from its own cell, through `Channel.broadcast_from_cell`, standing in for an explorer above it (`ScenarioConfig.pest_sources`) | itself, every `PestSourceSpec.period` |
+| `DockBroadcast` | broadcast a DOCK beacon of 0 from every dock's cell, through `Channel.broadcast_from_cell`, for robots that find a dock without a map (`ScenarioConfig.dock_beacons`) | itself, every `DockBeaconSpec.period` |
 
 ### B.4 Keeping handlers uncoupled
 
