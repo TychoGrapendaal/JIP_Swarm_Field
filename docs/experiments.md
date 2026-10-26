@@ -292,11 +292,11 @@ A difference of about two standard errors or more is unlikely to be chance.
 
 ## 5. Where the results are
 
-Every `Experiment` makes a new folder in `output/`, at the root of the repository, which git ignores. Its name starts with the date and time, so a listing sorts by time:
+Every `Experiment` makes a new folder in `output/`, at the root of the repository, which git ignores. Its name starts with the date and time, so a listing sorts by time, and ends in four random digits, so two experiments of the same name started in the same second get folders of their own:
 
 ```text
 output/
-  2026-10-22_22-19-02_seeded_vs_hop_small/
+  2026-10-22_22-19-02_seeded_vs_hop_small_4821/
     experiment.json
     results.json
     tables.md
@@ -316,7 +316,7 @@ import json
 from pathlib import Path
 from statistics import mean
 
-records = json.loads(Path("output/2026-10-22_22-19-02_seeded_vs_hop_small/results.json").read_text())
+records = json.loads(Path("output/2026-10-22_22-19-02_seeded_vs_hop_small_4821/results.json").read_text())
 infested: dict[str, list[float]] = {}
 for record in records:
     infested.setdefault(record["arm"], []).append(record["result"]["infested"])
@@ -342,7 +342,7 @@ record_videos(experiment.directory, runs_for({"hop-tuned": specs["hop-tuned"]}, 
 The video goes to `video/hop-tuned_seed0.mp4` in the experiment's folder. Its name is the run's name, `ARM/seedN`, with every `/` turned into `_`; `video_path(directory, run)` gives it.
 
 - **Several runs** are filmed in parallel, one per process, as in `Experiment.run`: `runs_for({"seeded": specs["seeded"], "hop-tuned": specs["hop-tuned"]}, seeds=[0, 1])` gives four videos. `processes` sets the number of processes.
-- **An experiment run earlier** works too. Pass its folder, e.g. `Path("output/2026-10-22_22-19-02_seeded_vs_hop_small")`, and the same arm name and spec as in the batch, so the run is the same one. The arm name matters: it is the run's label.
+- **An experiment run earlier** works too. Pass its folder, e.g. `Path("output/2026-10-22_22-19-02_seeded_vs_hop_small_4821")`, and the same arm name and spec as in the batch, so the run is the same one. The arm name matters: it is the run's label.
 - **Only pest runs** can be filmed: `record_videos` takes runs of a `PestRunSpec`, which it steps like `measure_pest_response`.
 
 ### What a video shows

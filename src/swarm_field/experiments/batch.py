@@ -25,6 +25,7 @@ import json
 import logging
 import math
 import re
+import secrets
 import subprocess
 import sys
 import time
@@ -121,8 +122,9 @@ def arm_name(*parts: str, **params: object) -> str:
 class Experiment:
     """One experiment's folder in ``output/``, and the batch of runs that fills it.
 
-    The folder is ``<root>/<YYYY-MM-DD_HH-MM-SS>_<name>``, so a listing sorts by time. It is made
-    when the experiment is created, and holds ``experiment.json`` (when, what and from which
+    The folder is ``<root>/<YYYY-MM-DD_HH-MM-SS>_<name>_<NNNN>``, so a listing sorts by time; the
+    random four digits keep apart two experiments of one name started in the same second. It is
+    made when the experiment is created, and holds ``experiment.json`` (when, what and from which
     commit), ``results.json`` (one record per run) and any file the caller adds.
 
     Attributes:
@@ -134,7 +136,8 @@ class Experiment:
     def __init__(self, name: str, root: Path = OUTPUT) -> None:
         started = datetime.now()
         self.name: str = re.sub(r"[^A-Za-z0-9_-]+", "_", name).strip("_")
-        self.directory: Path = root / f"{started:%Y-%m-%d_%H-%M-%S}_{self.name}"
+        suffix = secrets.randbelow(10_000)
+        self.directory: Path = root / f"{started:%Y-%m-%d_%H-%M-%S}_{self.name}_{suffix:04d}"
         self.directory.mkdir(parents=True, exist_ok=False)
         self._started: datetime = started
 
