@@ -153,6 +153,12 @@ Both demos take the console's `--seed`, `--hours`, `--speed` (default 40, twenty
 uv run python examples/pest_demo.py
 ```
 
+The base demo and smoke test of the project (#67), `SMOKE`: five explorers that only explore and five seeded killers that only treat, so every robot has one objective and the arbiter never has to choose. Any other option changes that setup:
+
+```bash
+uv run python examples/pest_demo.py --smoke
+```
+
 Five explorers explore and three killers treat a field with a river and two rocks, while pests appear at random free cells over time. Every robot is a real `ComposedAgent` with a `UtilityArbiter`: explorers follow the EXPLORE field, and seeded killers treat the pests they know of with `TreatInfestation` on the TREAT field. `--hop` makes the killers hop killers, which follow the hop beacons every robot relays from the explorer that sees a pest. Robots share their memory and status only within radio range. The panel shows what each killer is doing and how many pests it knows of. The panel also shows the measures of `MetricsCollector`: infested cells, detection latency, coverage, idleness and redundancy. `--radio`, `--pests-per-hour`, `--spread`, `--explorers` and `--killers` change the setup, and `--save videos/pests.mp4` records a video. The killers' time per goal is weighted by simulated time, so pausing or changing the speed does not change it. `SwarmScenario` in `swarm_field.experiments` describes the run, and `swarm_field.runner` assembles and runs it.
 
 ### Wall-following steering demonstration
@@ -245,7 +251,7 @@ Drawing a frame takes roughly a tenth of a second, so a long run at a low speed 
 
 ### Scenario catalogue
 
-Every scenario has a name, and every script that runs scenarios takes them by that name: the presets `S1` to `S5` of the scenario builder, and the hand-built experiments `explore` (`EXPLORE`, explorers monitoring a field) and `pests` (`PESTS`, explorers and seeded killers while pests keep appearing), both a `SwarmScenario`. `swarm_field.experiments.build_named_experiment(name, seed, until)` turns a name and a seed into the `ExperimentConfig` the runner runs, labelled `NAME/SEED`. Each scenario keeps its own horizon unless one is given: an hour for the presets, three hours for `explore` and `pests`. `scenario_names()` lists them, and `tests/test_catalogue.py` checks that every one of them reproduces its run exactly from the same seed.
+Every scenario has a name, and every script that runs scenarios takes them by that name: the presets `S1` to `S5` of the scenario builder, and the hand-built experiments `explore` (`EXPLORE`, explorers monitoring a field), `pests` (`PESTS`, explorers and seeded killers while pests keep appearing) and `smoke` (`SMOKE`, the base demo: five explorers that only explore and five seeded killers that only treat), each a `SwarmScenario`. `swarm_field.experiments.build_named_experiment(name, seed, until)` turns a name and a seed into the `ExperimentConfig` the runner runs, labelled `NAME/SEED`. Each scenario keeps its own horizon unless one is given: an hour for the presets, three hours for `explore`, `pests` and `smoke`. `scenario_names()` lists them, and `tests/test_catalogue.py` checks that every one of them reproduces its run exactly from the same seed.
 
 ### Running many configurations
 

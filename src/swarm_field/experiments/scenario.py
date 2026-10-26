@@ -497,6 +497,23 @@ Killers treat with ``FAST_TREATMENT``: at the default rate of one severity per h
 faster than it is treated and never clears.
 """
 
+SMOKE = (
+    replace(
+        PESTS,
+        metrics=MetricsConfig(period=TimeUnit.MINUTE, measure_from=30 * TimeUnit.MINUTE),
+    )
+    .without_robots()
+    .add_robots(EXPLORER, 5)
+    .add_robots(SEEDED_KILLER, 5)
+)
+"""The base demo and smoke test (#67): five explorers that only explore, five seeded killers
+that only treat, so every robot has one objective and the arbiter never has to choose.
+
+On ``PESTS``' field and pests, with its ground robots at 0.5 m/s and its 300 m radio, so a pest
+across the field is minutes away and news of it reaches the killers. Sampled every minute, with
+idleness measured after a warm-up of half an hour.
+"""
+
 
 def pest_response_configurations(
     scenario: SwarmScenario, seeded_no_yield: bool = False
