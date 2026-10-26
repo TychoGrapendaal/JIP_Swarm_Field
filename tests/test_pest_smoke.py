@@ -10,8 +10,9 @@ from studies.baselines import grid_sweep_brain
 from swarm_field.contracts import InjectInfestation, TimeUnit
 from swarm_field.experiments import SEEDED_KILLER, SMOKE, LiveRun
 
-_PEST = (2, 1)
-"""A cell next to where the explorers start, so it is sensed at once whatever route they take."""
+_PEST = (2, 0)
+"""The cell an explorer starts on: an explorer senses only its own cell, so this pest is sensed at
+once, whatever route the explorers take."""
 
 
 def test_the_killers_clear_a_pest_the_explorers_find() -> None:
