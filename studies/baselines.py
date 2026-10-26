@@ -3,7 +3,8 @@
 Importing this module registers both in the runner's registries. The random-waypoint baseline is
 the behaviour and the seeder ``"random-waypoint"``, named together by ``RANDOM_WAYPOINT_BRAIN``.
 The grid search is the seeder ``"grid-sweep"``: utility robots that each sweep a strip of the
-field and treat what they drive over, without cooperating; ``grid_sweep_brain`` builds its brain.
+field and treat what they drive over, without cooperating; ``grid_sweep_brain`` builds its brain,
+and ``grid_explorer_brain`` the brain of an explorer that only sweeps its strip.
 """
 
 from collections.abc import Hashable
@@ -13,9 +14,16 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
-from swarm_field.contracts import AgentObjective, CellId, Time
+from swarm_field.contracts import AgentObjective, CellId, Time, TimeUnit
 from swarm_field.runner import BEHAVIORS, SEEDERS, BrainSpec
-from swarm_field.swarm import ActionCandidate, DecisionContext, FollowField, MemoryView
+from swarm_field.swarm import (
+    ActionCandidate,
+    DecisionContext,
+    FollowField,
+    KnowledgeSharing,
+    MemoryView,
+    SharingConfig,
+)
 from swarm_field.swarm.field import Seed
 
 
@@ -88,6 +96,10 @@ RANDOM_WAYPOINT_BRAIN = BrainSpec(
 """The brain of a random-waypoint robot, to put in an ``ExperimentConfig``."""
 
 
+GIVE_UP_AFTER: Time = TimeUnit.MINUTE
+"""How long a grid sweeper stands still before it gives up on its next cell as unreachable."""
+
+
 class GridSweepSeeder:
     """A baseline: sweep a fixed strip of the field cell by cell, then start again.
 
@@ -96,6 +108,11 @@ class GridSweepSeeder:
     and starts over at the end. Its strip is ``strip`` if given, else the one numbered by its
     starting column; the latter needs the robots side by side from column 0 with no obstacle in
     between, since a robot that starts past an obstacle would skip a strip.
+
+    A robot that does not know the terrain plans its route over the obstacles too, and a ground
+    robot can never stand on one. So it skips a cell once memory learns it is an obstacle, and
+    gives up on a cell after standing still for ``GIVE_UP_AFTER``: the inside of a rock is never
+    sensed, since obstacles are sensed only from a neighbouring cell.
     """
 
     name: str = "grid-sweep"
@@ -106,6 +123,8 @@ class GridSweepSeeder:
         self._strip: int | None = strip
         self._route: tuple[CellId, ...] = ()
         self._next: int = 0
+        self._standing_at: CellId | None = None
+        self._standing_since: Time = 0
 
     def field_key(self, memory: MemoryView, robot: CellId, now: Time) -> Hashable:
         if not self._route:
@@ -115,9 +134,22 @@ class GridSweepSeeder:
             self._route = sweep_route(memory.monitorable_cells(), strip, self._robots)
         if not self._route:
             return None
-        if robot == self._route[self._next]:
+        if robot != self._standing_at:
+            self._standing_at = robot
+            self._standing_since = now
+        if robot == self._route[self._next] or now - self._standing_since > GIVE_UP_AFTER:
             self._next = (self._next + 1) % len(self._route)
+            self._standing_since = now
+        self._skip_known_obstacles(memory)
         return self._route[self._next]
+
+    def _skip_known_obstacles(self, memory: MemoryView) -> None:
+        """Move past the route cells that memory has learned are obstacles."""
+        monitorable = memory.monitorable_cells()
+        for _ in range(len(self._route)):
+            if monitorable[self._route[self._next]]:
+                return
+            self._next = (self._next + 1) % len(self._route)
 
     def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
         if not self._route:
@@ -166,13 +198,38 @@ def grid_sweep_brain(robots: int, strip: int | None = None) -> BrainSpec:
     ``TreatInfestation`` treats a pest the robot stands on, with an override bid, and otherwise
     sends it to the pests it knows of; a robot that shares nothing only knows the pests it has
     driven over, which it has treated, so in effect it sweeps and treats what it finds. With
-    ``strip`` the robot sweeps that strip, else the one numbered by its starting column.
+    ``strip`` the robot sweeps that strip, else the one numbered by its starting column. It
+    broadcasts none of its memory, so even within radio range it never hears of a pest on
+    another strip.
     """
-    params: dict[str, int] = {"grid-sweep-robots": robots}
-    if strip is not None:
-        params["grid-sweep-strip"] = strip
     return BrainSpec(
         behaviors=("treat-infestation", GridSweepSeeder.name),
         seeders=("treat", GridSweepSeeder.name),
-        params=params,
+        params=_grid_sweep_params(robots, strip),
+        sharing=_SHARES_NOTHING,
     )
+
+
+def grid_explorer_brain(robots: int, strip: int | None = None) -> BrainSpec:
+    """The brain of a grid-sweep explorer among ``robots``: sweep its strip, share nothing.
+
+    The explorer's counterpart of ``grid_sweep_brain``, without treating: the baseline that the
+    EXPLORE field's exploration is compared with. ``strip`` is as in ``grid_sweep_brain``.
+    """
+    return BrainSpec(
+        behaviors=(GridSweepSeeder.name,),
+        seeders=(GridSweepSeeder.name,),
+        params=_grid_sweep_params(robots, strip),
+        sharing=_SHARES_NOTHING,
+    )
+
+
+_SHARES_NOTHING = SharingConfig(facts=KnowledgeSharing.NOTHING)
+"""A grid robot broadcasts only its status, none of its memory."""
+
+
+def _grid_sweep_params(robots: int, strip: int | None) -> dict[str, int]:
+    params: dict[str, int] = {"grid-sweep-robots": robots}
+    if strip is not None:
+        params["grid-sweep-strip"] = strip
+    return params

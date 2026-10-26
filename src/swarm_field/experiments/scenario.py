@@ -83,6 +83,9 @@ class PestConfig:
             interval, or ``None`` for no sources. ``math.inf`` tells every robot at once. A
             source sends what the swarm's killers read: the pest's fact for seeded killers, a
             beacon of 0 for hop killers.
+        initial_pests: How many pests are on the field at the start, each of ``spawn_severity``
+            on a random crop cell drawn from the seed alone, so that runs with the same seed
+            start with the same pests whatever their swarm.
     """
 
     pests_per_hour: float = 15.0
@@ -93,6 +96,7 @@ class PestConfig:
     treatment_rate: float = 1.0
     treatment_doses: int = 10
     source_range_m: float | None = None
+    initial_pests: int = 0
 
     def dynamics(self, free_cells: int) -> PestDynamicsSpec:
         """``pests_per_hour`` as the chance per free cell and pest update that a pest spawns."""
@@ -374,6 +378,23 @@ class SwarmScenario:
             kinds=frozenset(kinds),
         )
 
+    def initial_infestation(self, crop_cells: list[CellId]) -> dict[CellId, float]:
+        """``pests.initial_pests`` pests of ``spawn_severity`` on random ``crop_cells``.
+
+        The cells are drawn from the seed alone, not from the robots, so that two runs with the
+        same seed start with the same pests whatever their swarm.
+
+        Raises:
+            ValueError: If there are more initial pests than crop cells.
+        """
+        count = self.pests.initial_pests
+        if count > len(crop_cells):
+            raise ValueError(f"{count} initial pests do not fit on {len(crop_cells)} crop cells")
+        infestation: dict[CellId, float] = {}
+        for cell in sorted(Random(self.seed).sample(crop_cells, count)):
+            infestation[cell] = self.pests.spawn_severity
+        return infestation
+
     def into_experiment(self, label: str = "swarm") -> ExperimentConfig:
         """The run as an experiment for ``swarm_field.runner``.
 
@@ -395,9 +416,10 @@ class SwarmScenario:
             )
         obstacles = self.map.blocked_cells()
         geometry = self.map.field_geometry()
+        crops = cropped_cells(geometry, obstacles)
         scenario = ScenarioConfig(
             field=geometry,
-            crops=cropped_cells(geometry, obstacles),
+            crops=crops,
             robots=robots,
             seed=self.seed,
             obstacles=obstacles,
@@ -407,6 +429,7 @@ class SwarmScenario:
             treatment_doses=self.pests.treatment_doses,
             energy=EnergySpec(capacity=self.robots.battery_capacity),
             docks=self.map.docks,
+            initial_infestation=self.initial_infestation(sorted(crops)),
         )
         context = self.context()
         brains: list[BrainSpec] = []

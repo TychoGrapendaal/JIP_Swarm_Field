@@ -7,8 +7,16 @@ pass, so a regression in any of them shows up here.
 from dataclasses import replace
 
 from studies.baselines import grid_sweep_brain
-from swarm_field.contracts import InjectInfestation, TimeUnit
-from swarm_field.experiments import SEEDED_KILLER, SMOKE, LiveRun
+from swarm_field.contracts import BodyType, InjectInfestation, TimeUnit
+from swarm_field.experiments import (
+    SEEDED_KILLER,
+    SMOKE,
+    CustomPreset,
+    LiveRun,
+    MapConfig,
+    PestConfig,
+    SwarmScenario,
+)
 
 _PEST = (2, 0)
 """The cell an explorer starts on: an explorer senses only its own cell, so this pest is sensed at
@@ -46,3 +54,22 @@ def test_a_grid_sweep_robot_clears_a_pest_on_its_strip() -> None:
 
     (pest,) = run.metrics.pests()
     assert pest.cleared_at is not None
+
+
+def test_a_grid_sweep_robot_that_does_not_know_the_terrain_sweeps_past_a_rock() -> None:
+    # The inside of a 3 x 3 rock is never sensed, so the robot has to give up on it.
+    rock = tuple((x, y) for x in range(1, 4) for y in range(2, 5))
+    field = SwarmScenario(
+        map=MapConfig(size=8, obstacles=rock),
+        pests=PestConfig(pests_per_hour=0.0),
+        until=2 * TimeUnit.HOUR,
+    )
+    field = field.with_robot_config(replace(field.robots, knows_terrain=False))
+    sweeper = CustomPreset("grid", BodyType.KILLER, grid_sweep_brain(1, 0))
+    run = LiveRun.from_config(field.add_robots(sweeper, 1).into_experiment("grid-rock-test"))
+
+    run.advance_to(run.horizon)
+
+    latest = run.metrics.latest()
+    assert latest is not None
+    assert latest.coverage == 1.0

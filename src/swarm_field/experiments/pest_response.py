@@ -35,10 +35,18 @@ from __future__ import annotations
 
 import math
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from statistics import mean, median, quantiles
 
-from swarm_field.contracts import BodyType, CellId, Idle, RobotId, Time, TimeUnit
+from swarm_field.contracts import (
+    BodyType,
+    CellId,
+    FailureSpec,
+    Idle,
+    RobotId,
+    Time,
+    TimeUnit,
+)
 from swarm_field.experiments.batch import Run, mean_and_error
 from swarm_field.experiments.run import LiveRun
 from swarm_field.experiments.scenario import SwarmScenario
@@ -55,12 +63,16 @@ class PestRunSpec:
         hours: How long a run lasts.
         pests_per_hour: How many pests spawn per hour, on average.
         warmup_hours: How long at the start is left out of ``infested``.
+        failures: How often robots fail during the run, and how; none by default. Failures
+            are drawn from the run's fault-injection randomness, so two arms with the same seed
+            and the same robots lose the same robots at the same times.
     """
 
     scenario: SwarmScenario
     hours: int
     pests_per_hour: float = 15.0
     warmup_hours: int = 1
+    failures: FailureSpec = field(default_factory=FailureSpec)
 
     def __post_init__(self) -> None:
         """Refuse a warm-up that leaves nothing to measure ``infested`` over.
@@ -90,7 +102,8 @@ class PestRunSpec:
             seed=seed,
             pests=replace(self.scenario.pests, pests_per_hour=self.pests_per_hour),
         )
-        return scenario.into_experiment(label)
+        config = scenario.into_experiment(label)
+        return replace(config, scenario=replace(config.scenario, failures=self.failures))
 
     def cost(self) -> float:
         """A rough relative cost: the field's cells, five times when relays gossip pests."""
@@ -124,6 +137,11 @@ class PestResponse:
         worst_idleness_minutes: The longest of those, over the same samples.
         redundancy: The share of the robots' visits to a crop cell sensed less than the
             scenario's ``fresh_age`` before.
+        explored_minutes: When every crop cell had been sensed at least once, in minutes, or
+            ``None`` if some never was; to the minute, the metrics' sample period.
+        clean_minutes: When the field was first free of pests after a pest was treated, in
+            minutes, or ``None`` if it never was; e.g. the time to clear a field of pests that
+            neither appear nor spread.
         wall: Seconds the run took.
     """
 
@@ -143,6 +161,8 @@ class PestResponse:
     idleness_minutes: float
     worst_idleness_minutes: float
     redundancy: float
+    explored_minutes: float | None
+    clean_minutes: float | None
     wall: float
 
 
@@ -158,6 +178,8 @@ class PestTracker:
         stuck: Committed killer samples in which the killer stood idle, not in a move.
         commit_hops: The killer's beacon value each time it committed, if it had beacons.
         drift: The killers' mean distance from their start, at each hour.
+        explored_at: When every crop cell had been sensed, or ``None`` so far.
+        clean_at: When the field was first free of pests after a treatment, or ``None`` so far.
     """
 
     def __init__(self, starts: dict[RobotId, CellId], warmup: Time) -> None:
@@ -172,6 +194,8 @@ class PestTracker:
         self.stuck: int = 0
         self.commit_hops: list[float] = []
         self.drift: list[float] = []
+        self.explored_at: Time | None = None
+        self.clean_at: Time | None = None
         self._treating: set[RobotId] = set()
 
     def sample(self, run: LiveRun, now: Time) -> None:
@@ -187,6 +211,12 @@ class PestTracker:
             self.responses.append(now - self.appeared.pop(cell))
         if now > self._warmup:
             self.infested_samples.append(len(infested))
+        if self.clean_at is None and not infested and self.responses:
+            self.clean_at = now
+        if self.explored_at is None:
+            latest = run.metrics.latest()
+            if latest is not None and latest.coverage >= 1.0:
+                self.explored_at = now
 
         for robot_id, before in self._positions.items():
             position = world.robots[robot_id].position
@@ -319,8 +349,17 @@ class MeasuredPestRun:
             idleness_minutes=metrics.mean_idleness_ms / TimeUnit.MINUTE,
             worst_idleness_minutes=metrics.worst_idleness_ms / TimeUnit.MINUTE,
             redundancy=metrics.redundancy,
+            explored_minutes=_minutes(tracker.explored_at),
+            clean_minutes=_minutes(tracker.clean_at),
             wall=time.perf_counter() - self._started,
         )
+
+
+def _minutes(time: Time | None) -> float | None:
+    """``time`` in minutes, or ``None``."""
+    if time is None:
+        return None
+    return time / TimeUnit.MINUTE
 
 
 def measure_pest_response(run: Run[PestRunSpec]) -> PestResponse:

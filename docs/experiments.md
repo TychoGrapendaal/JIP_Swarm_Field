@@ -105,6 +105,7 @@ larger = RIVERS_LARGE.with_map(MapConfig(size=48, obstacles=two_rivers_and_rocks
 | Field | Meaning |
 | --- | --- |
 | `pests_per_hour` | How many pests appear per hour, on average, on the free cells. |
+| `initial_pests` | How many pests infest the field at the start, 0 by default. Their cells are drawn from the seed alone, so arms with the same seed start with the same pests whatever their robots. With `pests_per_hour=0`, the field is cleared once and stays clear. |
 | `spawn_severity` | The severity of a new pest, 0.1 by default. |
 | `growth_rate` | How much a pest's severity grows per `period` (one minute), 0.05 by default. |
 | `treatment_rate` | How much severity a treating killer removes per hour. The ready pest-response scenarios use `FAST_TREATMENT` (60, a full pest in one minute). It must beat the growth, or no pest ever clears. |
@@ -144,6 +145,7 @@ spec = PestRunSpec(seeded, hours=3, pests_per_hour=scenario.pests.pests_per_hour
 | `hours` | How long a run lasts, in whole simulated hours. |
 | `pests_per_hour` | The pest rate of the runs; it replaces the scenario's own. |
 | `warmup_hours` | How long at the start is left out of the main outcome, 1 by default; it must be shorter than the run, so a 1-hour run needs `warmup_hours=0`. |
+| `failures` | How often robots fail during the run, and how (`FailureSpec`); none by default. The failures are drawn from the run's fault-injection randomness, apart from the pests, so two arms with the same seed and the same robots lose the same robots at the same times. |
 
 The seed is not part of the spec: it comes with each run (section 3), and it sets the pests, the relay and killer positions, and when each robot first decides. Two arms run with the same seed see the same relays and the same pests.
 
@@ -169,6 +171,8 @@ The seed is not part of the spec: it comes with each run (section 3), and it set
 | `idleness_minutes` | idle | Minutes since a robot last sensed a crop cell, averaged over the cells and the samples after the warm-up: the expected wait of a new pest for its first sighting. |
 | `worst_idleness_minutes` | (not in the table) | The longest of those, over the same samples. |
 | `redundancy` | redund | The share of the robots' visits to a cell sensed less than `MetricsConfig.fresh_age` (30 min) before. |
+| `explored_minutes` | (not in the table) | Minutes until every crop cell had been sensed at least once, or `None` if some never was; to the minute. |
+| `clean_minutes` | (not in the table) | Minutes until the field was first free of pests after a pest was treated, or `None`; e.g. the time to clear a field of `initial_pests` when no pest appears or spreads. |
 | `wall` | wall (s) | Seconds the run took to compute. |
 
 Every pest is either treated or still open at the end, so the share of the pests that were treated is
