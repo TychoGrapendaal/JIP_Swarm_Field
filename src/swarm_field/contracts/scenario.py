@@ -103,6 +103,10 @@ class FailureMode(Enum):
     OFFLINE = auto()
     """Radio failure. The robot still decides and moves, but nobody hears it."""
 
+    IMMOBILE = auto()
+    """Drive failure. The robot stops moving and acting, but still senses its own cell, decides
+    and communicates, so it carries on as a relay fixed in place. It does not know it is stuck."""
+
 
 @dataclass(frozen=True)
 class FailureSpec:

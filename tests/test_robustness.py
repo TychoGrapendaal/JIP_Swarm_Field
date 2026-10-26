@@ -148,6 +148,36 @@ def test_a_failed_robot_stops_deciding_and_stops_rescheduling() -> None:
     assert len(ctx.queue) == 0
 
 
+class MovingAgent:
+    """A brain that always tries to move one cell to the right, and counts its decisions."""
+
+    def __init__(self) -> None:
+        self.believed: list[CellId] = []
+
+    def decide(self, perception: Perception) -> Decision:
+        self.believed.append(perception.self_state.position)
+        x, y = perception.self_state.position
+        return Decision(action=Move(to=(x + 1, y)))
+
+    def inspect(self) -> AgentInspection:
+        return AgentInspection(robot_id=0, current_goal=None, belief=None)
+
+
+def test_an_immobile_robot_keeps_deciding_but_stays_in_place() -> None:
+    world = _world(_robot())
+    ctx = _ctx(world)
+    agent = MovingAgent()
+    ctx.agents = {1: agent}
+    world.fail_robot(1, FailureMode.IMMOBILE)
+    ctx.schedule(RobotDecision(time=0, robot=1, decision_interval=1_000))
+
+    SimulationLoop().run(ctx, until=30_000)
+
+    assert len(agent.believed) > 1
+    assert world.robots[1].position == (2, 2)
+    assert world.live_robots() == ()
+
+
 def test_a_move_under_way_still_lands_after_a_failure() -> None:
     """A failed robot must not be stranded mid-cell; its arrival is already committed."""
     world = _world(_robot())

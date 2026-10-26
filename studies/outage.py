@@ -5,18 +5,25 @@ end, how much worse do the seeded killers and the hop-based killers respond to p
 with the same run without failures? And how does that depend on how many robots are left?
 
 Setup: the default settings of ``studies/defaults.py`` (10 explorers and 4 killers, static pests
-at the start and every hour) on the small field with a river and rocks. Four arms: the seeded
-and the hop-based killers (``killer_methods``, each with its best parameters), each with and
-without failures. A failure is checked for every live robot, explorer or killer, once a
-minute, with the probability that leaves ``--lost`` of the swarm failed by the end on average;
-a failed robot stops and goes dark (``FailureMode.DEAD_BATTERY``), as if it were removed.
-The failures are drawn from the run's fault-injection randomness, apart from the pests, so with
-the same seed both methods lose the same robots at the same times, and see the same pests.
+at the start and every hour) on the small field with a river and rocks. Six arms: the seeded
+and the hop-based killers (``killer_methods``, each with its best parameters), each without
+failures and with each of two kinds of failure (``FAILURE_KINDS``):
+
+- ``dark``: the robot stops and goes dark (``FailureMode.DEAD_BATTERY``), as if it were removed;
+- ``immobile``: the robot stops moving and acting, but still senses its own cell, decides and
+  communicates (``FailureMode.IMMOBILE``), so it stays in the network as a relay fixed in place.
+  It does not know it is stuck: an immobile killer still commits to pests it cannot reach.
+
+A failure is checked for every working robot, explorer or killer, once a minute, with the
+probability that leaves ``--lost`` of the swarm failed by the end on average. The failures are
+drawn from the run's fault-injection randomness, apart from the pests, so with the same seed every
+arm with failures loses the same robots at the same times, whatever the method or the kind of
+failure, and every arm sees the same pests.
 
 Measured per run: the standard ``measure_pest_response``, and a timeline every
-``TIMELINE_PERIOD``: the robots and the killers still live, the infested cells (the mean over
-the period) and the pests treated so far. These are custom measures, for the figure of the
-response over time and against the robots left.
+``TIMELINE_PERIOD``: the robots and the killers still working (an immobile robot no longer
+counts), the infested cells (the mean over the period) and the pests treated so far. These are
+custom measures, for the figure of the response over time and against the robots left.
 
 Hypotheses, before running:
 
@@ -30,6 +37,11 @@ Hypotheses, before running:
    keeps the pests it already knows of in its map.
 4. The difference between the methods grows with the robots lost, so it is largest at the end of
    the run.
+5. Immobile robots hurt the hop-based killers less than dark ones: the relay chains the beacons
+   travel along keep their links, so only the lost killers and the lost sensing count.
+6. For the seeded killers, immobile robots hurt about as much as dark ones, or more: a seeded
+   killer learns of the pests through the shared map either way, and an immobile killer may hold
+   on to a pest near it that it can never reach, since a farther killer leaves that pest to it.
 
 The runs go through ``Experiment``, which writes every run's result, timeline included, to a
 new folder in ``output/``, with the standard table, a PDF figure and its LaTeX fragment. Run from
@@ -90,6 +102,15 @@ DEFAULT_MAP = "rivers-small"
 DEFAULT_LOST = 0.4
 """The share of the swarm failed by the end of a run, on average."""
 
+FAILURE_KINDS: dict[str, FailureMode] = {
+    "dark": FailureMode.DEAD_BATTERY,
+    "immobile": FailureMode.IMMOBILE,
+}
+"""The kinds of failure compared, by the name in the arm names."""
+
+NO_FAILURES = "none"
+LINESTYLES: dict[str, str] = {NO_FAILURES: "--", "dark": "-", "immobile": ":"}
+
 FAILURE_PERIOD: Time = TimeUnit.MINUTE
 TIMELINE_PERIOD: Time = 10 * TimeUnit.MINUTE
 
@@ -100,7 +121,7 @@ class TimelinePoint:
 
     Attributes:
         minutes: When, in minutes since the start.
-        live_robots: The robots that had not failed.
+        live_robots: The robots that had not failed; an immobile robot has failed.
         live_killers: The killers among them.
         infested: The infested cells, averaged over the period's steps.
         treated: The pests treated since the start.
@@ -172,6 +193,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--lost", type=float, default=DEFAULT_LOST, help="share of the swarm failed by the end"
     )
+    parser.add_argument(
+        "--kinds", nargs="+", choices=list(FAILURE_KINDS), default=list(FAILURE_KINDS)
+    )
     parser.add_argument("--seeds", type=int, default=5, help="runs per arm, seeds 0, 1, ...")
     parser.add_argument("--hours", type=int, help="simulated hours per run; the map's by default")
     parser.add_argument("--warmup-hours", type=int, default=1, help="left out of infested")
@@ -182,16 +206,14 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     hours = args.hours or MAPS[args.map].hours
-    failures = FailureSpec(
-        period=FAILURE_PERIOD,
-        probability=failure_probability(args.lost, hours),
-        mode=FailureMode.DEAD_BATTERY,
-    )
+    probability = failure_probability(args.lost, hours)
     specs: dict[str, PestRunSpec] = {}
     for method, scenario in killer_methods(default_scenario(args.map)).items():
         spec = replace(pest_run_spec(scenario, args.map, args.warmup_hours), hours=hours)
-        specs[arm_name(method, failures="none")] = spec
-        specs[arm_name(method, failures=args.lost)] = replace(spec, failures=failures)
+        specs[arm_name(method, failures=NO_FAILURES)] = spec
+        for kind in args.kinds:
+            failures = FailureSpec(FAILURE_PERIOD, probability, FAILURE_KINDS[kind])
+            specs[arm_name(method, failures=kind)] = replace(spec, failures=failures)
 
     experiment = Experiment("outage")
     runs = runs_for(specs, range(args.seeds), PestRunSpec.cost)
@@ -204,14 +226,15 @@ def main() -> None:
     table = markdown_table(headers, rows)
     print(table)
     experiment.write_text("tables.md", table)
-    configuration = _configuration(args, hours, failures)
+    configuration = _configuration(args, hours, probability)
     save_table(
         experiment,
         "outage_table",
         headers,
         rows,
-        "The standard measures of the seeded and hop-based killers with and without robot "
-        f"failures; mean ± standard error over {args.seeds} seeds. {configuration}",
+        "The standard measures of the seeded and hop-based killers without robot failures, and "
+        "with failed robots that go dark or that stay in place and keep communicating "
+        f"(immobile); mean ± standard error over {args.seeds} seeds. {configuration}",
         "outage",
     )
     plot_outage(experiment, args, results, configuration)
@@ -231,31 +254,32 @@ def plot_outage(
 
     figure, (time_axes, robots_axes, left_axes) = plt.subplots(1, 3, figsize=(13.0, 3.8))
     for method in METHODS:
-        for failures, linestyle in (("none", "--"), (args.lost, "-")):
-            arm_results = results[arm_name(method, failures=failures)]
+        for kind in [NO_FAILURES, *args.kinds]:
+            arm_results = results[arm_name(method, failures=kind)]
             minutes = [point.minutes for point in arm_results[0].timeline]
             infested: list[list[float]] = []
             for index in range(len(minutes)):
                 infested.append([result.timeline[index].infested for result in arm_results])
-            label = f"{METHOD_LABELS[method]}, no failures"
-            if failures != "none":
-                label = f"{METHOD_LABELS[method]}, failures"
-            plot_method(time_axes, method, minutes, infested, linestyle, label)
+            label = f"{METHOD_LABELS[method]}, {kind}"
+            if kind == NO_FAILURES:
+                label = f"{METHOD_LABELS[method]}, no failures"
+            plot_method(time_axes, method, minutes, infested, LINESTYLES[kind], label)
 
-        failing = results[arm_name(method, failures=args.lost)]
-        by_robots_left: dict[int, list[float]] = defaultdict(list)
-        for result in failing:
-            for point in result.timeline:
-                by_robots_left[point.live_robots].append(point.infested)
-        left = sorted(by_robots_left)
-        left_axes.plot(
-            left,
-            [mean(by_robots_left[count]) for count in left],
-            color=METHOD_COLORS[method],
-            marker="o",
-            label=METHOD_LABELS[method],
-        )
-    plot_robots_left(robots_axes, results[arm_name(METHODS[0], failures=args.lost)])
+        for kind in args.kinds:
+            by_robots_left: dict[int, list[float]] = defaultdict(list)
+            for result in results[arm_name(method, failures=kind)]:
+                for point in result.timeline:
+                    by_robots_left[point.live_robots].append(point.infested)
+            left = sorted(by_robots_left)
+            left_axes.plot(
+                left,
+                [mean(by_robots_left[count]) for count in left],
+                color=METHOD_COLORS[method],
+                linestyle=LINESTYLES[kind],
+                marker="o",
+                label=f"{METHOD_LABELS[method]}, {kind}",
+            )
+    plot_robots_left(robots_axes, results[arm_name(METHODS[0], failures=args.kinds[0])])
     time_axes.set_xlabel("minutes")
     time_axes.set_ylabel("infested cells")
     time_axes.legend(fontsize="small")
@@ -273,10 +297,12 @@ def plot_outage(
         experiment,
         figure,
         "outage",
-        "Robot failures: the infested cells over time with failures (solid) and without "
-        "(dashed), left; the robots and the killers left over time, the same for both methods "
-        "with the same seeds, middle; and the infested cells against the robots left, over "
-        "every ten minutes of every run with failures, right. Mean ± standard error over "
+        "Robot failures: the infested cells over time without failures (dashed), with failed "
+        "robots that go dark (solid) and with failed robots that stay in place and keep "
+        "communicating (immobile, dotted), left; the robots and the killers still working over "
+        "time, the same for every arm with failures with the same seeds, middle; and the "
+        "infested cells against the robots still working, over every ten minutes of every run "
+        "with failures, right. Mean ± standard error over "
         f"{args.seeds} seeds, the infested cells averaged over each ten minutes. {configuration}",
         "outage",
     )
@@ -302,7 +328,7 @@ def plot_robots_left(axes: Axes, results: list[OutageResult]) -> None:
         axes.errorbar(minutes, means, yerr=errors, color=color, marker=".", capsize=3, label=name)
 
 
-def _configuration(args: argparse.Namespace, hours: int, failures: FailureSpec) -> str:
+def _configuration(args: argparse.Namespace, hours: int, probability: float) -> str:
     """The swarm, the pests and the failures of a run, for a caption."""
     standard = MAPS[args.map]
     return (
@@ -310,7 +336,7 @@ def _configuration(args: argparse.Namespace, hours: int, failures: FailureSpec) 
         f"{DEFAULT_ROBOTS.speed_mps_drone:g} m/s and {KILLERS} killers at "
         f"{DEFAULT_ROBOTS.speed_mps_ground:g} m/s, radio {DEFAULT_ROBOTS.radio_range_m:g} m; "
         f"{standard.pests_per_hour:g} static pests at the start and per hour. Every robot fails "
-        f"with chance {failures.probability:.4f} per minute, {args.lost:.0%} of the swarm by "
+        f"with chance {probability:.4f} per minute, {args.lost:.0%} of the swarm by "
         "the end on average."
     )
 

@@ -6,7 +6,7 @@ Status: describes the machinery implemented in `src/swarm_field/experiments/robu
 
 A field of a few hundred small robots will lose robots: batteries run flat, motors jam, radios die. Before the swarm algorithm can be tuned for that environment, the simulation has to be able to degrade a run in a controlled way and report what the degradation cost. Two axes are worth perturbing separately, because they are the two ways a real robot's world and a real robot's belief come apart:
 
-- **Failure.** A robot stops taking part and stays stopped. What "stops" means changes what the rest of the swarm loses, so three modes are modelled rather than one: `DEAD_BATTERY` (stopped and dark), `DISABLED` (stopped but still observable) and `OFFLINE` (still deciding and moving, but nobody hears it).
+- **Failure.** A robot stops taking part and stays stopped. What "stops" means changes what the rest of the swarm loses, so four modes are modelled rather than one: `DEAD_BATTERY` (stopped and dark), `DISABLED` (stopped but still observable), `OFFLINE` (still deciding and moving, but nobody hears it) and `IMMOBILE` (stopped in place, but still sensing its own cell, deciding and communicating, so it stays in the network as a fixed relay; it does not know it is stuck).
 - **Position error.** The robot keeps working but is told it is somewhere it is not. This is the weaker fault, and the interesting one: nothing in the simulation breaks, the robot simply acts on a wrong belief, and the question is whether the swarm's behaviour is robust to that.
 
 ## How a run stays comparable

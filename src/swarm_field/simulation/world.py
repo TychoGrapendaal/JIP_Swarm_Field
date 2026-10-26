@@ -354,6 +354,8 @@ class WorldState:
                 robot.health = 0.0
             case FailureMode.OFFLINE:
                 robot.radio_range_m = 0.0
+            case FailureMode.IMMOBILE:
+                self._stop_treatment(robot)
             case _:
                 assert_never(mode)
         self._refresh_dock_slots(time)

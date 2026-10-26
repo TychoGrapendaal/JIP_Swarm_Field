@@ -107,7 +107,7 @@ class RobotDecision:
     def handle(self, ctx: SimulationContext) -> None:
         """Perceive, decide, act, deliver messages, and schedule the next decision."""
         ctx.world.advance_to(self.time)
-        if self._has_failed(ctx):
+        if self._has_stopped(ctx):
             # A failed robot does not come back, so it stops scheduling decisions entirely and
             # the swarm carries on without it. Advancing the world before this check lets a move
             # that exhausts its battery be settled before the robot can make another decision.
@@ -139,8 +139,14 @@ class RobotDecision:
             )
         )
 
-    def _has_failed(self, ctx: SimulationContext) -> bool:
-        return ctx.world.robots[self.robot].failed
+    def _has_stopped(self, ctx: SimulationContext) -> bool:
+        """Whether the robot has failed for good; an immobile robot still decides and talks.
+
+        The world refuses every action of a failed robot, so an immobile one only senses,
+        receives and broadcasts.
+        """
+        robot = ctx.world.robots[self.robot]
+        return robot.failed and robot.failure_mode is not FailureMode.IMMOBILE
 
     def _believed_position(self, ctx: SimulationContext) -> CellId | None:
         """Where the robot thinks it is, which is its true cell unless it draws sensor error.
