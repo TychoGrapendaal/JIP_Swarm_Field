@@ -159,7 +159,8 @@ class KillerFrame:
         heading: The offset in cells it walked along at that decision, if it followed a heading.
         hop_value: Its own TREAT beacon value, if it has one.
         escapes: Each escape beacon it placed, with its current push.
-        consumable: Its remaining treatment consumable.
+        doses_left: The treatments left in its tank.
+        doses_used: The treatments it has started since the run began.
         hop: Why it walks where it does, for a hop killer recorded with ``--explain``.
         field: The field it followed, for a seeded killer recorded with ``--explain``.
         treating: The cell it is treating, if any.
@@ -170,7 +171,8 @@ class KillerFrame:
     heading: Vector2 | None
     hop_value: float | None
     escapes: tuple[tuple[CellId, float], ...]
-    consumable: float
+    doses_left: int
+    doses_used: int
     hop: HopDetails | None = None
     field: FieldDetails | None = None
     treating: CellId | None = None
@@ -387,7 +389,8 @@ def _frame(run: LiveRun, now: Time, explain: bool) -> Frame:
             heading=offset,
             hop_value=hop_value,
             escapes=tuple(escapes),
-            consumable=robot.consumable,
+            doses_left=robot.doses_left,
+            doses_used=robot.doses_used,
             treating=robot.treating_cell,
             hop=hop,
             field=field,
@@ -490,7 +493,7 @@ def frame_visuals(frame: Frame, explain: bool) -> FrameVisuals:
     treaters: dict[CellId, int] = {}
     for robot_id, killer in frame.killers.items():
         start = frame.positions[robot_id]
-        markers.append(Marker(start, "red", size=0.0, label=f"{round(killer.consumable * 10)}"))
+        markers.append(Marker(start, "red", size=0.0, label=f"{killer.doses_left}"))
         if killer.treating is not None:
             treaters[killer.treating] = treaters.get(killer.treating, 0) + 1
         for cell, push in killer.escapes:
@@ -696,7 +699,7 @@ class TracePlayback:
         treating = 0
         empty = 0
         for killer in frame.killers.values():
-            if killer.consumable <= 0:
+            if killer.doses_left <= 0:
                 empty += 1
             elif killer.goal is not None and killer.goal.startswith("treat"):
                 treating += 1
@@ -704,7 +707,7 @@ class TracePlayback:
         doses = 0
         treaters: dict[CellId, int] = {}
         for killer in frame.killers.values():
-            doses += round((1.0 - killer.consumable) * 10)
+            doses += killer.doses_used
             if killer.treating is not None:
                 treaters[killer.treating] = treaters.get(killer.treating, 0) + 1
         shared = 0

@@ -251,8 +251,8 @@ class ScenarioConfig:
         dock_beacons: The docks' own radio broadcasting DOCK beacons, or ``None`` for none.
         treatment_rate: How much infestation severity one treating robot removes per hour; at
             1.0 a pest of full severity takes an hour.
-        treatment_doses: How many treatments a killer's full consumable holds; each treatment
-            uses ``1 / treatment_doses`` of it.
+        treatment_doses: How many treatments a killer's full tank holds; each treatment job
+            uses one dose.
     """
 
     field: FieldGeometry

@@ -197,17 +197,16 @@ def panel_lines(measured: MeasuredPestRun, snapshot: WorldSnapshot) -> list[str]
         lines.append(f"response   {minutes:.1f} min (mean)")
     lines.append("")
     goals: Counter[str] = Counter()
-    doses = scenario.pests.treatment_doses
-    doses_used = 0.0
+    doses_used = 0
     agents = measured.live.agents()
     world = measured.live.context.world
     for robot_id in measured.killers:
         goals[agents[robot_id].inspect().current_goal or "idle"] += 1
-        doses_used += (1.0 - world.robots[robot_id].consumable) * doses
+        doses_used += world.robots[robot_id].doses_used
     lines.append("killers by goal")
     for goal, count in sorted(goals.items()):
         lines.append(f"  {count:3d}  {goal}")
-    lines.append(f"doses used {doses_used:.0f} of {doses * len(measured.killers)}")
+    lines.append(f"doses used {doses_used}")
     return lines
 
 

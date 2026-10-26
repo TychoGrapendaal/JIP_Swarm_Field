@@ -152,13 +152,14 @@ def test_scout_can_fly_over_obstacle_cells() -> None:
 def test_treat_reduces_severity_over_time_and_consumes_one_dose() -> None:
     world = WorldState(_field(), robots=[_robot()])
     world.cell((1, 1)).infestation = 0.8
-    world.robots[1].consumable = 0.9
+    world.robots[1].doses_left = 9
 
     world.apply_action(1, Treat(cell=(1, 1)), time=0)
     world.advance_to(30 * TimeUnit.MINUTE)
 
     assert world.cell((1, 1)).infestation == pytest.approx(0.3)
-    assert world.robots[1].consumable == 0.8
+    assert world.robots[1].doses_left == 8
+    assert world.robots[1].doses_used == 1
 
     world.advance_to(60 * TimeUnit.MINUTE)
     assert world.cell((1, 1)).infestation == 0.0
@@ -174,22 +175,39 @@ def test_a_higher_treatment_rate_clears_a_pest_sooner() -> None:
     assert world.cell((1, 1)).infestation == pytest.approx(0.3)
 
 
-def test_a_killer_with_four_doses_spends_a_quarter_of_its_consumable_per_treatment() -> None:
+def test_a_killer_holds_the_dose_of_a_treatment_under_way_and_perceives_it_used_after() -> None:
     world = WorldState(_field(), robots=[_robot()], treatment_doses=4)
     world.cell((1, 1)).infestation = 0.8
 
     world.apply_action(1, Treat(cell=(1, 1)), time=0)
+    while_treating = world.perceived_self(1)
+    world.cell((1, 1)).infestation = 0.0
+    world.apply_action(1, Treat(cell=(1, 1)), time=0)
+    after = world.perceived_self(1)
 
-    assert world.robots[1].consumable == 0.75
+    assert world.robots[1].doses_left == 3
+    assert while_treating.doses_left == 4
+    assert after.doses_left == 3
+    assert after.consumable == 0.75
+
+
+def test_one_tank_gives_exactly_its_doses_in_treatments_and_then_refuses() -> None:
+    world = WorldState(_field(), robots=[_robot()], treatment_doses=10)
+
+    started = [_treat_a_fresh_pest(world) for _ in range(11)]
+
+    assert started == [True] * 10 + [False]
+    assert world.robots[1].doses_used == 10
+    assert world.perceived_self(1).consumable == 0.0
 
 
 def test_last_treatment_dose_can_finish_after_consumable_reaches_zero() -> None:
     world = WorldState(_field(), robots=[_robot()])
     world.cell((1, 1)).infestation = 1.0
-    world.robots[1].consumable = 0.1
+    world.robots[1].doses_left = 1
 
     world.apply_action(1, Treat(cell=(1, 1)), time=0)
-    assert world.robots[1].consumable == 0.0
+    assert world.robots[1].doses_left == 0
 
     # Repeated simulation ticks advance treatment, while reissuing Treat maintains the job.
     world.advance_to(30 * TimeUnit.MINUTE)
@@ -388,3 +406,16 @@ def test_battery_never_goes_below_empty() -> None:
 
     assert world.robots[1].battery == 0.0
     assert world.energy_spent() == pytest.approx(1.0)
+
+
+def _treat_a_fresh_pest(world: WorldState) -> bool:
+    """Put a fresh pest under robot 1 and treat it; whether a treatment job started.
+
+    The pest is then cleared at once, which ends the job, so the next call starts a new one.
+    """
+    world.cell((1, 1)).infestation = 0.5
+    world.apply_action(1, Treat(cell=(1, 1)), time=0)
+    started = world.robots[1].treating_cell is not None
+    world.cell((1, 1)).infestation = 0.0
+    world.apply_action(1, Treat(cell=(1, 1)), time=0)
+    return started

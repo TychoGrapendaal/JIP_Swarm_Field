@@ -57,14 +57,10 @@ class DockTrips:
     Attributes:
         durations: The minutes each completed trip took.
         open_trips: Trips still under way at the end.
-        empty_samples: Killer samples without doses left.
-        killer_samples: Killer samples in all.
     """
 
     durations: list[float] = field(default_factory=list)
     open_trips: int = 0
-    empty_samples: int = 0
-    killer_samples: int = 0
 
 
 @dataclass(frozen=True)
@@ -76,14 +72,12 @@ class DockResponse:
         trips: The completed trips' durations in minutes.
         open_trips: Trips still under way at the end.
         dead_killers: Killers that failed with an empty battery.
-        empty_share: The share of killer time without doses left.
     """
 
     pest: PestResponse
     trips: tuple[float, ...]
     open_trips: int
     dead_killers: int
-    empty_share: float
 
 
 def measure_dock_response(run: Run[PestRunSpec]) -> DockResponse:
@@ -101,9 +95,6 @@ def measure_dock_response(run: Run[PestRunSpec]) -> DockResponse:
             if robot.failed:
                 started.pop(robot_id, None)
                 continue
-            trips.killer_samples += 1
-            if robot.consumable <= 0.0:
-                trips.empty_samples += 1
             on_dock = robot.position in world.docks
             if robot_id in started and on_dock:
                 trips.durations.append((now - started.pop(robot_id)) / TimeUnit.MINUTE)
@@ -120,7 +111,6 @@ def measure_dock_response(run: Run[PestRunSpec]) -> DockResponse:
         trips=tuple(trips.durations),
         open_trips=trips.open_trips,
         dead_killers=dead,
-        empty_share=trips.empty_samples / max(trips.killer_samples, 1),
     )
 
 
@@ -180,7 +170,7 @@ def main() -> None:
         cells.extend([trip_minutes, longest])
         cells.append(f"{mean(result.open_trips for result in arm_results):.2f}")
         cells.append(f"{mean(result.dead_killers for result in arm_results):.2f}")
-        cells.append(f"{mean(result.empty_share for result in arm_results):.3f}")
+        cells.append(f"{mean(result.pest.no_doses for result in arm_results):.3f}")
         rows.append(cells)
     title = (
         f"river-small, docks at {docks}: "

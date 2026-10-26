@@ -165,7 +165,7 @@ The seed is not part of the spec: it comes with each run (section 3), and it set
 | `messages_per_robot_hour` | msgs | Messages received per robot per hour. |
 | `stuck` | stuck | The share of the time a killer committed to treating stands idle. |
 | `commit_hops` | commit hop | A killer's hop value each time it commits to treating, for hop arms; the table shows the median. |
-| `empty_killers` | empty | Killers that used up their doses. |
+| `no_doses` | no doses | The share of the live killer samples in which the killer had no doses left. A killer holds the dose of a treatment under way until it ends, so a killer treating with its last dose is not counted. |
 | `shared_target` | shared | The share of the samples with two or more killers committed to treating in which two of them report the same target: a duplicate trip. A hop killer's target is the cell of its strongest beacon, not the pest. `None` if never two were committed. |
 | `co_treating` | co-treat | The share of the samples with a treatment under way in which two killers treat the same cell. |
 | `isolated` | isolated | The share of the killer samples in which no other live robot is within radio range, from the ground truth. |
@@ -175,7 +175,7 @@ The seed is not part of the spec: it comes with each run (section 3), and it set
 | `crowded` | crowded | The share of the samples of killers that do not treat in which another killer is within radio range. |
 | `unknown_infested` | unknown | Pests per sample, after the warm-up, that no robot knows of: in the hop arm, that no robot is the hop source of. |
 | `cut_off_infested` | cut off | Pests per sample, after the warm-up, that some robot knows of but no robot in the radio network of any robot that knows is a killer: at most what perfect cohesion could save. |
-| `consumable_used` | (not in the table) | Doses used by all killers together, in units of 1 per killer (`1 / treatment_doses` per dose). |
+| `doses_used` | (not in the table) | Doses used by all killers together, one per treatment job, also those used before a killer restocked at a dock. |
 | `drift` | drift N h | The killers' mean distance in cells from their start, after each hour; 0 without killers. |
 | `coverage` | coverage | The share of the crop cells some robot sensed by the end of the run. |
 | `idleness_minutes` | idle | Minutes since a robot last sensed a crop cell, averaged over the cells and the samples after the warm-up: the expected wait of a new pest for its first sighting. |

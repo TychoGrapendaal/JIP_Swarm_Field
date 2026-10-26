@@ -19,9 +19,11 @@ class RobotSelfState:
         battery: Remaining energy, 0..1.
         body: Robot body type.
         speed_mps: Current maximum travel speed in metres per second.
-        consumable: Remaining treatment consumable, 0..1.
+        consumable: Remaining treatment consumable, 0..1: the share of a full tank of doses left.
         health: Condition, 0..1.
         spare_batteries: Number of charged spare batteries carried by a support robot.
+        doses_left: Treatments left in the tank; 10, a full tank of the default size, unless
+            given.
     """
 
     robot_id: RobotId
@@ -32,6 +34,7 @@ class RobotSelfState:
     consumable: float
     health: float
     spare_batteries: int = 0
+    doses_left: int = 10
 
 
 @dataclass(frozen=True)

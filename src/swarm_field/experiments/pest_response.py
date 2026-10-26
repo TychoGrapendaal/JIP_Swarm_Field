@@ -18,7 +18,7 @@ over the seeds and its standard error (±) where it matters:
   dead end of the hop field;
 - ``commit hop``: the median beacon value of a killer when it commits to treating, for arms
   with beacons;
-- ``empty``: killers that used up their treatment consumable;
+- ``no doses``: the share of the live killer samples in which the killer had no doses left;
 - ``shared``: the share of the samples with two or more killers committed to treating in which
   two of them report the same target, a duplicate trip; a hop killer's target is the cell of its
   strongest beacon, not the pest;
@@ -138,7 +138,7 @@ class PestResponse:
         messages_per_robot_hour: Messages received per robot per hour.
         stuck: The share of committed killer samples in which the killer stood idle.
         commit_hops: The killer's beacon value each time it committed to treating.
-        empty_killers: Killers that used up their treatment consumable.
+        no_doses: The share of the live killer samples in which the killer had no doses left.
         shared_target: The share of the samples with two or more killers committed to treating
             in which two report the same target, or ``None`` if there were none.
         co_treating: The share of the samples with a treatment under way in which two killers
@@ -154,8 +154,8 @@ class PestResponse:
         unknown_infested: Pests per sample after the warm-up that no robot knew of.
         cut_off_infested: Pests per sample after the warm-up that some robot knew of, but no
             robot in the radio network of any that knew was a killer.
-        consumable_used: Treatment consumable used by all killers together, each starting with
-            1; a treatment job uses ``1 / treatment_doses`` of the scenario.
+        doses_used: Doses used by all killers together, one per treatment job, also those
+            used before a killer restocked.
         drift: The killers' mean distance in cells from their start, after each hour.
         coverage: The share of the crop cells some robot sensed by the end of the run.
         idleness_minutes: Minutes since a robot last sensed a crop cell, averaged over the cells
@@ -175,7 +175,7 @@ class PestResponse:
     messages_per_robot_hour: float
     stuck: float
     commit_hops: tuple[float, ...]
-    empty_killers: int
+    no_doses: float
     shared_target: float | None
     co_treating: float | None
     isolated: float
@@ -185,7 +185,7 @@ class PestResponse:
     crowded: float | None
     unknown_infested: float
     cut_off_infested: float
-    consumable_used: float
+    doses_used: int
     drift: tuple[float, ...]
     coverage: float
     idleness_minutes: float
@@ -211,6 +211,7 @@ class PestTracker:
         treating: Samples with a treatment under way.
         co_treating: Of those, the samples in which two killers treat the same cell.
         killer_samples: Samples of a live killer, one per killer and sample.
+        no_doses: Of those, the samples in which the killer had no doses left.
         isolated: Of those, the samples with no other live robot within radio range.
         beacon_samples: Samples of a live killer with beacons.
         no_fresh_beacon: Of those, the samples in which it heard no fresh TREAT beacon.
@@ -248,6 +249,7 @@ class PestTracker:
         self.treating: int = 0
         self.co_treating: int = 0
         self.killer_samples: int = 0
+        self.no_doses: int = 0
         self.isolated: int = 0
         self.beacon_samples: int = 0
         self.no_fresh_beacon: int = 0
@@ -335,8 +337,9 @@ class PestTracker:
             self.co_treating += 1
 
     def _sample_isolation(self, run: LiveRun, now: Time) -> None:
-        """Count the live killers with no other live robot in radio range, those without beacons,
-        and those idle and isolated or crowded; follow every killer's isolation spells."""
+        """Count the live killers with no other live robot in radio range, those without doses
+        or beacons, and those idle and isolated or crowded; follow every killer's isolation
+        spells."""
         world = run.context.world
         agents = run.agents()
         live = world.live_robots()
@@ -346,6 +349,8 @@ class PestTracker:
                 self._end_spell(robot_id, now)
                 continue
             self.killer_samples += 1
+            if killer.doses_held <= 0:
+                self.no_doses += 1
             neighbours = 0
             killers_near = 0
             for other in live:
@@ -489,13 +494,9 @@ class MeasuredPestRun:
             response_p90 = _percentile_90(tracker.responses) / TimeUnit.MINUTE
             cells_per_treatment = tracker.cells_moved / treated
         world = self.live.context.world
-        empty = 0
-        used = 0.0
+        doses_used = 0
         for robot_id in self.killers:
-            consumable = world.robots[robot_id].consumable
-            used += 1.0 - consumable
-            if consumable <= 0:
-                empty += 1
+            doses_used += world.robots[robot_id].doses_used
         hours = self.run.config.hours
         metrics = self.live.metrics.latest()
         if metrics is None:
@@ -510,7 +511,7 @@ class MeasuredPestRun:
             messages_per_robot_hour=self.live.context.channel.received / len(world.robots) / hours,
             stuck=tracker.stuck / max(tracker.committed, 1),
             commit_hops=tuple(tracker.commit_hops),
-            empty_killers=empty,
+            no_doses=tracker.no_doses / max(tracker.killer_samples, 1),
             shared_target=_share(tracker.shared_target, tracker.several_committed),
             co_treating=_share(tracker.co_treating, tracker.treating),
             isolated=tracker.isolated / max(tracker.killer_samples, 1),
@@ -520,7 +521,7 @@ class MeasuredPestRun:
             crowded=_share(tracker.crowded, tracker.idle_samples),
             unknown_infested=tracker.unknown / max(tracker.reach_samples, 1),
             cut_off_infested=tracker.cut_off / max(tracker.reach_samples, 1),
-            consumable_used=used,
+            doses_used=doses_used,
             drift=tuple(tracker.drift),
             coverage=metrics.coverage,
             idleness_minutes=metrics.mean_idleness_ms / TimeUnit.MINUTE,
@@ -546,7 +547,9 @@ def pest_table_headers(hours: int, first: str = "arm") -> list[str]:
         first: The name of the label column.
     """
     headers = [first, "infested", "treated", "response", "p90", "open", "cells/treat", "msgs"]
-    headers.extend(["stuck", "commit hop", "empty", "shared", "co-treat", "isolated", "no beacon"])
+    headers.extend(
+        ["stuck", "commit hop", "no doses", "shared", "co-treat", "isolated", "no beacon"]
+    )
     headers.extend(["coverage", "idle", "redund"])
     for hour in range(1, hours + 1):
         headers.append(f"drift {hour} h")
@@ -567,7 +570,7 @@ def pest_table_cells(label: str, results: list[PestResponse], hours: int) -> lis
         f"{mean(result.messages_per_robot_hour for result in results):.0f}",
         f"{mean(result.stuck for result in results):.2f}",
         _median_commit_hop(results),
-        f"{mean(result.empty_killers for result in results):.1f}",
+        f"{mean(result.no_doses for result in results):.2f}",
         _mean_share([result.shared_target for result in results]),
         _mean_share([result.co_treating for result in results]),
         f"{mean(result.isolated for result in results):.2f}",

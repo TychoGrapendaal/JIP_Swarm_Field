@@ -75,7 +75,10 @@ class RobotState:
         speed_mps: Maximum travel speed in metres per second.
         radio_range_m: Broadcast radius in metres; robots within it hear this robot.
         battery: Remaining battery level, 0..1.
-        consumable: Remaining treatment consumable, 0..1.
+        doses_left: Treatments left in the robot's tank; ``WorldState.add_robot`` fills the tank
+            when the robot joins the world, and a dock refills a killer's.
+        doses_used: Treatments the robot has started since the run began, whatever restocked
+            it in between.
         health: Robot health, 0..1.
         move_target: Cell the robot is travelling toward, if any.
         move_started_at: Simulation time when the current move started.
@@ -92,7 +95,8 @@ class RobotState:
     speed_mps: float
     radio_range_m: float = 0.0
     battery: float = 1.0
-    consumable: float = 1.0
+    doses_left: int = 0
+    doses_used: int = 0
     health: float = 1.0
     move_target: CellId | None = None
     move_started_at: Time | None = None
@@ -108,6 +112,17 @@ class RobotState:
     failed: bool = False
     failure_mode: FailureMode | None = None
 
+    @property
+    def doses_held(self) -> int:
+        """The doses left, counting the one a treatment under way still uses.
+
+        A dose leaves the tank when its job starts, but the robot holds it until the job ends:
+        a killer treating with its last dose is not yet empty.
+        """
+        if self.treating_cell is not None:
+            return self.doses_left + 1
+        return self.doses_left
+
 
 class WorldState:
     """Ground truth for a coarse field-cell simulation.
@@ -118,7 +133,7 @@ class WorldState:
 
     Attributes:
         treatment_rate: How much infestation severity one treating robot removes per hour.
-        treatment_doses: How many treatments a killer's full consumable holds.
+        treatment_doses: How many treatments a robot's full tank holds.
     """
 
     def __init__(
@@ -212,7 +227,7 @@ class WorldState:
         return body is BodyType.SCOUT or not self.cells[cell].obstacle
 
     def add_robot(self, robot: RobotState) -> None:
-        """Add a robot without imposing any per-cell occupancy limit."""
+        """Add a robot with a full tank, without imposing any per-cell occupancy limit."""
         if robot.robot_id in self.robots:
             raise ValueError(f"robot already exists: {robot.robot_id}")
         if not self.is_inside(robot.position):
@@ -223,6 +238,7 @@ class WorldState:
             raise ValueError("spare_batteries cannot be negative")
         if robot.speed_mps <= 0:
             raise ValueError("robot speed_mps must be positive")
+        robot.doses_left = self.treatment_doses
         self.robots[robot.robot_id] = robot
 
     def robots_at(self, cell: CellId) -> tuple[RobotId, ...]:
@@ -253,8 +269,9 @@ class WorldState:
             battery=robot.battery,
             body=robot.body,
             speed_mps=robot.speed_mps,
-            consumable=robot.consumable,
+            consumable=robot.doses_held / self.treatment_doses,
             health=robot.health,
+            doses_left=robot.doses_held,
             spare_batteries=robot.spare_batteries,
         )
 
@@ -589,14 +606,15 @@ class WorldState:
             robot.current_action = Idle()
             return
         if robot.treating_cell != target:
-            # Consumable stock is charged once when a treatment job starts. The last dose must
-            # still be allowed to finish its treatment after stock reaches zero.
-            if robot.consumable <= 0.0:
+            # A dose is taken once when a treatment job starts. The last dose must still be
+            # allowed to finish its treatment after the tank is empty.
+            if robot.doses_left <= 0:
                 robot.treating_cell = None
                 robot.treatment_updated_at = None
                 robot.current_action = Idle()
                 return
-            robot.consumable = max(0.0, robot.consumable - 1 / self.treatment_doses)
+            robot.doses_left -= 1
+            robot.doses_used += 1
             robot.treating_cell = target
         robot.treatment_updated_at = time
 
@@ -650,7 +668,7 @@ class WorldState:
     def _start_charging(self, robot: RobotState, time: Time) -> None:
         """Serve a robot that asks a dock for service; a dock serves every robot at once.
 
-        The service swaps what can be swapped at once: a killer's treatment consumable and a
+        The service swaps what can be swapped at once: a killer's tank of doses and a
         battery robot's spares are full again. The battery then charges with simulated time,
         over the body's ``dock_recharge_seconds`` from empty to full.
         """
@@ -665,7 +683,7 @@ class WorldState:
         if robot.body is BodyType.BATTERY:
             robot.spare_batteries = profile.spare_battery_capacity
         if robot.body is BodyType.KILLER:
-            robot.consumable = 1.0
+            robot.doses_left = self.treatment_doses
 
         if robot.battery >= 1.0 or profile.dock_recharge_seconds <= 0.0:
             self._stop_charging(robot)

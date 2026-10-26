@@ -1,5 +1,7 @@
 """Acceptance tests for Issue #77: physical battery depletion and dock charging."""
 
+from random import Random
+
 import pytest
 
 from swarm_field.contracts import (
@@ -8,11 +10,16 @@ from swarm_field.contracts import (
     FailureMode,
     FieldGeometry,
     Idle,
+    InfestationObservation,
+    Message,
+    MessageKind,
     Move,
     PeerObservation,
+    Perception,
     RobotSpec,
     TimeUnit,
 )
+from swarm_field.runner import BrainSpec, build_agent
 from swarm_field.simulation import (
     EnergyConfig,
     MetricsCollector,
@@ -20,7 +27,16 @@ from swarm_field.simulation import (
     RobotState,
     WorldState,
 )
-from swarm_field.swarm import RechargeConfig
+from swarm_field.swarm import (
+    DockSeeder,
+    KnowledgeSharing,
+    RechargeConfig,
+    Resupply,
+    ReturnToDock,
+    SharingConfig,
+    TreatInfestation,
+    TreatSeeder,
+)
 from swarm_field.swarm.capabilities import CapabilitySet, capabilities_for
 
 
@@ -74,16 +90,67 @@ def test_a_dock_charges_every_robot_at_once() -> None:
     assert world.robots[2].battery == pytest.approx(1.0)
 
 
-def test_a_killer_restocks_its_consumable_at_a_dock_even_with_a_full_battery() -> None:
+def test_a_killer_restocks_its_doses_at_a_dock_even_with_a_full_battery() -> None:
     dock = (2, 2)
-    killer = _robot(1, position=dock)
-    killer.consumable = 0.0
-    world = WorldState(_field(), robots=[killer], docks=[dock])
+    world = WorldState(_field(), robots=[_robot(1, position=dock)], docks=[dock])
+    world.robots[1].doses_left = 0
 
     world.apply_action(1, Charge(), time=0)
 
-    assert world.robots[1].consumable == 1.0
+    assert world.robots[1].doses_left == world.treatment_doses
     assert world.robots[1].charging_updated_at is None
+
+
+def test_a_killer_with_one_dose_treats_a_pest_restocks_on_the_dock_and_treats_the_next() -> None:
+    dock = (0, 2)
+    first, second = (4, 2), (5, 2)
+    world = WorldState(
+        _field(),
+        robots=[_robot(1, position=(3, 2))],
+        docks=[dock],
+        treatment_rate=60.0,
+        treatment_doses=1,
+    )
+    for cell in (first, second):
+        world.cell(cell).infestation = 0.5
+    spec = BrainSpec(
+        behaviors=(TreatInfestation.name, ReturnToDock.name, Resupply.name),
+        seeders=(TreatSeeder.name, DockSeeder.name),
+        sharing=SharingConfig(facts=KnowledgeSharing.NOTHING),
+    )
+    killer = build_agent(spec, 1, world.field, Random(0), docks=(dock,))
+    # A killer senses pests on its own cell only, so a peer tells it of both.
+    pests: list[Message] = [
+        Message(
+            sender=2,
+            sent_at=0,
+            kind=MessageKind.KNOWLEDGE,
+            payload=(_pest_fact(first), _pest_fact(second)),
+        )
+    ]
+    cleared: list[tuple[int, int]] = []
+    restocked_before_second = False
+    time = 0
+    while time < TimeUnit.HOUR and len(cleared) < 2:
+        perception = Perception(
+            time=time,
+            self_state=world.perceived_self(1),
+            sensed=world.observe_for(1, time),
+            inbox=pests,
+        )
+        pests = []
+        arrival = world.apply_action(1, killer.decide(perception).action, time)
+        time = arrival if arrival is not None else time + 15 * TimeUnit.SECOND
+        world.advance_to(time)
+        for cell in (first, second):
+            if cell not in cleared and world.cell(cell).infestation == 0.0:
+                cleared.append(cell)
+        if first in cleared and world.robots[1].position == dock:
+            restocked_before_second = second not in cleared
+
+    assert cleared == [first, second]
+    assert restocked_before_second
+    assert world.robots[1].doses_used == 2
 
 
 def test_an_empty_robot_at_a_dock_can_recover_by_charging() -> None:
@@ -262,3 +329,9 @@ def test_decision_cost_is_charged_while_a_committed_move_is_underway() -> None:
 
     assert world.robots[1].move_target == (3, 2)
     assert world.robots[1].battery == pytest.approx(after_start - 0.1)
+
+
+def _pest_fact(cell: tuple[int, int]) -> InfestationObservation:
+    return InfestationObservation(
+        cell=cell, confidence=1.0, observed_at=0, source=2, severity=0.5, pest=None
+    )
