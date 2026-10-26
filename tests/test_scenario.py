@@ -7,13 +7,22 @@ import pytest
 
 from swarm_field.contracts import BodyType, CellId, MessageKind, RobotSelfState, TimeUnit
 from swarm_field.experiments import (
+    DEFAULT_EXPLORERS,
+    DEFAULT_KILLERS,
+    DEFAULT_ROBOTS,
     EXPLORER,
     HOP_BEST,
     HOP_KILLER,
+    LATTICE_ROBOTS,
+    OPEN_LARGE,
+    OPEN_SMALL,
     RELAY,
     RELAYED_KILLERS,
+    RIVER_SMALL,
     RIVERS_LARGE,
+    SEEDED_BEST,
     SEEDED_KILLER,
+    SMALL_FIELD_PESTS,
     CustomPreset,
     ExplorerPreset,
     LiveRun,
@@ -49,8 +58,9 @@ def test_lattice_starts_are_inside_the_field_and_reproducible() -> None:
 
 def test_lattice_starts_avoid_obstacles() -> None:
     scenario = (
-        RELAYED_KILLERS.without_robots()
+        SwarmScenario()
         .with_map(MapConfig())
+        .with_robot_config(LATTICE_ROBOTS)
         .add_robots(RELAY, 64)
         .add_robots(SEEDED_KILLER, 1)
     )
@@ -58,6 +68,34 @@ def test_lattice_starts_avoid_obstacles() -> None:
 
     for cell in scenario.starts():
         assert cell not in blocked
+
+
+def test_initial_pests_lie_on_distinct_free_cells_drawn_from_the_seed() -> None:
+    scenario = SwarmScenario().with_pests(replace(SMALL_FIELD_PESTS, initial_pests=20))
+    blocked = set(scenario.map.blocked_cells())
+
+    infestation = scenario.initial_infestation()
+
+    assert len(infestation) == 20
+    for cell, severity in infestation.items():
+        assert scenario.map.is_inside(cell) and cell not in blocked
+        assert severity == SMALL_FIELD_PESTS.spawn_severity
+    assert scenario.initial_infestation() == infestation
+    assert replace(scenario, seed=1).initial_infestation() != infestation
+    assert scenario.into_experiment().scenario.initial_infestation == infestation
+
+
+def test_the_default_scenarios_run_the_default_swarm_on_static_pests() -> None:
+    for scenario, hours in ((RIVER_SMALL, 2), (OPEN_SMALL, 2), (RIVERS_LARGE, 4), (OPEN_LARGE, 4)):
+        assert scenario.count(EXPLORER.name) == DEFAULT_EXPLORERS
+        assert scenario.count(SEEDED_BEST.name) == DEFAULT_KILLERS
+        assert scenario.robots == DEFAULT_ROBOTS
+        assert scenario.pests.growth_rate == 0.0 and scenario.pests.spread_probability == 0.0
+        assert len(scenario.initial_infestation()) == scenario.pests.initial_pests > 0
+        assert scenario.until == hours * TimeUnit.HOUR
+        hop = pest_response_configurations(scenario)["hop-best"]
+        assert hop.count(EXPLORER.name) == DEFAULT_EXPLORERS
+        assert hop.killers == DEFAULT_KILLERS
 
 
 def test_the_bridges_join_every_free_cell_of_the_two_rivers_field() -> None:

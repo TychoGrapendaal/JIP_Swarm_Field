@@ -1,7 +1,8 @@
 """Demo videos of the obstacle comparison (#70): record a run once, render it as often as wanted.
 
-Each pest response of ``CONFIGS``, from ``pest_response_configurations``, runs on ``RIVER_SMALL``
-or ``RIVERS_LARGE``; ``--config seeded-no-yield`` records the seeded response without the claims.
+Each pest response of ``CONFIGS``, from ``pest_response_configurations``, runs on
+``RELAYED_RIVER_SMALL`` or ``RELAYED_RIVERS_LARGE``; ``--config seeded-no-yield`` records the
+seeded response without the claims.
 ``record`` runs it once through ``LiveRun``, one frame per decision interval, and writes a
 ``Trace``: everything the videos might show, so that new visuals need no new run. ``render``
 turns traces into videos with ``MatplotlibRenderer`` and the overlays, without the simulation.
@@ -58,8 +59,8 @@ from swarm_field.contracts import (
     WorldSnapshot,
 )
 from swarm_field.experiments import (
-    RIVER_SMALL,
-    RIVERS_LARGE,
+    RELAYED_RIVER_SMALL,
+    RELAYED_RIVERS_LARGE,
     SEEDED_KILLER,
     LiveRun,
     SeededKillerPreset,
@@ -91,7 +92,10 @@ from swarm_field.visualization import (
 
 logger = logging.getLogger(__name__)
 
-SCENARIOS: dict[str, SwarmScenario] = {"river-small": RIVER_SMALL, "rivers-large": RIVERS_LARGE}
+SCENARIOS: dict[str, SwarmScenario] = {
+    "river-small": RELAYED_RIVER_SMALL,
+    "rivers-large": RELAYED_RIVERS_LARGE,
+}
 """The scenarios by the name used in file names and titles."""
 CONFIGS = ("seeded", "seeded-best", "seeded-no-yield", "hop", "hop-repel", "hop-tuned", "hop-best")
 """Every configuration that can be recorded."""

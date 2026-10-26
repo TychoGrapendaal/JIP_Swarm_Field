@@ -27,7 +27,8 @@ from statistics import mean
 from studies.baselines import RANDOM_WAYPOINT_BRAIN
 from swarm_field.contracts import BodyType, CellId, MetricsSample, Time, TimeUnit
 from swarm_field.experiments import (
-    EXPLORE,
+    EXPLORE_ROBOTS,
+    NO_PESTS,
     CustomPreset,
     Experiment,
     ExplorerPreset,
@@ -43,6 +44,7 @@ from swarm_field.experiments import (
     runs_for,
 )
 from swarm_field.runner import run_experiment
+from swarm_field.simulation import MetricsConfig
 from swarm_field.swarm import ExploreConfig
 
 _REFERENCE = ExploreConfig()
@@ -92,10 +94,11 @@ class ExploreRunSpec:
             obstacles = river_and_rocks(self.size)
         end: Time = int(self.hours * TimeUnit.HOUR)
         field = (
-            EXPLORE.without_robots()
+            SwarmScenario()
             .with_map(MapConfig(size=self.size, obstacles=obstacles))
-            .with_robot_config(replace(EXPLORE.robots, radio_range_m=variant.radio_range_m))
-            .with_metrics(replace(EXPLORE.metrics, measure_from=end // 2))
+            .with_pests(NO_PESTS)
+            .with_robot_config(replace(EXPLORE_ROBOTS, radio_range_m=variant.radio_range_m))
+            .with_metrics(MetricsConfig(period=TimeUnit.MINUTE, measure_from=end // 2))
         )
         preset: RobotPreset = RANDOM_WAYPOINT
         if variant.explore is not None:

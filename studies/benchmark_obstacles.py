@@ -1,8 +1,8 @@
 """Benchmark pest response on fields with obstacles: every compared configuration, two scenarios.
 
-Every configuration of ``pest_response_configurations`` runs on ``RIVER_SMALL`` and on
-``RIVERS_LARGE``, with the same seeds. A run is measured with ``measure_pest_response``, whose
-standard columns the table repeats, and adds:
+Every configuration of ``pest_response_configurations`` runs on ``RELAYED_RIVER_SMALL`` and on
+``RELAYED_RIVERS_LARGE``, with the same seeds. A run is measured with ``measure_pest_response``,
+whose standard columns the table repeats, and adds:
 
 - ``treated %``: the share of the pests that appeared and were treated, ``treated / (treated +
   open)``;
@@ -28,8 +28,8 @@ from dataclasses import dataclass
 from swarm_field.contracts import BodyType
 from swarm_field.experiments import (
     RELAY,
-    RIVER_SMALL,
-    RIVERS_LARGE,
+    RELAYED_RIVER_SMALL,
+    RELAYED_RIVERS_LARGE,
     SEEDED_KILLER,
     Experiment,
     PestResponse,
@@ -47,7 +47,10 @@ from swarm_field.experiments import (
     treated_share,
 )
 
-SCENARIOS: dict[str, SwarmScenario] = {"river-small": RIVER_SMALL, "rivers-large": RIVERS_LARGE}
+SCENARIOS: dict[str, SwarmScenario] = {
+    "river-small": RELAYED_RIVER_SMALL,
+    "rivers-large": RELAYED_RIVERS_LARGE,
+}
 """The scenarios by the name used in arm names and tables."""
 BASELINE = "seeded"
 """The configuration every other is compared with, seed by seed."""

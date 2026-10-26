@@ -67,8 +67,12 @@ from swarm_field.experiments.presets import (
 )
 from swarm_field.experiments.scenario import (
     EXPLORE,
+    OPEN_LARGE,
+    OPEN_SMALL,
     PESTS,
     RELAYED_KILLERS,
+    RELAYED_RIVER_SMALL,
+    RELAYED_RIVERS_LARGE,
     RIVER_SMALL,
     RIVERS_LARGE,
     PestConfig,
@@ -87,6 +91,10 @@ SCENARIOS: dict[str, SwarmScenario] = {
     "explore": EXPLORE,
     "river-small": RIVER_SMALL,
     "rivers-large": RIVERS_LARGE,
+    "open-small": OPEN_SMALL,
+    "open-large": OPEN_LARGE,
+    "relayed-river-small": RELAYED_RIVER_SMALL,
+    "relayed-rivers-large": RELAYED_RIVERS_LARGE,
     "relayed-killers": RELAYED_KILLERS,
 }
 """The scenarios a file can name, by name."""

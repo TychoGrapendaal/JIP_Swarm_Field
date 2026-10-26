@@ -26,7 +26,7 @@ A `Charge` action is effective only at a configured dock. A dock serves every ro
 
 The service also swaps what can be swapped at once. A KILLER's treatment consumable is full again as soon as it asks a dock for service, even with a full battery, and a BATTERY robot's spare batteries are replenished. Battery replacement between a BATTERY robot and a co-located SCOUT/KILLER remains a separate timed operation.
 
-`MapConfig` has one dock at `(0, 0)` by default, which `PESTS`, `EXPLORE` and `RELAYED_KILLERS` keep. `RIVER_SMALL` has one on each bank of its river, at `(0, 0)` and `(31, 31)`, and `RIVERS_LARGE` two, at `(0, 0)` and `(63, 63)`.
+`MapConfig` has one dock at `(0, 0)` by default, which `PESTS`, `EXPLORE` and `RELAYED_KILLERS` keep. `SMALL_RIVER_MAP` has one on each bank of its river, at `(0, 0)` and `(31, 31)`, and `LARGE_RIVERS_MAP` and `LARGE_OPEN_MAP` two each, at `(0, 0)` and `(63, 63)`.
 
 ## The `Resupply` behaviour
 

@@ -26,8 +26,8 @@ from dataclasses import replace
 from swarm_field.contracts import TimeUnit
 from swarm_field.experiments import (
     PESTS_PER_KILLER_HOUR,
-    RIVER_SMALL,
     SEEDED_KILLER,
+    SMALL_RIVER_MAP,
     Experiment,
     HopKillerPreset,
     PestResponse,
@@ -69,7 +69,7 @@ def parse_args() -> argparse.Namespace:
 
 def killers(radio_m: float) -> dict[str, RobotPreset]:
     """The seeded killer and the hop killer of a ``radio_m`` radio, by name."""
-    hop_cells = radio_m / RIVER_SMALL.map.cell_size
+    hop_cells = radio_m / SMALL_RIVER_MAP.cell_size
     tuned = hop_beacon_variants(hop_cells)["hop-tuned"]
     hop = HopKillerPreset(beacons=replace(tuned, source_for=SOURCE_FOR))
     return {"seeded": SEEDED_KILLER, "hop": hop}

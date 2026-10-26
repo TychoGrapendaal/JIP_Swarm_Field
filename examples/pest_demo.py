@@ -36,10 +36,13 @@ from swarm_field.console import (
 from swarm_field.contracts import BodyType, Time, TimeUnit, WorldSnapshot
 from swarm_field.experiments import (
     EXPLORER,
+    FAST_PESTS,
     HOP_KILLER,
     PESTS,
     SEEDED_KILLER,
     LiveRun,
+    MapConfig,
+    RobotConfig,
     RobotPreset,
     SwarmScenario,
 )
@@ -55,19 +58,19 @@ GOAL_LABELS: dict[str | None, str] = {
 
 
 def parse_args() -> argparse.Namespace:
-    """The command line; the scenario's settings default to those of ``PESTS``."""
+    """The command line; the swarm defaults to that of ``PESTS``, the settings to its parts."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--explorers", type=int, default=PESTS.count(EXPLORER.name))
     parser.add_argument("--killers", type=int, default=PESTS.killers)
     parser.add_argument("--hop", action="store_true", help="hop killers instead of seeded ones")
     parser.add_argument(
-        "--radio", type=float, default=PESTS.robots.radio_range_m, help="radio range in metres"
+        "--radio", type=float, default=RobotConfig().radio_range_m, help="radio range in metres"
     )
-    parser.add_argument("--pests-per-hour", type=float, default=PESTS.pests.pests_per_hour)
+    parser.add_argument("--pests-per-hour", type=float, default=FAST_PESTS.pests_per_hour)
     parser.add_argument(
         "--spread",
         type=float,
-        default=PESTS.pests.spread_probability,
+        default=FAST_PESTS.spread_probability,
         help="pest spread probability",
     )
     add_session_arguments(parser, default_speed=DEFAULT_SPEED, recording=False)
@@ -75,15 +78,17 @@ def parse_args() -> argparse.Namespace:
 
 
 def build_scenario(args: argparse.Namespace) -> SwarmScenario:
-    """The scenario of the command line, on ``PESTS``' field, seed and horizon unless given."""
+    """The scenario of the command line, on the river field with one dock (``MapConfig()``), with
+    ``FAST_PESTS`` changed by it."""
     killer: RobotPreset = SEEDED_KILLER
     if args.hop:
         killer = HOP_KILLER
-    pests = replace(PESTS.pests, pests_per_hour=args.pests_per_hour, spread_probability=args.spread)
+    pests = replace(FAST_PESTS, pests_per_hour=args.pests_per_hour, spread_probability=args.spread)
     scenario = (
-        PESTS.without_robots()
+        SwarmScenario()
+        .with_map(MapConfig())
         .with_pests(pests)
-        .with_robot_config(replace(PESTS.robots, radio_range_m=args.radio))
+        .with_robot_config(RobotConfig(radio_range_m=args.radio))
         .add_robots(EXPLORER, args.explorers)
         .add_robots(killer, args.killers)
     )

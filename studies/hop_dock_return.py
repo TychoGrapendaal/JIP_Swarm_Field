@@ -6,8 +6,8 @@ broadcasts, to restock their doses and to charge, as reliably and as fast as see
 that plan over their map? Two conditions make the killers go: ``doses``, where every killer
 carries 10 doses and the battery is unlimited, so killers restock; and ``battery``, where every
 battery holds half a standard charge and doses are unlimited, so robots charge. The field has
-``RIVER_SMALL``'s docks, one on each bank of the river; ``--one-dock`` keeps only the one at
-``(0, 0)``, west of the river, so a killer on the east bank must find the bridge.
+the docks of ``SMALL_RIVER_MAP``, one on each bank of the river; ``--one-dock`` keeps only
+the one at ``(0, 0)``, west of the river, so a killer on the east bank must find the bridge.
 
 A trip starts when ``return-to-dock`` or ``resupply`` wins a killer's decision and ends when the
 killer stands on a dock. The table reports trips started and completed, their mean and longest
@@ -28,8 +28,9 @@ from statistics import mean
 from studies.explorer_hop_killers import KILLERS
 from swarm_field.contracts import FailureMode, RobotId, Time, TimeUnit
 from swarm_field.experiments import (
+    LATTICE_ROBOTS,
     PESTS_PER_KILLER_HOUR,
-    RIVER_SMALL,
+    SMALL_RIVER_MAP,
     Experiment,
     PestResponse,
     PestRunSpec,
@@ -134,8 +135,8 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     args = parse_args()
     rate = PESTS_PER_KILLER_HOUR * args.killers
-    radio = RIVER_SMALL.robots.radio_range_m
-    docks = RIVER_SMALL.map.docks
+    radio = LATTICE_ROBOTS.radio_range_m
+    docks = SMALL_RIVER_MAP.docks
     if args.one_dock:
         docks = ((0, 0),)
     specs: dict[str, PestRunSpec] = {}

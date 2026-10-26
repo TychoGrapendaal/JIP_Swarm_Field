@@ -1,6 +1,6 @@
 """Study hop killers that hear of pests only from the explorers moving over the field (#70).
 
-Question: on the small river field (``RIVER_SMALL``'s map), do hop killers find and treat the
+Question: on the small river field (``SMALL_RIVER_MAP``), do hop killers find and treat the
 pests when the only robots that relay their beacons are explorers that keep moving? There are no
 standing relays and no mock sources on the pests: an explorer that senses a pest is its source,
 and every explorer relays the hop values it hears. This is ``moving_explorer_scenario``: battery
@@ -26,9 +26,9 @@ import logging
 from swarm_field.contracts import TimeUnit
 from swarm_field.experiments import (
     HOP_KILLER,
+    LATTICE_ROBOTS,
     PESTS_PER_KILLER_HOUR,
     REVISIT_SWEEPS,
-    RIVER_SMALL,
     SEEDED_KILLER,
     Experiment,
     PestRunSpec,
@@ -62,7 +62,7 @@ def parse_args() -> argparse.Namespace:
         help="pest rate; PESTS_PER_KILLER_HOUR per killer if not given",
     )
     parser.add_argument(
-        "--radio", type=float, default=RIVER_SMALL.robots.radio_range_m, help="radio range in m"
+        "--radio", type=float, default=LATTICE_ROBOTS.radio_range_m, help="radio range in m"
     )
     parser.add_argument("--seeds", type=int, default=4, help="runs per arm, seeds 0, 1, ...")
     parser.add_argument("--hours", type=int, default=3, help="simulated hours per run")

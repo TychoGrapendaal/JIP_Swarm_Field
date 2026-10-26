@@ -11,7 +11,7 @@ two standard errors of the paired difference.
 ``--stage combine`` then tests the promising changes of the sweep on top of the adopted one
 (``fresh_for`` of 2 minutes), alone and together, against the hop base with that change; and the
 longer claim ages of the seeded arm again. A value is frozen only if it holds on both fields:
-``--field large`` runs on the large field with two rivers (``RIVERS_LARGE``'s map), with four
+``--field large`` runs on the large field with two rivers (``LARGE_RIVERS_MAP``), with four
 times the area and, by default, half the robots per cell of the small one, at the same load per
 killer. Not part of ``pytest``; run it with:
 
@@ -36,11 +36,12 @@ from swarm_field.experiments import (
     EXPLORER,
     HOP_BEST,
     HOP_KILLER,
+    LARGE_RIVERS_MAP,
+    LATTICE_ROBOTS,
     PESTS_PER_KILLER_HOUR,
-    RIVER_SMALL,
-    RIVERS_LARGE,
     SEEDED_BEST,
     SEEDED_KILLER,
+    SMALL_RIVER_MAP,
     Experiment,
     ExplorerPreset,
     HopKillerPreset,
@@ -83,7 +84,7 @@ class Variant:
 
 def hop_base() -> BeaconConfig:
     """The hop arm's base: ``hop-tuned`` with a 3-minute ``source_for``."""
-    hop_cells = RIVER_SMALL.robots.radio_range_m / RIVER_SMALL.map.cell_size
+    hop_cells = LATTICE_ROBOTS.radio_range_m / SMALL_RIVER_MAP.cell_size
     return replace(hop_beacon_variants(hop_cells)["hop-tuned"], source_for=3 * MINUTE)
 
 
@@ -191,7 +192,7 @@ def verify_variants() -> list[Variant]:
 
 FIELD_ROBOTS: dict[str, tuple[int, int]] = {"small": (20, 4), "large": (40, 8)}
 """The explorers and killers of each field by default."""
-FIELD_MAPS: dict[str, MapConfig] = {"small": RIVER_SMALL.map, "large": RIVERS_LARGE.map}
+FIELD_MAPS: dict[str, MapConfig] = {"small": SMALL_RIVER_MAP, "large": LARGE_RIVERS_MAP}
 """Each field: the small one with one river, and the large one with two rivers and two docks."""
 
 
@@ -233,7 +234,7 @@ def main() -> None:
     if args.killers is not None:
         killers = args.killers
     rate = PESTS_PER_KILLER_HOUR * killers
-    radio = RIVER_SMALL.robots.radio_range_m
+    radio = LATTICE_ROBOTS.radio_range_m
     found = variants()
     if args.stage == "combine":
         found = combine_variants()

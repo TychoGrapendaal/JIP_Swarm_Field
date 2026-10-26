@@ -3,6 +3,9 @@
 A ``MapConfig`` is one scenario's field. ``river_and_rocks`` is the small field's map, one river
 with a bridge and two rocks, and ``two_rivers_and_rocks`` the large field's, two rivers with
 three bridges and eight rocks. An open field has no blocked cells, ``()``.
+
+The four standard maps, to compose a ``SwarmScenario`` from: ``SMALL_OPEN_MAP``,
+``LARGE_OPEN_MAP``, ``SMALL_RIVER_MAP`` and ``LARGE_RIVERS_MAP``.
 """
 
 from __future__ import annotations
@@ -122,3 +125,22 @@ def two_rivers_and_rocks(size: int) -> tuple[CellId, ...]:
         for dx in range(3):
             cells.extend((corner_x + dx, corner_y + dy) for dy in range(3))
     return tuple(cells)
+
+
+SMALL_OPEN_MAP = MapConfig(obstacles=())
+"""The small open field: 32 x 32 cells of 10 m without obstacles, and a dock at ``(0, 0)``."""
+
+LARGE_OPEN_MAP = MapConfig(size=64, obstacles=(), docks=((0, 0), (63, 63)))
+"""The large open field: 64 x 64 cells of 10 m, four times the area, without obstacles, and a
+dock in each of two opposite corners."""
+
+SMALL_RIVER_MAP = MapConfig(obstacles=river_and_rocks(32), docks=((0, 0), (31, 31)))
+"""The small river field: 32 x 32 cells of 10 m, one river with a bridge and two rocks
+(``river_and_rocks``), and a dock on each bank of the river, at ``(0, 0)`` and ``(31, 31)``,
+since a hop killer finds a dock across the river only slowly. ``MapConfig()`` is the same field
+with the dock at ``(0, 0)`` only."""
+
+LARGE_RIVERS_MAP = MapConfig(size=64, obstacles=two_rivers_and_rocks(64), docks=((0, 0), (63, 63)))
+"""The large river field: 64 x 64 cells of 10 m, four times the area, with two rivers and three
+bridges and eight rocks (``two_rivers_and_rocks``), and a dock in each of two opposite
+corners."""
