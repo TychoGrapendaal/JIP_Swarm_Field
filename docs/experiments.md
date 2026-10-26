@@ -162,7 +162,9 @@ The seed is not part of the spec: it comes with each run (section 3), and it set
 | `response_minutes` | response | Minutes from a pest's appearance to its clearing, over the cleared pests. |
 | `response_p90` | p90 | The 90th percentile of those minutes. |
 | `cells_per_treatment` | cells/treat | Cells moved by all killers per treated pest. |
-| `messages_per_robot_hour` | msgs | Messages received per robot per hour. |
+| `messages_per_robot_hour` | msgs | Messages received per robot per hour. A robot sends its beacons in a message of their own next to its status, so a hop robot's broadcast counts as two messages, however little the beacon message carries. |
+| `items_per_robot_hour` | items | The items those messages carried, per robot per hour, counted the same way: a status is one item, and every fact of a knowledge snapshot and every beacon is one. It compares what the arms communicate by size, where `msgs` counts a seeded relay's snapshot of many facts as one message. |
+| `status_items_per_robot_hour`, `fact_items_per_robot_hour`, `beacon_items_per_robot_hour` | statuses, facts, beacons | Those items by kind: the statuses, the facts of the knowledge snapshots, and the beacons. Explorers broadcast their whole memory in both arms, so `facts` is about the same in both, and the arms differ in `beacons` and in the facts the seeded killers and relays add. |
 | `stuck` | stuck | The share of the time a killer committed to treating stands idle. |
 | `commit_hops` | commit hop | A killer's hop value each time it commits to treating, for hop arms; the table shows the median. |
 | `no_doses` | no doses | The share of the live killer samples in which the killer had no doses left. A killer holds the dose of a treatment under way until it ends, so a killer treating with its last dose is not counted. |

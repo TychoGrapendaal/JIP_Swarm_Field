@@ -4,6 +4,7 @@ import pytest
 
 from swarm_field.experiments import (
     EXPLORER,
+    HOP_KILLER,
     SEEDED_KILLER,
     MapConfig,
     PestRunSpec,
@@ -31,6 +32,29 @@ def test_a_measured_run_drifts_once_an_hour_and_counts_every_pest_treated_or_ope
     assert response.no_fresh_beacon is None
     assert response.cut_off_infested == 0.0
     assert response.unknown_infested <= response.infested
+
+
+def test_items_count_the_facts_and_the_beacons_that_the_messages_carry() -> None:
+    field = SwarmScenario(map=MapConfig(size=8, obstacles=()))
+    responses = []
+    for killer in (SEEDED_KILLER, HOP_KILLER):
+        scenario = field.add_robots(EXPLORER, 2).add_robots(killer, 2)
+        spec = PestRunSpec(scenario, hours=1, pests_per_hour=20.0, warmup_hours=0)
+        responses.append(measure_pest_response(Run(killer.name, spec, seed=0)))
+
+    # A knowledge snapshot carries many facts, and a hop robot's beacon message a TREAT and a
+    # DOCK beacon, so both swarms receive more items than messages.
+    for response in responses:
+        assert response.items_per_robot_hour > response.messages_per_robot_hour
+        by_kind = (
+            response.status_items_per_robot_hour
+            + response.fact_items_per_robot_hour
+            + response.beacon_items_per_robot_hour
+        )
+        assert by_kind == pytest.approx(response.items_per_robot_hour)
+    seeded, hop = responses
+    assert seeded.beacon_items_per_robot_hour == 0.0
+    assert hop.beacon_items_per_robot_hour > 0.0
 
 
 def test_explorers_alone_are_measured_by_how_they_cover_the_field() -> None:

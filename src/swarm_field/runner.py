@@ -34,6 +34,7 @@ from swarm_field.contracts import (
     TimeUnit,
 )
 from swarm_field.simulation import (
+    Channel,
     DockBroadcast,
     FailureCheck,
     FailureConfig,
@@ -84,6 +85,7 @@ from swarm_field.swarm import (
     TreatSeeder,
     UtilityArbiter,
     capabilities_for,
+    message_items,
 )
 from swarm_field.swarm.seeder import CLAIM_MAX_AGE
 
@@ -467,6 +469,7 @@ def build_run(
         rng=rng,
         agents=agents,
         world=world,
+        channel=Channel(items_of=message_items),
         metrics=collector,
         renderer=renderer,
         position_error=scenario.position_error,

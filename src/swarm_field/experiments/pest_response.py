@@ -13,7 +13,12 @@ over the seeds and its standard error (±) where it matters:
 - ``p90``: the 90th percentile of those minutes;
 - ``open``: pests still infested at the end;
 - ``cells/treat``: cells moved by all killers per treated pest;
-- ``msgs``: messages received per robot per hour;
+- ``msgs``: messages received per robot per hour; a robot sends its beacons in a message of
+  their own next to its status, so a hop robot's broadcast counts as two;
+- ``items``: the items those messages carried, per robot per hour: a status, every fact of a
+  knowledge snapshot and every beacon is one;
+- ``statuses``, ``facts``, ``beacons``: those items by kind, the statuses, the facts of the
+  knowledge snapshots and the beacons;
 - ``stuck``: the share of the time a killer committed to treating stands idle, e.g. at a
   dead end of the hop field;
 - ``commit hop``: the median beacon value of a killer when it commits to treating, for arms
@@ -61,7 +66,16 @@ from statistics import mean, median, quantiles
 
 import numpy as np
 
-from swarm_field.contracts import BeaconKind, BodyType, CellId, Idle, RobotId, Time, TimeUnit
+from swarm_field.contracts import (
+    BeaconKind,
+    BodyType,
+    CellId,
+    Idle,
+    MessageKind,
+    RobotId,
+    Time,
+    TimeUnit,
+)
 from swarm_field.experiments.batch import Run, mean_and_error
 from swarm_field.experiments.run import LiveRun
 from swarm_field.experiments.scenario import SwarmScenario
@@ -136,6 +150,11 @@ class PestResponse:
         open: Pests still infested at the end.
         cells_per_treatment: Cells moved by all killers per cleared pest, if any.
         messages_per_robot_hour: Messages received per robot per hour.
+        items_per_robot_hour: The items those messages carried, per robot per hour: a status,
+            every fact of a knowledge snapshot and every beacon is one (``message_items``).
+        status_items_per_robot_hour: Of those, the statuses.
+        fact_items_per_robot_hour: Of those, the facts of the knowledge snapshots.
+        beacon_items_per_robot_hour: Of those, the beacons.
         stuck: The share of committed killer samples in which the killer stood idle.
         commit_hops: The killer's beacon value each time it committed to treating.
         no_doses: The share of the live killer samples in which the killer had no doses left.
@@ -173,6 +192,10 @@ class PestResponse:
     open: int
     cells_per_treatment: float | None
     messages_per_robot_hour: float
+    items_per_robot_hour: float
+    status_items_per_robot_hour: float
+    fact_items_per_robot_hour: float
+    beacon_items_per_robot_hour: float
     stuck: float
     commit_hops: tuple[float, ...]
     no_doses: float
@@ -494,10 +517,13 @@ class MeasuredPestRun:
             response_p90 = _percentile_90(tracker.responses) / TimeUnit.MINUTE
             cells_per_treatment = tracker.cells_moved / treated
         world = self.live.context.world
+        channel = self.live.context.channel
         doses_used = 0
         for robot_id in self.killers:
             doses_used += world.robots[robot_id].doses_used
         hours = self.run.config.hours
+        robot_hours = len(world.robots) * hours
+        items = channel.items_received
         metrics = self.live.metrics.latest()
         if metrics is None:
             raise ValueError("the run recorded no metrics sample")
@@ -508,7 +534,11 @@ class MeasuredPestRun:
             response_p90=response_p90,
             open=len(tracker.appeared),
             cells_per_treatment=cells_per_treatment,
-            messages_per_robot_hour=self.live.context.channel.received / len(world.robots) / hours,
+            messages_per_robot_hour=channel.received / robot_hours,
+            items_per_robot_hour=items.total() / robot_hours,
+            status_items_per_robot_hour=items[MessageKind.STATUS] / robot_hours,
+            fact_items_per_robot_hour=items[MessageKind.KNOWLEDGE] / robot_hours,
+            beacon_items_per_robot_hour=items[MessageKind.BEACON] / robot_hours,
             stuck=tracker.stuck / max(tracker.committed, 1),
             commit_hops=tuple(tracker.commit_hops),
             no_doses=tracker.no_doses / max(tracker.killer_samples, 1),
@@ -547,6 +577,7 @@ def pest_table_headers(hours: int, first: str = "arm") -> list[str]:
         first: The name of the label column.
     """
     headers = [first, "infested", "treated", "response", "p90", "open", "cells/treat", "msgs"]
+    headers.extend(["items", "statuses", "facts", "beacons"])
     headers.extend(
         ["stuck", "commit hop", "no doses", "shared", "co-treat", "isolated", "no beacon"]
     )
@@ -568,6 +599,10 @@ def pest_table_cells(label: str, results: list[PestResponse], hours: int) -> lis
         f"{mean(result.open for result in results):.1f}",
         mean_and_error([result.cells_per_treatment for result in results]),
         f"{mean(result.messages_per_robot_hour for result in results):.0f}",
+        f"{mean(result.items_per_robot_hour for result in results):.0f}",
+        f"{mean(result.status_items_per_robot_hour for result in results):.0f}",
+        f"{mean(result.fact_items_per_robot_hour for result in results):.0f}",
+        f"{mean(result.beacon_items_per_robot_hour for result in results):.0f}",
         f"{mean(result.stuck for result in results):.2f}",
         _median_commit_hop(results),
         f"{mean(result.no_doses for result in results):.2f}",

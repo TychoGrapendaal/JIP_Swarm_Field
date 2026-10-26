@@ -64,6 +64,7 @@ from swarm_field.swarm.sharing import (
     KnowledgeSharing,
     SharingConfig,
     SharingStrategy,
+    message_items,
 )
 from swarm_field.swarm.steering import (
     QuadtreeSensing,
@@ -134,5 +135,6 @@ __all__ = [
     "UtilityArbiter",
     "Vector2",
     "capabilities_for",
+    "message_items",
     "treat_beacon",
 ]

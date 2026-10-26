@@ -3,15 +3,18 @@
 A handler hands a robot's outbox to ``Channel.broadcast``, which appends each message to the
 inbox of every robot within the sender's radio range; recipients read their inbox at their
 next decision. ``Channel.broadcast_from_cell`` delivers a message sent from a cell instead, for
-the mock pest sources.
+the mock pest sources and the docks.
 
-The payload is opaque here — delivery reads only the envelope's ``sender``.
+The payload is opaque here — delivery reads only the envelope's ``sender``. How many items a
+message carries is a function the composition root hands in, since only the algorithm knows its
+payloads.
 """
 
-from collections.abc import Iterable
+from collections import Counter
+from collections.abc import Callable, Iterable
 from math import dist
 
-from swarm_field.contracts import CellId, Message, RobotId, Time
+from swarm_field.contracts import CellId, Message, MessageKind, RobotId, Time
 from swarm_field.simulation.world import WorldState
 
 _MAX_MOVE_CELLS = 1.5
@@ -70,12 +73,22 @@ class Channel:
         received: How many times a message reached a robot in range since the run began: a
             broadcast heard by three robots counts three times. This measures how much the
             robots actually communicated.
+        items_received: The items those messages carried, counted the same way, by message
+            kind: what the robots communicated by size rather than by message.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, items_of: Callable[[Message], int] | None = None) -> None:
+        """Make an empty channel.
+
+        Args:
+            items_of: How many items a message carries, for ``items_received``; one per
+                message if not given.
+        """
         self._inboxes: dict[RobotId, list[Message]] = {}
+        self._items_of: Callable[[Message], int] | None = items_of
         self.sent: int = 0
         self.received: int = 0
+        self.items_received: Counter[MessageKind] = Counter()
 
     def broadcast(self, world: WorldState, time: Time, outbox: Iterable[Message]) -> None:
         """Deliver a robot's outbox now, to the inbox of every robot in the sender's range.
@@ -88,16 +101,21 @@ class Channel:
             self.sent += 1
             if message.sender not in in_range:
                 in_range[message.sender] = robots_in_range_of(message.sender, world, time)
+            items = 1
+            if self._items_of is not None:
+                items = self._items_of(message)
             for recipient in in_range[message.sender]:
                 self._inboxes.setdefault(recipient, []).append(message)
                 self.received += 1
+                self.items_received[message.kind] += items
 
     def broadcast_from_cell(
         self, world: WorldState, time: Time, cell: CellId, reach_m: float, message: Message
     ) -> None:
         """Deliver a message sent from ``cell`` itself rather than by a robot.
 
-        Not counted in ``sent`` or ``received``, which measure the robots' own communication.
+        Not counted in ``sent``, ``received`` or ``items_received``, which measure the robots'
+        own communication.
         """
         origin = (cell[0] + 0.5, cell[1] + 0.5)
         for recipient in robots_within(origin, reach_m, world, time):
