@@ -31,8 +31,8 @@ from swarm_field.experiments import (
     REVISIT_SWEEPS,
     SEEDED_KILLER,
     Experiment,
-    PestRunSpec,
     RobotPreset,
+    SwarmScenario,
     arm_name,
     by_arm,
     markdown_table,
@@ -85,16 +85,17 @@ def main() -> None:
     if rate is None:
         rate = PESTS_PER_KILLER_HOUR * args.killers
 
-    specs: dict[str, PestRunSpec] = {}
+    scenarios: dict[str, SwarmScenario] = {}
     arms: dict[str, str] = {}
     for name, killer in KILLERS.items():
         scenario = moving_explorer_scenario(killer, args.explorers, args.killers, args.radio)
+        scenario = scenario.with_pests_per_hour(rate)
         arm = arm_name(name, explorers=args.explorers, killers=args.killers, rate=rate)
-        specs[arm] = PestRunSpec(scenario, args.hours, rate, args.warmup_hours)
+        scenarios[arm] = scenario.with_hours(args.hours, args.warmup_hours)
         arms[name] = arm
 
     experiment = Experiment("explorer_hop_killers")
-    runs = runs_for(specs, range(args.seeds), PestRunSpec.cost)
+    runs = runs_for(scenarios, range(args.seeds), SwarmScenario.run_cost)
     results = by_arm(experiment.run(runs, measure_pest_response, args.jobs))
 
     headers = pest_table_headers(args.hours, first="killers")
@@ -123,9 +124,9 @@ def main() -> None:
     print(text)
     experiment.write_text("tables.md", text)
 
-    filmed: dict[str, PestRunSpec] = {}
+    filmed: dict[str, SwarmScenario] = {}
     for name in args.film:
-        filmed[arms[name]] = specs[arms[name]]
+        filmed[arms[name]] = scenarios[arms[name]]
     if filmed:
         record_videos(experiment.directory, runs_for(filmed, range(args.seeds)), args.jobs)
 

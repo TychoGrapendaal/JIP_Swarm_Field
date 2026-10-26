@@ -37,7 +37,6 @@ from swarm_field.experiments.maps import (
 from swarm_field.experiments.pest_response import (
     MeasuredPestRun,
     PestResponse,
-    PestRunSpec,
     PestTracker,
     measure_pest_response,
     pest_isolation_cells,
@@ -153,7 +152,6 @@ __all__ = [
     "MeasuredPestRun",
     "PestConfig",
     "PestResponse",
-    "PestRunSpec",
     "PestTracker",
     "RelayPreset",
     "Relaying",

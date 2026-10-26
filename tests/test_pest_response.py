@@ -7,20 +7,22 @@ from swarm_field.experiments import (
     HOP_KILLER,
     SEEDED_KILLER,
     MapConfig,
-    PestRunSpec,
+    PestConfig,
     Run,
     SwarmScenario,
     measure_pest_response,
 )
 from swarm_field.experiments.pest_response import radio_networks
 
+_FIELD = SwarmScenario(
+    map=MapConfig(size=8, obstacles=()), pests=PestConfig(pests_per_hour=20.0)
+).with_hours(1, warmup_hours=0)
+
 
 def test_a_measured_run_drifts_once_an_hour_and_counts_every_pest_treated_or_open() -> None:
-    field = SwarmScenario(map=MapConfig(size=8, obstacles=()))
-    scenario = field.add_robots(EXPLORER, 2).add_robots(SEEDED_KILLER, 2)
-    spec = PestRunSpec(scenario, hours=1, pests_per_hour=20.0, warmup_hours=0)
+    scenario = _FIELD.add_robots(EXPLORER, 2).add_robots(SEEDED_KILLER, 2)
 
-    response = measure_pest_response(Run("tiny", spec, seed=0))
+    response = measure_pest_response(Run("tiny", scenario, seed=0))
 
     assert len(response.drift) == 1
     assert response.treated + response.open > 0
@@ -35,12 +37,10 @@ def test_a_measured_run_drifts_once_an_hour_and_counts_every_pest_treated_or_ope
 
 
 def test_items_count_the_facts_and_the_beacons_that_the_messages_carry() -> None:
-    field = SwarmScenario(map=MapConfig(size=8, obstacles=()))
     responses = []
     for killer in (SEEDED_KILLER, HOP_KILLER):
-        scenario = field.add_robots(EXPLORER, 2).add_robots(killer, 2)
-        spec = PestRunSpec(scenario, hours=1, pests_per_hour=20.0, warmup_hours=0)
-        responses.append(measure_pest_response(Run(killer.name, spec, seed=0)))
+        scenario = _FIELD.add_robots(EXPLORER, 2).add_robots(killer, 2)
+        responses.append(measure_pest_response(Run(killer.name, scenario, seed=0)))
 
     # A knowledge snapshot carries many facts, and a hop robot's beacon message a TREAT and a
     # DOCK beacon, so both swarms receive more items than messages.
@@ -58,10 +58,9 @@ def test_items_count_the_facts_and_the_beacons_that_the_messages_carry() -> None
 
 
 def test_explorers_alone_are_measured_by_how_they_cover_the_field() -> None:
-    field = SwarmScenario(map=MapConfig(size=8, obstacles=()))
-    spec = PestRunSpec(field.add_robots(EXPLORER, 3), hours=1, pests_per_hour=0.0, warmup_hours=0)
+    scenario = _FIELD.with_pests(PestConfig(pests_per_hour=0.0)).add_robots(EXPLORER, 3)
 
-    response = measure_pest_response(Run("explorers", spec, seed=0))
+    response = measure_pest_response(Run("explorers", scenario, seed=0))
 
     assert response.coverage == 1.0
     assert response.treated == 0
@@ -70,7 +69,7 @@ def test_explorers_alone_are_measured_by_how_they_cover_the_field() -> None:
 
 def test_a_warm_up_as_long_as_the_run_is_refused() -> None:
     with pytest.raises(ValueError):
-        PestRunSpec(SwarmScenario(), hours=1)
+        SwarmScenario().with_hours(1, warmup_hours=1)
 
 
 def test_radio_networks_join_robots_in_range_and_through_each_other() -> None:

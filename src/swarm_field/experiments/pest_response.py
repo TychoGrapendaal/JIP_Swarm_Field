@@ -1,10 +1,10 @@
 """Measure how a swarm responds to pests: one run of a ``SwarmScenario`` into a ``PestResponse``.
 
-``measure_pest_response`` is a run function for ``Experiment.run``: it runs a ``PestRunSpec``
-with the run's seed, advancing one decision interval at a time, and a ``PestTracker`` samples
-the ground truth and the killers' brains between steps. ``pest_table_headers`` and
-``pest_table_cells`` turn the results of an arm into a row of the standard table, with the mean
-over the seeds and its standard error (±) where it matters:
+``measure_pest_response`` is a run function for ``Experiment.run``: it runs a ``SwarmScenario``,
+made with ``SwarmScenario.with_hours``, with the run's seed, advancing one decision interval at a
+time, and a ``PestTracker`` samples the ground truth and the killers' brains between steps.
+``pest_table_headers`` and ``pest_table_cells`` turn the results of an arm into a row of the
+standard table, with the mean over the seeds and its standard error (±) where it matters:
 
 - ``infested``: infested cells, averaged over the run after the warm-up. The main outcome: it
   counts both how many pests stay and how long, and has no end-of-run ceiling;
@@ -61,7 +61,7 @@ from __future__ import annotations
 import math
 import time
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from statistics import mean, median, quantiles
 
 import numpy as np
@@ -79,63 +79,8 @@ from swarm_field.contracts import (
 from swarm_field.experiments.batch import Run, mean_and_error
 from swarm_field.experiments.run import LiveRun
 from swarm_field.experiments.scenario import SwarmScenario
-from swarm_field.runner import ExperimentConfig
-from swarm_field.swarm import ComposedAgent, KnowledgeSharing, treat_beacon
+from swarm_field.swarm import ComposedAgent, treat_beacon
 from swarm_field.swarm.hop import fresh_beacons
-
-
-@dataclass(frozen=True)
-class PestRunSpec:
-    """What to run and measure: a scenario for ``hours`` at ``pests_per_hour``.
-
-    Attributes:
-        scenario: The pest scenario; its seed, length and pest rate are set per run.
-        hours: How long a run lasts.
-        pests_per_hour: How many pests spawn per hour, on average.
-        warmup_hours: How long at the start is left out of ``infested``.
-    """
-
-    scenario: SwarmScenario
-    hours: int
-    pests_per_hour: float = 15.0
-    warmup_hours: int = 1
-
-    def __post_init__(self) -> None:
-        """Refuse a warm-up that leaves nothing to measure ``infested`` over.
-
-        Raises:
-            ValueError: If the warm-up lasts as long as the run, or longer.
-        """
-        if self.warmup_hours >= self.hours:
-            raise ValueError(
-                f"a warm-up of {self.warmup_hours} h leaves nothing of a {self.hours} h run"
-            )
-
-    def into_experiment(self, label: str, seed: int) -> ExperimentConfig:
-        """The run of this spec with ``seed`` as an experiment for ``swarm_field.runner``.
-
-        The scenario is sampled once a minute, its idleness measured after the warm-up, and it
-        runs for ``hours`` at ``pests_per_hour``.
-        """
-        scenario = replace(
-            self.scenario,
-            until=self.hours * TimeUnit.HOUR,
-            metrics=replace(
-                self.scenario.metrics,
-                period=TimeUnit.MINUTE,
-                measure_from=self.warmup_hours * TimeUnit.HOUR,
-            ),
-            seed=seed,
-            pests=replace(self.scenario.pests, pests_per_hour=self.pests_per_hour),
-        )
-        return scenario.into_experiment(label)
-
-    def cost(self) -> float:
-        """A rough relative cost: the field's cells, five times when relays gossip pests."""
-        cost = float(self.scenario.map.size**2 * self.hours)
-        if self.scenario.relaying().pest_facts is not KnowledgeSharing.NOTHING:
-            cost *= 5
-        return cost
 
 
 @dataclass(frozen=True)
@@ -454,30 +399,32 @@ class PestTracker:
 
 
 class MeasuredPestRun:
-    """One run of a ``PestRunSpec``, advanced one decision interval at a time and measured.
+    """One run of a ``SwarmScenario``, advanced one decision interval at a time and measured.
 
     ``measure_pest_response`` advances it to the end; ``record_video`` draws a frame after every
     step as well, so a video shows exactly the run that was measured.
 
     Attributes:
-        run: The run: its arm, its spec and its seed.
+        run: The run: its arm, its scenario and its seed.
         live: The run's simulation.
         tracker: Samples the pests and the killers after every step.
         killers: Each killer's start cell, by id.
     """
 
-    def __init__(self, run: Run[PestRunSpec]) -> None:
+    def __init__(self, run: Run[SwarmScenario]) -> None:
         self._started: float = time.perf_counter()
-        self.run: Run[PestRunSpec] = run
-        self.live: LiveRun = LiveRun.from_config(run.config.into_experiment(run.arm, run.seed))
+        self.run: Run[SwarmScenario] = run
+        self.live: LiveRun = LiveRun.from_config(
+            run.config.with_seed(run.seed).into_experiment(run.arm)
+        )
         self.killers: dict[RobotId, CellId] = {}
         for robot_id, robot in self.live.context.world.robots.items():
             if robot.body is BodyType.KILLER:
                 self.killers[robot_id] = robot.position
-        scenario = run.config.scenario
+        scenario = run.config
         self.tracker: PestTracker = PestTracker(
             self.killers,
-            run.config.warmup_hours * TimeUnit.HOUR,
+            scenario.metrics.measure_from,
             scenario.robots.radio_range_m / scenario.map.cell_size,
         )
 
@@ -521,7 +468,7 @@ class MeasuredPestRun:
         doses_used = 0
         for robot_id in self.killers:
             doses_used += world.robots[robot_id].doses_used
-        hours = self.run.config.hours
+        hours = self.run.config.until / TimeUnit.HOUR
         robot_hours = len(world.robots) * hours
         items = channel.items_received
         metrics = self.live.metrics.latest()
@@ -561,7 +508,7 @@ class MeasuredPestRun:
         )
 
 
-def measure_pest_response(run: Run[PestRunSpec]) -> PestResponse:
+def measure_pest_response(run: Run[SwarmScenario]) -> PestResponse:
     """Make one run of the spec with the run's seed and measure it; a run function."""
     measured = MeasuredPestRun(run)
     while not measured.finished:

@@ -93,6 +93,8 @@ def test_the_default_scenarios_run_the_default_swarm_on_static_pests() -> None:
         assert scenario.pests.growth_rate == 0.0 and scenario.pests.spread_probability == 0.0
         assert len(scenario.initial_infestation()) == scenario.pests.initial_pests > 0
         assert scenario.until == hours * TimeUnit.HOUR
+        assert scenario.metrics.period == TimeUnit.MINUTE
+        assert scenario.metrics.measure_from == 0
         hop = pest_response_configurations(scenario)["hop-best"]
         assert hop.count(EXPLORER.name) == DEFAULT_EXPLORERS
         assert hop.killers == DEFAULT_KILLERS

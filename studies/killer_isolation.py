@@ -31,8 +31,8 @@ from swarm_field.experiments import (
     Experiment,
     HopKillerPreset,
     PestResponse,
-    PestRunSpec,
     RobotPreset,
+    SwarmScenario,
     arm_name,
     by_arm,
     markdown_table,
@@ -89,16 +89,16 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     args = parse_args()
     rate = PESTS_PER_KILLER_HOUR * args.killers
-    specs: dict[str, PestRunSpec] = {}
+    scenarios: dict[str, SwarmScenario] = {}
     for radio in RADII_M:
         for name, killer in killers(radio).items():
             scenario = moving_explorer_scenario(killer, args.explorers, args.killers, radio)
-            specs[arm_name(name, radio=f"{radio:g}m")] = PestRunSpec(
-                scenario, args.hours, rate, args.warmup_hours
+            scenarios[arm_name(name, radio=f"{radio:g}m")] = scenario.with_hours(
+                args.hours, args.warmup_hours
             )
 
     experiment = Experiment("killer_isolation")
-    runs = runs_for(specs, range(args.seeds), PestRunSpec.cost)
+    runs = runs_for(scenarios, range(args.seeds), SwarmScenario.run_cost)
     results = by_arm(experiment.run(runs, measure_pest_response, args.jobs))
 
     standard: list[list[str]] = []

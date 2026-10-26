@@ -33,8 +33,8 @@ from swarm_field.experiments import (
     SMALL_RIVER_MAP,
     Experiment,
     PestResponse,
-    PestRunSpec,
     Run,
+    SwarmScenario,
     arm_name,
     by_arm,
     markdown_table,
@@ -83,7 +83,7 @@ class DockResponse:
     dead_killers: int
 
 
-def measure_dock_response(run: Run[PestRunSpec]) -> DockResponse:
+def measure_dock_response(run: Run[SwarmScenario]) -> DockResponse:
     """Make one run and measure it, also following every killer's trips to a dock."""
     measured = MeasuredPestRun(run)
     world = measured.live.context.world
@@ -139,7 +139,7 @@ def main() -> None:
     docks = SMALL_RIVER_MAP.docks
     if args.one_dock:
         docks = ((0, 0),)
-    specs: dict[str, PestRunSpec] = {}
+    scenarios: dict[str, SwarmScenario] = {}
     for condition, (capacity, doses) in CONDITIONS.items():
         for name, killer in KILLERS.items():
             scenario = moving_explorer_scenario(killer, args.explorers, args.killers, radio)
@@ -147,11 +147,12 @@ def main() -> None:
                 replace(scenario.robots, battery_capacity=capacity)
             ).with_pests(replace(scenario.pests, treatment_doses=doses))
             scenario = scenario.with_map(replace(scenario.map, docks=docks))
-            spec = PestRunSpec(scenario, args.hours, rate, args.warmup_hours)
-            specs[arm_name(condition, name)] = spec
+            scenarios[arm_name(condition, name)] = scenario.with_hours(
+                args.hours, args.warmup_hours
+            )
 
     experiment = Experiment("hop_dock_return")
-    runs = runs_for(specs, range(args.seeds), PestRunSpec.cost)
+    runs = runs_for(scenarios, range(args.seeds), SwarmScenario.run_cost)
     results = by_arm(experiment.run(runs, measure_dock_response, args.jobs))
 
     headers = pest_table_headers(args.hours)

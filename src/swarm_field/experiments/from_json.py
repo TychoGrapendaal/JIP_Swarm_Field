@@ -50,7 +50,6 @@ from swarm_field.experiments.batch import (
 from swarm_field.experiments.maps import MapConfig
 from swarm_field.experiments.pest_response import (
     PestResponse,
-    PestRunSpec,
     measure_pest_response,
     pest_table_cells,
     pest_table_headers,
@@ -175,7 +174,7 @@ class ExperimentFile:
             parameters=data.get("parameters"),
             conditions=data.get("conditions"),
         )
-        experiment.into_specs()
+        experiment.into_scenarios()
         return experiment
 
     def condition_parameters(self) -> dict[str, dict[str, Any]]:
@@ -191,15 +190,13 @@ class ExperimentFile:
             merged[condition] = _merge_groups(shared, overrides)
         return merged
 
-    def into_specs(self) -> dict[str, PestRunSpec]:
-        """One run spec per condition, by its name."""
-        specs: dict[str, PestRunSpec] = {}
+    def into_scenarios(self) -> dict[str, SwarmScenario]:
+        """One scenario per condition, by its name, run for ``hours`` after ``warmup_hours``."""
+        scenarios: dict[str, SwarmScenario] = {}
         for condition, parameters in self.condition_parameters().items():
             scenario = scenario_from_parameters(self.scenario, parameters)
-            specs[condition] = PestRunSpec(
-                scenario, self.hours, scenario.pests.pests_per_hour, self.warmup_hours
-            )
-        return specs
+            scenarios[condition] = scenario.with_hours(self.hours, self.warmup_hours)
+        return scenarios
 
 
 def scenario_from_parameters(name: str, parameters: dict[str, Any]) -> SwarmScenario:
@@ -317,21 +314,21 @@ def _check_names(values: dict[str, Any], known: set[str] | frozenset[str], what:
 
 def run_file(
     experiment: ExperimentFile, root: Path = OUTPUT
-) -> tuple[Experiment, list[RunResult[PestRunSpec, PestResponse]]]:
+) -> tuple[Experiment, list[RunResult[SwarmScenario, PestResponse]]]:
     """Run every condition with every seed into a new folder under ``root``, and write the table.
 
     Returns:
         The experiment, whose ``directory`` holds the results, and every run's result.
     """
     batch = Experiment(experiment.name, root)
-    runs = runs_for(experiment.into_specs(), experiment.seeds, PestRunSpec.cost)
+    runs = runs_for(experiment.into_scenarios(), experiment.seeds, SwarmScenario.run_cost)
     results = batch.run(runs, measure_pest_response, experiment.jobs)
     batch.write_text("tables.md", format_table(experiment, results))
     return batch, results
 
 
 def format_table(
-    experiment: ExperimentFile, results: list[RunResult[PestRunSpec, PestResponse]]
+    experiment: ExperimentFile, results: list[RunResult[SwarmScenario, PestResponse]]
 ) -> str:
     """One row per condition: the standard columns of ``measure_pest_response``, over the seeds."""
     rows: list[list[str]] = []

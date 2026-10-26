@@ -184,26 +184,24 @@ The dictionary also has `seeded-best` and `hop-best`, the arms of `SEEDED_BEST` 
 
 ### Time and seeds
 
-How long a run lasts and what is measured is a `PestRunSpec`:
+How long a run lasts and from when it is measured is part of the scenario. `with_hours` sets both:
 
 ```python
-from swarm_field.experiments import PestRunSpec
-
-spec = PestRunSpec(seeded, hours=3, pests_per_hour=scenario.pests.pests_per_hour, warmup_hours=1)
+measured = seeded.with_hours(3, warmup_hours=1)
 ```
 
-| Field | Meaning |
+| Argument | Meaning |
 | --- | --- |
-| `scenario` | The configured scenario. |
-| `hours` | How long a run lasts, in whole simulated hours. |
-| `pests_per_hour` | The pest rate of the runs; it replaces the scenario's own. |
-| `warmup_hours` | How long at the start is left out of the main outcome, 1 by default; it must be shorter than the run, so a 1-hour run needs `warmup_hours=0`. |
+| `hours` | How long a run lasts, in whole simulated hours; it sets `until`. |
+| `warmup_hours` | How long at the start is left out of the main outcome and of idleness (`MetricsConfig.measure_from`). It must be shorter than the run, so a 1-hour run needs `warmup_hours=0`. |
 
-The seed is not part of the spec: it comes with each run (section 3), and it sets the pests, the relay and killer positions, and when each robot first decides. Two arms run with the same seed see the same relays and the same pests.
+It also samples the metrics once a minute, which the pest-response measurement needs (section 2). The default scenarios are made with it already, with no warm-up, since their initial pests load the killers from the start. The pest rate is the scenario's own; `with_pests_per_hour(rate)` changes it, e.g. to calibrate a load.
+
+The seed is set per run: it comes with each run (section 3), and it sets the pests, the relay and killer positions, and when each robot first decides. Two arms run with the same seed see the same relays and the same pests.
 
 ## 2. Metrics
 
-`measure_pest_response` runs one spec with one seed and returns a `PestResponse`. It advances the run one decision interval at a time and samples the ground truth and the killers between steps. Coverage, idleness and redundancy come from the run's `MetricsCollector`, sampled once a minute, so the same runs measure how the explorers cover the field. A run without killers or without pests is measured too, e.g. explorers alone:
+`measure_pest_response` runs one scenario with one seed and returns a `PestResponse`. It advances the run one decision interval at a time and samples the ground truth and the killers between steps. Coverage, idleness and redundancy come from the run's `MetricsCollector`, sampled once a minute, so the same runs measure how the explorers cover the field. A run without killers or without pests is measured too, e.g. explorers alone:
 
 | `PestResponse` field | Table column | Meaning |
 | --- | --- | --- |
@@ -257,7 +255,7 @@ A *run* (`Run`) is an arm name, a configuration and a seed. `runs_for` makes one
 from swarm_field.experiments import (
     RELAYED_RIVER_SMALL,
     Experiment,
-    PestRunSpec,
+    SwarmScenario,
     measure_pest_response,
     pest_response_configurations,
     runs_for,
@@ -266,12 +264,12 @@ from swarm_field.experiments import (
 
 def main() -> None:
     configurations = pest_response_configurations(RELAYED_RIVER_SMALL)
-    specs: dict[str, PestRunSpec] = {}
+    arms: dict[str, SwarmScenario] = {}
     for name in ("seeded", "hop-tuned"):
-        specs[name] = PestRunSpec(configurations[name], hours=3, pests_per_hour=18.0)
+        arms[name] = configurations[name].with_hours(3, warmup_hours=1)
 
     experiment = Experiment("seeded_vs_hop_small")
-    runs = runs_for(specs, seeds=range(12), cost=PestRunSpec.cost)
+    runs = runs_for(arms, seeds=range(12), cost=SwarmScenario.run_cost)
     results = experiment.run(runs, measure_pest_response)
 
 
@@ -281,7 +279,7 @@ if __name__ == "__main__":
 
 - **Arm names** are the keys of the dictionary you pass to `runs_for`, so every arm needs its own. When arms differ in a parameter, `arm_name` builds the name from it: `arm_name("river-small", "seeded", killers=8)` gives `river-small/seeded/killers=8`.
 - **Seeds** are the same for every arm, so two arms are compared on the same relays and the same pests. Use at least 8; 12 is a good default.
-- **`cost`** is optional. It is a rough relative cost of an arm, so the slowest runs start first and no process is left alone with a long run at the end. `PestRunSpec.cost` rates a seeded run five times a hop run, since its relays gossip whole pest lists.
+- **`cost`** is optional. It is a rough relative cost of an arm, so the slowest runs start first and no process is left alone with a long run at the end. `SwarmScenario.run_cost` rates a seeded run five times a hop run, since its relays gossip whole pest lists.
 - **`Experiment.run`** returns one `RunResult` per run, with `.run` (arm, seed), `.result` (the `PestResponse`) and `.wall` (seconds).
 
 ### How it runs in parallel
@@ -381,22 +379,22 @@ for arm, values in infested.items():
 
 The table says how well an arm did, not why. To see what its robots actually did, film a few of its runs. `record_videos` runs them again and renders each into a video in the experiment's folder. A run is a function of its arm and seed, so the video shows exactly the run that `results.json` describes.
 
-Pass it the folder and the runs to film. `runs_for` builds those runs from the same specs as the batch, here the `hop-tuned` arm with seed 0:
+Pass it the folder and the runs to film. `runs_for` builds those runs from the same arms as the batch, here the `hop-tuned` arm with seed 0:
 
 ```python
 from swarm_field.experiments import record_videos
 
 experiment = Experiment("seeded_vs_hop_small")
-runs = runs_for(specs, seeds=range(12), cost=PestRunSpec.cost)
+runs = runs_for(arms, seeds=range(12), cost=SwarmScenario.run_cost)
 results = experiment.run(runs, measure_pest_response)
-record_videos(experiment.directory, runs_for({"hop-tuned": specs["hop-tuned"]}, seeds=[0]))
+record_videos(experiment.directory, runs_for({"hop-tuned": arms["hop-tuned"]}, seeds=[0]))
 ```
 
 The video goes to `video/hop-tuned_seed0.mp4` in the experiment's folder. Its name is the run's name, `ARM/seedN`, with every `/` turned into `_`; `video_path(directory, run)` gives it.
 
-- **Several runs** are filmed in parallel, one per process, as in `Experiment.run`: `runs_for({"seeded": specs["seeded"], "hop-tuned": specs["hop-tuned"]}, seeds=[0, 1])` gives four videos. `processes` sets the number of processes.
-- **An experiment run earlier** works too. Pass its folder, e.g. `Path("output/2026-10-22_22-19-02_seeded_vs_hop_small_4821")`, and the same arm name and spec as in the batch, so the run is the same one. The arm name matters: it is the run's label.
-- **Only pest runs** can be filmed: `record_videos` takes runs of a `PestRunSpec`, which it steps like `measure_pest_response`.
+- **Several runs** are filmed in parallel, one per process, as in `Experiment.run`: `runs_for({"seeded": arms["seeded"], "hop-tuned": arms["hop-tuned"]}, seeds=[0, 1])` gives four videos. `processes` sets the number of processes.
+- **An experiment run earlier** works too. Pass its folder, e.g. `Path("output/2026-10-22_22-19-02_seeded_vs_hop_small_4821")`, and the same arm name and scenario as in the batch, so the run is the same one. The arm name matters: it is the run's label.
+- **Only pest runs** can be filmed: `record_videos` takes runs of a `SwarmScenario`, which it steps like `measure_pest_response`.
 
 ### What a video shows
 

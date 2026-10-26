@@ -33,7 +33,6 @@ from swarm_field.experiments import (
     SEEDED_KILLER,
     Experiment,
     PestResponse,
-    PestRunSpec,
     SwarmScenario,
     arm_name,
     by_arm,
@@ -108,7 +107,7 @@ def main() -> None:
     names = list(SCENARIOS)
     if args.scenario != "both":
         names = [args.scenario]
-    arms: dict[str, PestRunSpec] = {}
+    arms: dict[str, SwarmScenario] = {}
     sections: list[Section] = []
     for name in names:
         scenario = SCENARIOS[name]
@@ -123,7 +122,8 @@ def main() -> None:
             rows: dict[str, str] = {}
             for config, configured in configs.items():
                 arm = arm_name(name, config, killers=scenario.killers, rate=rate)
-                arms[arm] = PestRunSpec(configured, args.hours, rate, args.warmup_hours)
+                configured = configured.with_pests_per_hour(rate)
+                arms[arm] = configured.with_hours(args.hours, args.warmup_hours)
                 rows[config] = arm
             title = (
                 f"{name}: {scenario.count(RELAY.name)} relays, {scenario.killers} killers, "
@@ -135,7 +135,7 @@ def main() -> None:
     experiment = Experiment("obstacle_comparison")
     if args.calibrate is not None:
         experiment = Experiment("obstacle_calibration")
-    runs = runs_for(arms, range(args.seeds), PestRunSpec.cost)
+    runs = runs_for(arms, range(args.seeds), SwarmScenario.run_cost)
     results = by_arm(experiment.run(runs, measure_pest_response, args.jobs))
     tables: list[str] = []
     for section in sections:

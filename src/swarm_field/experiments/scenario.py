@@ -244,6 +244,28 @@ class SwarmScenario:
     def with_metrics(self, metrics: MetricsConfig) -> SwarmScenario:
         return replace(self, metrics=metrics)
 
+    def with_pests_per_hour(self, pests_per_hour: float) -> SwarmScenario:
+        return replace(self, pests=replace(self.pests, pests_per_hour=pests_per_hour))
+
+    def with_hours(self, hours: int, warmup_hours: int) -> SwarmScenario:
+        """This scenario run for ``hours`` and measured after ``warmup_hours``.
+
+        Its metrics are sampled once a minute and averaged from the end of the warm-up on, which
+        ``measure_pest_response`` also leaves out of ``infested``.
+
+        Raises:
+            ValueError: If the warm-up lasts as long as the run, or longer.
+        """
+        if warmup_hours >= hours:
+            raise ValueError(f"a warm-up of {warmup_hours} h leaves nothing of a {hours} h run")
+        metrics = replace(
+            self.metrics, period=TimeUnit.MINUTE, measure_from=warmup_hours * TimeUnit.HOUR
+        )
+        return replace(self, until=hours * TimeUnit.HOUR, metrics=metrics)
+
+    def with_seed(self, seed: int) -> SwarmScenario:
+        return replace(self, seed=seed)
+
     def count(self, name: str | None = None) -> int:
         """How many robots of the preset called ``name`` there are, or how many in all."""
         found = 0
@@ -276,6 +298,14 @@ class SwarmScenario:
             if group.count > 0:
                 merged = merged.merge(group.preset.needs(hop_cells))
         return merged
+
+    def run_cost(self) -> float:
+        """A rough relative cost of a run: the field's cells times the hours, five times when
+        relays gossip pests; to start the costliest runs of a batch first."""
+        cost = self.map.size**2 * self.until / TimeUnit.HOUR
+        if self.relaying().pest_facts is not KnowledgeSharing.NOTHING:
+            cost *= 5
+        return cost
 
     def sweep_time(self) -> Time:
         """How long the explorers need to visit every free cell once, if they split it evenly.
@@ -563,7 +593,8 @@ they stand still, and hear each other across the whole field."""
 
 def _default_scenario(field: MapConfig, pests: PestConfig, hours: int) -> SwarmScenario:
     """The experiments' default swarm on ``field``: ``DEFAULT_EXPLORERS`` explorers and
-    ``DEFAULT_KILLERS`` killers of ``SEEDED_BEST``, with ``DEFAULT_ROBOTS``, for ``hours``."""
+    ``DEFAULT_KILLERS`` killers of ``SEEDED_BEST``, with ``DEFAULT_ROBOTS``, for ``hours`` and
+    measured from the start: the initial pests load the killers at once."""
     scenario = (
         SwarmScenario()
         .with_map(field)
@@ -572,7 +603,7 @@ def _default_scenario(field: MapConfig, pests: PestConfig, hours: int) -> SwarmS
         .add_robots(EXPLORER, DEFAULT_EXPLORERS)
         .add_robots(SEEDED_BEST, DEFAULT_KILLERS)
     )
-    return replace(scenario, until=hours * TimeUnit.HOUR)
+    return scenario.with_hours(hours, warmup_hours=0)
 
 
 RIVER_SMALL = _default_scenario(SMALL_RIVER_MAP, SMALL_FIELD_PESTS, SMALL_FIELD_HOURS)
@@ -671,7 +702,7 @@ def moving_explorer_scenario(
     no mock sources. Every robot has the settings of ``LATTICE_ROBOTS`` but the radio, and
     battery and doses are unlimited (``UNLIMITED_BATTERY_CAPACITY``, ``UNLIMITED_DOSES``), so that
     a run measures the pest response alone. The pests are ``FAST_PESTS`` at
-    ``PESTS_PER_KILLER_HOUR`` per killer; a ``PestRunSpec`` sets the rate of its runs.
+    ``PESTS_PER_KILLER_HOUR`` per killer.
 
     Args:
         killer: The killers' preset.

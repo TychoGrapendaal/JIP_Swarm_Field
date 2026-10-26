@@ -47,9 +47,9 @@ from swarm_field.experiments import (
     HopKillerPreset,
     MapConfig,
     PestResponse,
-    PestRunSpec,
     RobotPreset,
     SeededKillerPreset,
+    SwarmScenario,
     by_arm,
     markdown_table,
     measure_pest_response,
@@ -242,16 +242,16 @@ def main() -> None:
         found = refine_variants()
     elif args.stage == "verify":
         found = verify_variants()
-    specs: dict[str, PestRunSpec] = {}
+    scenarios: dict[str, SwarmScenario] = {}
     for variant in found:
         scenario = moving_explorer_scenario(
             variant.killer, explorers, killers, radio, variant.explorer, FIELD_MAPS[args.field]
         )
-        specs[variant.name] = PestRunSpec(scenario, args.hours, rate, args.warmup_hours)
+        scenarios[variant.name] = scenario.with_hours(args.hours, args.warmup_hours)
 
     experiment = Experiment(f"tune_arms_{args.stage}_{args.field}")
     seeds = range(args.first_seed, args.first_seed + args.seeds)
-    runs = runs_for(specs, seeds, PestRunSpec.cost)
+    runs = runs_for(scenarios, seeds, SwarmScenario.run_cost)
     results = by_arm(experiment.run(runs, measure_pest_response, args.jobs))
 
     headers = pest_table_headers(args.hours)

@@ -11,7 +11,7 @@ from swarm_field.experiments import (
     EXPLORER,
     SEEDED_KILLER,
     MapConfig,
-    PestRunSpec,
+    PestConfig,
     RobotConfig,
     Run,
     SwarmScenario,
@@ -25,22 +25,23 @@ from swarm_field.experiments import (
 pytest.importorskip("matplotlib")
 
 
-def _tiny_spec() -> PestRunSpec:
+def _tiny_scenario() -> SwarmScenario:
     """One hour of a tiny field, deciding every five minutes: a video of twelve frames."""
     scenario = (
         SwarmScenario(
             map=MapConfig(size=6, obstacles=()),
+            pests=PestConfig(pests_per_hour=20.0),
             robots=RobotConfig(decision_interval=5 * TimeUnit.MINUTE),
         )
         .add_robots(EXPLORER, 1)
         .add_robots(SEEDED_KILLER, 1)
     )
-    return PestRunSpec(scenario, hours=1, pests_per_hour=20.0, warmup_hours=0)
+    return scenario.with_hours(1, warmup_hours=0)
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="an mp4 needs ffmpeg")
 def test_videos_are_named_after_their_run_in_the_video_folder(tmp_path: Path) -> None:
-    run = Run("tiny/hop", _tiny_spec(), seed=3)
+    run = Run("tiny/hop", _tiny_scenario(), seed=3)
 
     paths = record_videos(tmp_path, [run], processes=1, fps=50)
 
@@ -50,7 +51,7 @@ def test_videos_are_named_after_their_run_in_the_video_folder(tmp_path: Path) ->
 
 
 def test_a_video_measures_what_the_headless_run_measures(tmp_path: Path) -> None:
-    run = runs_for({"tiny": _tiny_spec()}, seeds=[1])[0]
+    run = runs_for({"tiny": _tiny_scenario()}, seeds=[1])[0]
 
     filmed = record_video(run, tmp_path / "frames.gif", fps=50)
 

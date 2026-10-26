@@ -5,8 +5,8 @@ A run is a function of its arm and seed, so running it again gives exactly the r
 each to ``video/<arm>_seed<seed>.mp4`` in an experiment's folder, next to its ``results.json``::
 
     experiment = Experiment("seeded_vs_hop_small")
-    results = experiment.run(runs_for(specs, seeds=range(12)), measure_pest_response)
-    record_videos(experiment.directory, runs_for({"hop-tuned": specs["hop-tuned"]}, seeds=[0]))
+    results = experiment.run(runs_for(arms, seeds=range(12)), measure_pest_response)
+    record_videos(experiment.directory, runs_for({"hop-tuned": arms["hop-tuned"]}, seeds=[0]))
 
 A video steps its run as ``measure_pest_response`` does, one decision interval at a time, with
 ``FRAMES_PER_STEP`` frames per interval, and draws the ground truth with ``MatplotlibRenderer``:
@@ -28,8 +28,9 @@ from numpy.typing import NDArray
 
 from swarm_field.contracts import BodyType, Time, TimeUnit, WorldSnapshot
 from swarm_field.experiments.batch import Run, run_in_parallel
-from swarm_field.experiments.pest_response import MeasuredPestRun, PestResponse, PestRunSpec
+from swarm_field.experiments.pest_response import MeasuredPestRun, PestResponse
 from swarm_field.experiments.presets import EXPLORER, RELAY
+from swarm_field.experiments.scenario import SwarmScenario
 from swarm_field.visualization import (
     MatplotlibRenderer,
     RobotStyle,
@@ -64,7 +65,7 @@ def video_path(directory: Path, run: Run[Any]) -> Path:
 
 def record_videos(
     directory: Path,
-    runs: Sequence[Run[PestRunSpec]],
+    runs: Sequence[Run[SwarmScenario]],
     processes: int | None = None,
     fps: int = FPS,
     frames_per_step: int = FRAMES_PER_STEP,
@@ -96,7 +97,7 @@ def record_videos(
 
 
 def record_video(
-    run: Run[PestRunSpec],
+    run: Run[SwarmScenario],
     path: Path,
     fps: int = FPS,
     frames_per_step: int = FRAMES_PER_STEP,
@@ -122,7 +123,7 @@ def record_video(
 
     measured = MeasuredPestRun(run)
     styles = {BodyType.KILLER: KILLER_STYLE, BodyType.SCOUT: EXPLORER_STYLE}
-    scenario = run.config.scenario
+    scenario = run.config
     if scenario.count(RELAY.name) > 0 and scenario.count(EXPLORER.name) == 0:
         styles[BodyType.SCOUT] = RELAY_STYLE
     renderer = MatplotlibRenderer(
@@ -176,8 +177,7 @@ def panel_lines(measured: MeasuredPestRun, snapshot: WorldSnapshot) -> list[str]
 
     The run's name is in the title, which is wider.
     """
-    spec = measured.run.config
-    scenario = spec.scenario
+    scenario = measured.run.config
     tracker = measured.tracker
     lines = [f"time       {_clock(snapshot.time, measured.live.horizon)}", "robots"]
     for group in scenario.swarm:
@@ -186,7 +186,7 @@ def panel_lines(measured: MeasuredPestRun, snapshot: WorldSnapshot) -> list[str]
     lines.extend(
         [
             f"radio      {scenario.robots.radio_range_m:g} m",
-            f"pest rate  {spec.pests_per_hour:g} per hour",
+            f"pest rate  {scenario.pests.pests_per_hour:g} per hour",
             "",
             f"infested   {len(tracker.appeared)} cells now",
             f"treated    {len(tracker.responses)} pests so far",
@@ -221,7 +221,7 @@ class _VideoRecorder:
         self._frames_per_step: int = frames_per_step
         self._explorer_targets: bool = explorer_targets
 
-    def __call__(self, run: Run[PestRunSpec]) -> Path:
+    def __call__(self, run: Run[SwarmScenario]) -> Path:
         """Record the video of ``run`` and return where it went."""
         path = video_path(self._directory, run)
         record_video(run, path, self._fps, self._frames_per_step, self._explorer_targets)
