@@ -1,207 +1,124 @@
 # Running experiments
 
-An experiment compares a few configurations, the *arms*, over the same seeds. Each run of an arm with a seed is simulated, measured, and its result kept. This page shows how to set up the arms for the main question, the seeded pest response against the hop-based one, how to measure them, how to run every arm with every seed in parallel, where the results end up, and how to watch a run as a video.
+An experiment compares a few configurations, the *arms*, over the same seeds. Each run of an arm with a seed is simulated, measured, and its result kept. This page shows how to set up the arms from the default scenarios, measure them, run every arm with every seed in parallel, read the results, and watch a run as a video. What each experiment asks is in [`experiment-plan.md`](experiment-plan.md).
 
-Everything here is imported from `swarm_field.experiments`. A complete example is [`studies/benchmark_obstacles.py`](../studies/benchmark_obstacles.py).
+Everything here is imported from `swarm_field.experiments`. An experiment is a script in [`studies/`](../studies/README.md), run from the repository root as a module, e.g. `uv run python -m studies.<name>`.
 
 ## 1. Configure a run
 
-A run is a `SwarmScenario` (`src/swarm_field/experiments/scenario.py`). It is composed rather than spelled out, from four parts: a field (`MapConfig`), pests (`PestConfig`), settings every robot shares (`RobotConfig`), and a swarm added preset by preset. The fields, pests and robot settings the experiments use are ready to compose, so start from `SwarmScenario()`, an empty swarm with every part at its default, and pick a part for each:
+A run is a `SwarmScenario` (`src/swarm_field/experiments/scenario.py`): a field (`MapConfig`), pests (`PestConfig`), settings every robot shares (`RobotConfig`), and a swarm added preset by preset. Start from a default scenario and change only what the question is about.
 
-```python
-from swarm_field.experiments import (
-    DEFAULT_ROBOTS,
-    EXPLORER,
-    HOP_BEST,
-    SEEDED_BEST,
-    SMALL_FIELD_PESTS,
-    SMALL_RIVER_MAP,
-    SwarmScenario,
-)
+### The default scenarios
 
-field = SwarmScenario().with_map(SMALL_RIVER_MAP).with_pests(SMALL_FIELD_PESTS).with_robot_config(DEFAULT_ROBOTS)
-seeded = field.add_robots(EXPLORER, 10).add_robots(SEEDED_BEST, 4)
-hop = field.add_robots(EXPLORER, 10).add_robots(HOP_BEST, 4)
-```
+| Scenario | Field | Pests | Run length |
+| --- | --- | --- | --- |
+| `RIVER_SMALL` | `SMALL_RIVER_MAP`: 32 × 32 cells, one river with a bridge, rocks | `SMALL_FIELD_PESTS` | 2 h |
+| `OPEN_SMALL` | `SMALL_OPEN_MAP`: 32 × 32 cells without obstacles | `SMALL_FIELD_PESTS` | 2 h |
+| `RIVERS_LARGE` | `LARGE_RIVERS_MAP`: 64 × 64 cells, two rivers with three bridges, rocks | `LARGE_FIELD_PESTS` | 4 h |
+| `OPEN_LARGE` | `LARGE_OPEN_MAP`: 64 × 64 cells without obstacles | `LARGE_FIELD_PESTS` | 4 h |
 
-Every method returns a new scenario, so the calls chain and neither a part nor a ready scenario is ever changed. Robots get their ids in the order they are added.
+Every default scenario has the default swarm, 10 explorers (`EXPLORER`) and 4 seeded killers (`SEEDED_BEST`), with the robot settings `DEFAULT_ROBOTS`: explorers fly at 8 m/s, killers drive at 1 m/s, the radio reaches 100 m, every preset starts on a jittered lattice of its own, no robot knows the terrain in advance, and no battery runs empty. The pests are static (`STATIC_PESTS`): they neither grow nor spread, a killer treats one in a few seconds, and it never runs out of doses. `SMALL_FIELD_PESTS` puts 20 pests on the field at the start and lets 20 appear per hour, `LARGE_FIELD_PESTS` 8 and 8; these are a starting point, and an experiment sets the load its question needs. The runs are measured from the start, with the metrics sampled once a minute. The constants `DEFAULT_EXPLORERS`, `DEFAULT_KILLERS`, `SMALL_FIELD_HOURS` and `LARGE_FIELD_HOURS` hold the numbers.
 
-| Part | Ready values |
-| --- | --- |
-| field, `MapConfig` | `SMALL_OPEN_MAP`, `LARGE_OPEN_MAP`, `SMALL_RIVER_MAP`, `LARGE_RIVERS_MAP` (section "The field") |
-| pests, `PestConfig` | `STATIC_PESTS`, `SMALL_FIELD_PESTS`, `LARGE_FIELD_PESTS`, `FAST_PESTS`, `NO_PESTS` (section "Pests and treatment") |
-| robot settings, `RobotConfig` | `DEFAULT_ROBOTS`, `LATTICE_ROBOTS`, `EXPLORE_ROBOTS` (section "Settings every robot shares") |
+### Change what the question is about
 
-The experiments use `DEFAULT_ROBOTS` and the static pests by default. `DEFAULT_ROBOTS` has explorers that fly at 8 m/s, killers that drive at 1 m/s, a 100 m radio, starts on a jittered lattice, no terrain known in advance, and batteries that never run empty. `STATIC_PESTS` neither grow nor spread, are treated with `FAST_TREATMENT` and never run a killer out of doses. `SMALL_FIELD_PESTS` and `LARGE_FIELD_PESTS` add how many pests there are at the start (`PestConfig.initial_pests`, on distinct free cells drawn from the run's seed) and how many appear per hour. Both rates are placeholders until they are calibrated. `DEFAULT_EXPLORERS` (10), `DEFAULT_KILLERS` (4), `SMALL_FIELD_HOURS` (2) and `LARGE_FIELD_HOURS` (4) give the default swarm and run lengths. The earlier parts (`FAST_PESTS`, `LATTICE_ROBOTS`, `EXPLORE_ROBOTS`) stay for the earlier studies.
-
-A part with one value changed is `dataclasses.replace(SMALL_FIELD_PESTS, pests_per_hour=18.0)`.
-
-| Method | Returns the scenario with |
-| --- | --- |
-| `add_robots(preset, count)` | `count` more robots of `preset`, after the others. |
-| `without_robots(body)` | its robots of `body` (e.g. `BodyType.KILLER`) left out, or all robots without an argument. |
-| `with_map(map_config)` | another field (`MapConfig`). |
-| `with_pests(pests)` | other pests (`PestConfig`). |
-| `with_robot_config(robots)` | other robot settings (`RobotConfig`). |
-| `with_metrics(metrics)` | another metrics cadence (`MetricsConfig`). |
-
-`count(name)` says how many robots of a preset a scenario has, `killers` how many killers of every preset. `until` (3 h) and `seed` are plain fields; set them with `dataclasses.replace(scenario, seed=3)`.
-
-A few whole scenarios are ready too, composed from the parts. The four default scenarios are the experiments' standard runs: the default swarm on each standard field, for the default length. Their killers are `SEEDED_BEST`; the hop arm swaps them for `HOP_BEST` (section "The pest response: seeded or hop-based").
-
-| Scenario | Field | Pests | Robot settings | Robots | Length |
-| --- | --- | --- | --- | --- | --- |
-| `RIVER_SMALL` | `SMALL_RIVER_MAP` | `SMALL_FIELD_PESTS` | `DEFAULT_ROBOTS` | 10 explorers, 4 `SEEDED_BEST` killers | 2 h |
-| `OPEN_SMALL` | `SMALL_OPEN_MAP` | `SMALL_FIELD_PESTS` | `DEFAULT_ROBOTS` | 10 explorers, 4 `SEEDED_BEST` killers | 2 h |
-| `RIVERS_LARGE` | `LARGE_RIVERS_MAP` | `LARGE_FIELD_PESTS` | `DEFAULT_ROBOTS` | 10 explorers, 4 `SEEDED_BEST` killers | 4 h |
-| `OPEN_LARGE` | `LARGE_OPEN_MAP` | `LARGE_FIELD_PESTS` | `DEFAULT_ROBOTS` | 10 explorers, 4 `SEEDED_BEST` killers | 4 h |
-
-The others are the swarms of the earlier benchmarks, which run them as they are:
-
-| Scenario | Field | Pests | Robot settings | Robots |
-| --- | --- | --- | --- | --- |
-| `RELAYED_RIVER_SMALL` | `SMALL_RIVER_MAP` | `FAST_PESTS` at 18 per hour, mock sources at 50 m | `LATTICE_ROBOTS` | 64 relays, 6 seeded killers |
-| `RELAYED_RIVERS_LARGE` | `LARGE_RIVERS_MAP` | `FAST_PESTS` at 48 per hour, mock sources at 50 m | `LATTICE_ROBOTS` | 256 relays, 18 seeded killers |
-| `RELAYED_KILLERS` | `SMALL_OPEN_MAP` | `FAST_PESTS`, mock sources at 20 m | `LATTICE_ROBOTS` with a 20 m radio | 400 relays, 8 seeded killers |
-| `PESTS` | `MapConfig()` | `FAST_PESTS` | the defaults | 5 explorers, 3 seeded killers |
-| `EXPLORE` | `SMALL_OPEN_MAP` | `NO_PESTS` | `EXPLORE_ROBOTS` | 5 explorers |
-
-The three relayed swarms have 10 m cells, a decision every 15 s while a robot stands still and on the arrival of every move, ground killers at 0.5 m/s, relays that stand still on a jittered lattice, and a mock source on every pest that stands in for the explorer that found it. `PESTS` treats with `FAST_TREATMENT` too: at the default rate of one severity per hour a pest grows faster than it is treated. The numbers of killers and the pest rates were chosen when killers drove at 0.1 m/s, to overload them slightly; at 0.5 m/s the same swarm keeps up more easily, so raise the pest rate or lower the killers if a question needs an overloaded swarm.
-
-The comparison experiments so far use none of these swarms. They use `moving_explorer_scenario(killer, explorers, killers, radio_range_m, explorer=EXPLORER, field=SMALL_RIVER_MAP)`: explorers and killers of one preset each, with no relays and no mock sources, so an explorer that senses a pest is the only one to report it. Battery and doses are unlimited (`UNLIMITED_BATTERY_CAPACITY`, `UNLIMITED_DOSES`), so a run measures the pest response alone, and `field=LARGE_RIVERS_MAP` puts it on the large field. `PESTS_PER_KILLER_HOUR`, 3 pests per killer and hour, a load found by experiment, times the killers gives the pest rate.
-
-### The robots: presets
-
-A preset is a kind of robot: its name, its body, and its brain (`src/swarm_field/experiments/presets.py`). Four are ready:
-
-| Preset | Class | Body | What it does | Parameters |
-| --- | --- | --- | --- | --- |
-| `EXPLORER` | `ExplorerPreset` | scout | Explores the field on the EXPLORE field and shares everything it knows. A scout flies, so it plans over the river and the rocks. | `explore`: its `ExploreConfig`; `revisit_sweeps` (0.5): its revisit age in sweep times of the swarm, see [`explore.md`](explore.md), or `None` to keep `explore`'s |
-| `RELAY` | `RelayPreset` | scout | Stands still and only passes on what the swarm's killers read. | — |
-| `SEEDED_KILLER` | `SeededKillerPreset` | killer | Plans a route to a pest it knows of over its map, and treats it. | `claims` (on), `window_blocks`, `claim_fresh_for` (2 min): how long a peer's claim on a pest counts |
-| `HOP_KILLER` | `HopKillerPreset` | killer | Walks down the hop beacons to a pest, without a map, and down the DOCK beacons the docks broadcast to a dock when its battery or doses run low. | `beacons`: its `BeaconConfig`, or `variant` of `hop_beacon_variants` for the swarm's radio, `hop-tuned` by default |
-| `SEEDED_BEST` | `SeededKillerPreset` | killer | `SEEDED_KILLER` tuned for the moving-explorer scenarios: a claim counts for 10 minutes instead of 2. | `claim_fresh_for` |
-| `HOP_BEST` | `HopKillerPreset` | killer | `HOP_KILLER` tuned likewise: the `hop-best` beacons keep a pest marked and a heard beacon fresh for 3 minutes instead of 1. | `variant="hop-best"` |
-
-`SEEDED_BEST` and `HOP_BEST` are each arm's best configuration, tuned one parameter at a time on the small and the large river field with moving explorers (`studies/tune_arms.py`); use them when the two arms are compared. A variant is the class with other parameters, and a name of its own keeps it apart in tables:
-
-```python
-from swarm_field.experiments import ExplorerPreset, SeededKillerPreset
-from swarm_field.swarm import ExploreConfig
-
-plain_explorer = ExplorerPreset(explore=ExploreConfig(spread_peers=False), name="plain-explorer")
-scenario = field.add_robots(plain_explorer, 10).add_robots(SeededKillerPreset(claims=False), 4)
-```
-
-`CustomPreset(name, body, brain_spec)` adds a robot with any `BrainSpec`, e.g. one with a new behaviour under test. Its brain is used as it is.
-
-What a robot broadcasts follows from who listens. Every preset says what the swarm has to relay for it (`Relaying`), and the scenario merges that for all its presets. In a swarm with hop killers, or a custom preset whose brain has beacons, every robot relays hop beacons, so an explorer that sees a pest is its source. In a swarm with seeded killers, the relays keep the pests they hear and pass them on, with the killers' claims if they claim. A custom preset that needs the pests passed on says so with `pest_facts`.
-
-### Settings every robot shares: `RobotConfig`
-
-| Field | Meaning |
-| --- | --- |
-| `speed_mps_drone`, `speed_mps_ground` | The scouts' speed (2 m/s) and the killers' (0.5 m/s). |
-| `radio_range_m` | How far every robot's broadcasts reach. |
-| `decision_interval` | The time between two decisions of a robot that stands still, 15 s. A moving robot decides again as soon as its move arrives. |
-| `knows_terrain` | Whether robots start with the map. In the obstacle scenarios they do not, and learn obstacles by sensing. |
-| `lattice_starts` | Each group of robots starts on a jittered lattice of its own over the field, from the seed. Otherwise all robots start side by side along the bottom row. |
-| `battery_capacity` | How many standard charges every battery holds, 1 by default. A standard charge lasts a body's endurance in travel, 30 minutes for a scout, so moving explorers have to return to a dock (`MapConfig.docks`) about every hour. A large capacity, e.g. `1000`, keeps robots working without trips to a dock. |
+Every method returns a new scenario, so the calls chain and a default scenario is never changed:
 
 ```python
 from dataclasses import replace
 
-scenario = SwarmScenario().with_robot_config(replace(LATTICE_ROBOTS, radio_range_m=100.0))
+from swarm_field.contracts import BodyType
+from swarm_field.experiments import (
+    DEFAULT_KILLERS,
+    DEFAULT_ROBOTS,
+    EXPLORER,
+    HOP_BEST,
+    RIVER_SMALL,
+    SMALL_FIELD_PESTS,
+)
+
+# The hop arm: the same scenario with HOP_BEST killers instead of SEEDED_BEST.
+hop = RIVER_SMALL.without_robots(BodyType.KILLER).add_robots(HOP_BEST, DEFAULT_KILLERS)
+
+# 20 explorers instead of 10.
+explorers = RIVER_SMALL.without_robots(BodyType.SCOUT).add_robots(EXPLORER, 20)
+
+# A 50 m radio.
+radio = RIVER_SMALL.with_robot_config(replace(DEFAULT_ROBOTS, radio_range_m=50.0))
+
+# Another pest load: 30 at the start and 30 per hour.
+load = RIVER_SMALL.with_pests(replace(SMALL_FIELD_PESTS, pests_per_hour=30.0, initial_pests=30))
+
+# A 3-hour run whose first hour is left out of the averages.
+longer = RIVER_SMALL.with_hours(3, warmup_hours=1)
 ```
 
-| Ready settings | What they are |
+| Method | Returns the scenario with |
 | --- | --- |
-| `DEFAULT_ROBOTS` | The experiments' default: explorers at 8 m/s, killers at 1 m/s, a 100 m radio, every preset on a lattice of its own, no robot knows the terrain, and no battery runs empty (`UNLIMITED_BATTERY_CAPACITY`). |
-| `LATTICE_ROBOTS` | The pest-response experiments: every preset starts on a lattice of its own, no robot knows the terrain, and the radio reaches 50 m. |
-| `EXPLORE_ROBOTS` | The exploration experiments: scouts at 1 m/s that decide every 2.5 s while they stand still, and hear each other across the field. |
+| `add_robots(preset, count)` | `count` more robots of `preset`, after the others. Robots get their ids in the order they are added. |
+| `without_robots(body)` | its robots of `body` (`BodyType.SCOUT` or `BodyType.KILLER`) left out, or all robots without an argument. |
+| `with_map(map_config)` | another field (`MapConfig`). |
+| `with_pests(pests)` | other pests (`PestConfig`). |
+| `with_pests_per_hour(rate)` | another pest rate. |
+| `with_robot_config(robots)` | other robot settings (`RobotConfig`). |
+| `with_hours(hours, warmup_hours)` | a run of `hours` whole hours, measured after `warmup_hours`, which must be shorter. It also samples the metrics once a minute, which the measurement needs. |
+| `with_seed(seed)` | another seed. A batch sets each run's seed itself (section 3). |
 
-The sparsest relay lattice that keeps nearly all relays in one network is one relay every 4 cells at a 50 m radio: 64 relays on 32 × 32, 256 on 64 × 64.
+`count(name)` says how many robots of a preset a scenario has, and `killers` how many killers of every preset. The seed sets the pests, the starting positions and when each robot first decides, so two arms run with the same seed see the same pests.
 
-### The field: `MapConfig`
+### The robots: presets
 
-| Field | Meaning |
+A preset is a kind of robot: its name, its body, and its brain (`src/swarm_field/experiments/presets.py`).
+
+| Preset | Body | What it does |
+| --- | --- | --- |
+| `EXPLORER` | scout | Explores the field and shares everything it knows. A scout flies, so it plans over the rivers and the rocks. |
+| `SEEDED_BEST` | killer | The seeded method: plans a route over its map to a pest it knows of, and treats it. The swarm gossips the pests it knows and the killers' claims, so a killer leaves a pest to a closer killer that claimed it. |
+| `HOP_BEST` | killer | The hop method: walks down the hop beacons to a pest, without a map. A pest's source beacons 0 and every robot broadcasts its distance in hops; killers repel each other, and a killer stuck in place pushes itself out. It finds a dock down the DOCK beacons the docks broadcast. See [`research/hop-field.md`](research/hop-field.md). |
+
+`SEEDED_BEST` and `HOP_BEST` are each method's best configuration, tuned one parameter at a time (`studies/tune_arms.py`). Compare the methods with these two, never with an untuned one. Their classes, `SeededKillerPreset` and `HopKillerPreset`, make variants with other parameters, as `ExplorerPreset` does for explorers; give a variant a `name` of its own to keep it apart in tables. `CustomPreset(name, body, brain_spec)` adds a robot with any `BrainSpec`, e.g. one with a new behaviour under test.
+
+What a robot broadcasts follows from who listens. Every preset says what the swarm has to relay for it, and the scenario merges that for all its presets. In a swarm with hop killers every robot relays hop beacons, so an explorer that sees a pest is its source. In a swarm with seeded killers the robots pass on the pests they know, with the killers' claims.
+
+### The settings
+
+The fields of the three parts, for a question that changes one of them:
+
+| `RobotConfig` field | Meaning |
+| --- | --- |
+| `speed_mps_drone`, `speed_mps_ground` | The explorers' speed and the killers' speed. |
+| `radio_range_m` | How far every robot's broadcasts reach. |
+| `decision_interval` | The time between two decisions of a robot that stands still, 15 s. A moving robot decides again as soon as its move arrives. |
+| `knows_terrain` | Whether robots start with the map. By default they do not, and learn obstacles by sensing. |
+| `lattice_starts` | Each preset's robots start on a jittered lattice of their own over the field. Otherwise all robots start along the bottom row. |
+| `battery_capacity` | How many standard charges every battery holds. A standard charge lasts a body's endurance in travel, 30 minutes for a scout. `UNLIMITED_BATTERY_CAPACITY`, the default's, keeps robots working without trips to a dock. |
+
+| `MapConfig` field | Meaning |
 | --- | --- |
 | `size` | The field's side in cells. |
-| `obstacles` | The blocked cells, as a tuple of `(x, y)`. `river_and_rocks(size)` and `two_rivers_and_rocks(size)` build the two ready maps; `()` is an open field, and `None`, the default, the river. |
-| `cell_size` | The side of a cell in metres. |
-| `docks` | The cells where robots recharge and killers restock, any number at once, in a 5-minute battery swap; `((0, 0),)` by default, one on each bank of the river on `SMALL_RIVER_MAP`, and two opposite corners on `LARGE_RIVERS_MAP` and `LARGE_OPEN_MAP`. Robots return to one when their battery runs low, killers also when their doses do ([`battery-lifecycle.md`](battery-lifecycle.md)); `()` for none. |
-| `dock_range_m` | How far a dock's own DOCK beacon reaches, for swarms that relay beacons; `None`, the default, for the robots' radio range. A larger one is a stronger dock antenna. |
+| `obstacles` | The blocked cells, as a tuple of `(x, y)`. `river_and_rocks(size)` and `two_rivers_and_rocks(size)` build the river maps for any size; `()` is an open field. |
+| `cell_size` | The side of a cell in metres, 10. |
+| `docks` | The cells where robots recharge and killers restock, any number at once. One on each bank of the river on `SMALL_RIVER_MAP`, at `(0, 0)` and `(31, 31)`, and two opposite corners on the large maps, `(0, 0)` and `(63, 63)`; `SMALL_OPEN_MAP` has one at `(0, 0)`. Robots return to one when their battery runs low, killers also when their doses do ([`battery-lifecycle.md`](battery-lifecycle.md)). |
+| `dock_range_m` | How far a dock's own DOCK beacon reaches, for hop killers; the robots' radio range by default. |
 
-| Ready map | What it is |
-| --- | --- |
-| `SMALL_OPEN_MAP` | 32 × 32 cells without obstacles, a dock at `(0, 0)`. |
-| `MapConfig()` | The defaults: 32 × 32 cells, one river with a bridge and two rocks, a dock at `(0, 0)`. |
-| `SMALL_RIVER_MAP` | `MapConfig()` with a dock on each bank, at `(0, 0)` and `(31, 31)`. |
-| `LARGE_RIVERS_MAP` | 64 × 64 cells, two rivers with three bridges, eight rocks, docks at `(0, 0)` and `(63, 63)`. |
-| `LARGE_OPEN_MAP` | 64 × 64 cells without obstacles, docks at `(0, 0)` and `(63, 63)`. |
-
-```python
-from swarm_field.experiments import MapConfig, two_rivers_and_rocks
-
-larger = SwarmScenario().with_map(MapConfig(size=48, obstacles=two_rivers_and_rocks(48)))
-```
-
-### Pests and treatment: `PestConfig`
-
-| Field | Meaning |
+| `PestConfig` field | Meaning |
 | --- | --- |
 | `pests_per_hour` | How many pests appear per hour, on average, on the free cells. |
+| `initial_pests` | How many pests are on the field when the run starts, each on a free cell of its own drawn from the run's seed. |
+| `growth_rate` | How much a pest's severity grows per minute; 0 for static pests. |
+| `spread_probability` | The chance that a pest spreads to a neighbour; 0 for static pests. |
 | `spawn_severity` | The severity of a new pest, 0.1 by default. |
-| `growth_rate` | How much a pest's severity grows per `period` (one minute), 0.05 by default. |
-| `treatment_rate` | How much severity a treating killer removes per hour. The ready pest-response scenarios use `FAST_TREATMENT` (60, a full pest in one minute). It must beat the growth, or no pest ever clears. |
-| `treatment_doses` | The doses a killer carries, 10 by default; every treatment uses one. |
-| `initial_pests` | How many pests are on the field when the run starts, 0 by default, each on a free cell of its own drawn from the run's seed. |
-| `source_range_m` | How far the mock source on a pest reaches, or `None` for no sources; keep it equal to the radio. It sends what the killers read: pest facts for seeded killers, a beacon of 0 for hop killers. |
+| `treatment_rate` | How much severity a treating killer removes per hour. `FAST_TREATMENT`, the default's, clears a full pest in a minute. It must beat the growth, or no pest ever clears. |
+| `treatment_doses` | The doses a killer carries; every treatment uses one. `UNLIMITED_DOSES` is the default's. |
 
-| Ready pests | What they are |
-| --- | --- |
-| `STATIC_PESTS` | The experiments' default: no growth and no spread, treated with `FAST_TREATMENT`, unlimited doses (`UNLIMITED_DOSES`). |
-| `SMALL_FIELD_PESTS`, `LARGE_FIELD_PESTS` | `STATIC_PESTS` with a rate and initial pests for the default swarm on a small or a large field; placeholders at 12 per hour and 12 at the start until they are calibrated. |
-| `FAST_PESTS` | 15 per hour, treated with `FAST_TREATMENT`, 10 doses per killer, no mock sources. A scenario with mock sources sets `source_range_m` to its radio. |
-| `NO_PESTS` | None at all, for explorers measured by coverage and idleness. |
+A larger field of the same kind is `MapConfig(size=48, obstacles=two_rivers_and_rocks(48))`.
 
-### The pest response: seeded or hop-based
-
-The two methods differ only in their killers. Compare them with each method's best killers, `SEEDED_BEST` and `HOP_BEST`, on the same scenario: the default scenarios have `SEEDED_BEST` killers, so the hop arm swaps them.
-
-```python
-from swarm_field.contracts import BodyType
-from swarm_field.experiments import DEFAULT_KILLERS, HOP_BEST, RIVER_SMALL
-
-seeded = RIVER_SMALL
-hop = RIVER_SMALL.without_robots(BodyType.KILLER).add_robots(HOP_BEST, DEFAULT_KILLERS)
-```
-
-- **Seeded killers** (`SEEDED_BEST`) share pest cells. The swarm gossips the pests it knows and the killers' claims; a killer plans a route to a remembered pest over the terrain it sensed, leaves a pest to a closer killer that claimed it, and does not join a pest another killer already treats.
-- **Hop killers** (`HOP_BEST`) share hop numbers only. A source beacons 0, every robot broadcasts its distance in hops, and a killer walks down the hop values to the pest; killers repel each other, pulls are weighted by the square root of the distance, and a killer stuck in place pushes itself out. See [`research/hop-field.md`](research/hop-field.md).
-
-The untuned and earlier variants of both methods (`SEEDED_KILLER`, the hop beacons of `hop_beacon_variants`) are for questions about those differences; the obstacle benchmark compares them all (section "Example: the obstacle benchmark").
-
-### Time and seeds
-
-How long a run lasts and from when it is measured is part of the scenario. `with_hours` sets both:
-
-```python
-measured = seeded.with_hours(3, warmup_hours=1)
-```
-
-| Argument | Meaning |
-| --- | --- |
-| `hours` | How long a run lasts, in whole simulated hours; it sets `until`. |
-| `warmup_hours` | How long at the start is left out of the main outcome and of idleness (`MetricsConfig.measure_from`). It must be shorter than the run, so a 1-hour run needs `warmup_hours=0`. |
-
-It also samples the metrics once a minute, which the pest-response measurement needs (section 2). The default scenarios are made with it already, with no warm-up, since their initial pests load the killers from the start. The pest rate is the scenario's own; `with_pests_per_hour(rate)` changes it, e.g. to calibrate a load.
-
-The seed is set per run: it comes with each run (section 3), and it sets the pests, the relay and killer positions, and when each robot first decides. Two arms run with the same seed see the same relays and the same pests.
+The scenarios of the earlier studies stay for those studies: `RELAYED_RIVER_SMALL`, `RELAYED_RIVERS_LARGE` and `RELAYED_KILLERS` (standing relays and mock pest sources), `PESTS`, `EXPLORE`, and `moving_explorer_scenario`. They use the earlier parts `FAST_PESTS`, `NO_PESTS`, `LATTICE_ROBOTS` and `EXPLORE_ROBOTS`, with slower robots and a shorter radio.
 
 ## 2. Metrics
 
-`measure_pest_response` runs one scenario with one seed and returns a `PestResponse`. It advances the run one decision interval at a time and samples the ground truth and the killers between steps. Coverage, idleness and redundancy come from the run's `MetricsCollector`, sampled once a minute, so the same runs measure how the explorers cover the field. A run without killers or without pests is measured too, e.g. explorers alone:
+`measure_pest_response` runs one scenario with one seed and returns a `PestResponse`. It advances the run one decision interval at a time and samples the ground truth and the killers between steps. Coverage, idleness and redundancy come from the run's metrics, sampled once a minute, so the same runs measure how the explorers cover the field. A run without killers or without pests is measured too, e.g. explorers alone.
+
+The main outcomes:
 
 | `PestResponse` field | Table column | Meaning |
 | --- | --- | --- |
@@ -210,28 +127,12 @@ The seed is set per run: it comes with each run (section 3), and it sets the pes
 | `open` | open | Pests still infested at the end. |
 | `response_minutes` | response | Minutes from a pest's appearance to its clearing, over the cleared pests. |
 | `response_p90` | p90 | The 90th percentile of those minutes. |
-| `cells_per_treatment` | cells/treat | Cells moved by all killers per treated pest. |
-| `messages_per_robot_hour` | msgs | Messages received per robot per hour. A robot sends its beacons in a message of their own next to its status, so a hop robot's broadcast counts as two messages, however little the beacon message carries. |
-| `items_per_robot_hour` | items | The items those messages carried, per robot per hour, counted the same way: a status is one item, and every fact of a knowledge snapshot and every beacon is one. It compares what the arms communicate by size, where `msgs` counts a seeded relay's snapshot of many facts as one message. |
-| `status_items_per_robot_hour`, `fact_items_per_robot_hour`, `beacon_items_per_robot_hour` | statuses, facts, beacons | Those items by kind: the statuses, the facts of the knowledge snapshots, and the beacons. Explorers broadcast their whole memory in both arms, so `facts` is about the same in both, and the arms differ in `beacons` and in the facts the seeded killers and relays add. |
-| `stuck` | stuck | The share of the time a killer committed to treating stands idle. |
-| `commit_hops` | commit hop | A killer's hop value each time it commits to treating, for hop arms; the table shows the median. |
-| `no_doses` | no doses | The share of the live killer samples in which the killer had no doses left. A killer holds the dose of a treatment under way until it ends, so a killer treating with its last dose is not counted. |
-| `shared_target` | shared | The share of the samples with two or more killers committed to treating in which two of them report the same target: a duplicate trip. A hop killer's target is the cell of its strongest beacon, not the pest. `None` if never two were committed. |
-| `co_treating` | co-treat | The share of the samples with a treatment under way in which two killers treat the same cell. |
-| `isolated` | isolated | The share of the killer samples in which no other live robot is within radio range, from the ground truth. |
-| `no_fresh_beacon` | no beacon | The share of the samples of killers with beacons in which the killer heard no fresh TREAT beacon; `None` without beacons. |
-| `idle_isolated` | idle isol | The share of the killer samples in which the killer does not treat and no other live robot is within radio range. In the second table, `pest_isolation_headers` and `pest_isolation_cells`, with the four below. |
-| `isolation_spells` | isol p90 | The minutes each killer stayed isolated in one go; the table shows the 90th percentile. |
-| `crowded` | crowded | The share of the samples of killers that do not treat in which another killer is within radio range. |
-| `unknown_infested` | unknown | Pests per sample, after the warm-up, that no robot knows of: in the hop arm, that no robot is the hop source of. |
-| `cut_off_infested` | cut off | Pests per sample, after the warm-up, that some robot knows of but no robot in the radio network of any robot that knows is a killer: at most what perfect cohesion could save. |
-| `doses_used` | (not in the table) | Doses used by all killers together, one per treatment job, also those used before a killer restocked at a dock. |
-| `drift` | drift N h | The killers' mean distance in cells from their start, after each hour; 0 without killers. |
+| `cells_per_treatment` | cells/treat | Cells moved by all killers per cleared pest. |
+| `messages_per_robot_hour` | msgs | Messages received per robot per hour. A hop robot sends its beacons in a message of their own next to its status, so its broadcast counts as two. |
+| `items_per_robot_hour` | items | The items those messages carried, per robot per hour: a status, every fact of a knowledge snapshot and every beacon is one. It compares what the methods communicate by size. |
 | `coverage` | coverage | The share of the crop cells some robot sensed by the end of the run. |
 | `idleness_minutes` | idle | Minutes since a robot last sensed a crop cell, averaged over the cells and the samples after the warm-up: the expected wait of a new pest for its first sighting. |
-| `worst_idleness_minutes` | (not in the table) | The longest of those, over the same samples. |
-| `redundancy` | redund | The share of the robots' visits to a cell sensed less than `MetricsConfig.fresh_age` (30 min) before. |
+| `redundancy` | redund | The share of the robots' visits to a cell sensed less than 30 minutes before. |
 | `wall` | wall (s) | Seconds the run took to compute. |
 
 Every pest is either treated or still open at the end, so the share of the pests that were treated is
@@ -240,14 +141,30 @@ $$\text{TreatedShare} = \frac{T}{T + O}$$
 
 | Symbol | Meaning |
 | --- | --- |
-| $T$ | `treated`, pests treated during the run |
+| $T$ | `treated`, pests cleared during the run |
 | $O$ | `open`, pests still infested at the end |
 
-To measure something else, add a field to `PestResponse` and fill it in `measure_pest_response` (`src/swarm_field/experiments/pest_response.py`). A run function can also be your own, as long as it takes a `Run` and returns a dataclass (section 3).
+The other fields diagnose why an arm did as it did:
+
+| `PestResponse` field | Meaning |
+| --- | --- |
+| `status_items_per_robot_hour`, `fact_items_per_robot_hour`, `beacon_items_per_robot_hour` | The items by kind: statuses, facts of knowledge snapshots, and beacons. |
+| `stuck` | The share of the time a killer committed to treating stands idle. |
+| `commit_hops` | A hop killer's hop value each time it commits to treating. |
+| `no_doses` | The share of the killers' time without doses. |
+| `shared_target` | Of the samples with two or more killers committed to treating, the share in which two report the same target: a duplicate trip. |
+| `co_treating` | Of the samples with a treatment under way, the share in which two killers treat the same cell. |
+| `isolated`, `idle_isolated`, `isolation_spells`, `crowded` | How often a killer has no other robot in radio range, also while it does not treat, for how long in one go, and how often an idle killer has another killer in range (`pest_isolation_headers`, `pest_isolation_cells`). |
+| `unknown_infested`, `cut_off_infested` | Pests per sample that no robot knows of, and that some robot knows of but no killer can hear of. |
+| `doses_used` | Doses used by all killers together. |
+| `drift` | The killers' mean distance in cells from their start, after each hour. |
+| `worst_idleness_minutes` | The longest idleness, over the same samples as `idleness_minutes`. |
+
+To measure something else, write a run function of your own: it takes a `Run` and returns a dataclass. `MeasuredPestRun` steps a run as `measure_pest_response` does and gives access to its simulation and its `PestTracker` between steps; `studies/hop_dock_return.py` measures the killers' trips to a dock this way.
 
 ## 3. Run every arm with every seed, in parallel
 
-A *run* (`Run`) is an arm name, a configuration and a seed. `runs_for` makes one run per arm and seed, and `Experiment.run` runs them all with a run function and returns their results in the same order:
+A *run* (`Run`) is an arm name, a scenario and a seed. `runs_for` makes one run per arm and seed, and `Experiment.run` runs them all with a run function and returns their results in the same order:
 
 ```python
 """Compare the seeded and the hop-based pest response on the small river field."""
@@ -269,7 +186,7 @@ def main() -> None:
     arms: dict[str, SwarmScenario] = {"seeded": RIVER_SMALL, "hop": hop}
 
     experiment = Experiment("seeded_vs_hop_small")
-    runs = runs_for(arms, seeds=range(12), cost=SwarmScenario.run_cost)
+    runs = runs_for(arms, seeds=range(8), cost=SwarmScenario.run_cost)
     results = experiment.run(runs, measure_pest_response)
 
 
@@ -277,22 +194,22 @@ if __name__ == "__main__":
     main()
 ```
 
-- **Arm names** are the keys of the dictionary you pass to `runs_for`, so every arm needs its own. When arms differ in a parameter, `arm_name` builds the name from it: `arm_name("river-small", "seeded", killers=8)` gives `river-small/seeded/killers=8`.
-- **Seeds** are the same for every arm, so two arms are compared on the same relays and the same pests. Use at least 8; 12 is a good default.
-- **`cost`** is optional. It is a rough relative cost of an arm, so the slowest runs start first and no process is left alone with a long run at the end. `SwarmScenario.run_cost` rates a seeded run five times a hop run, since its relays gossip whole pest lists.
+- **Arm names** are the keys of the dictionary passed to `runs_for`, so every arm needs its own. When arms differ in a parameter, `arm_name` builds the name from it: `arm_name("river-small", "seeded", explorers=20)` gives `river-small/seeded/explorers=20`.
+- **Seeds** are the same for every arm, so two arms are compared on the same pests. Use 3 to 8.
+- **`cost`** is optional: a rough relative cost of an arm, so the slowest runs start first and no process is left alone with a long run at the end.
 - **`Experiment.run`** returns one `RunResult` per run, with `.run` (arm, seed), `.result` (the `PestResponse`) and `.wall` (seconds).
+
+Collect every configuration of an experiment into one `Experiment`, so its runs share the processors and its results end up in one folder.
 
 ### How it runs in parallel
 
-`Experiment.run` starts a pool of worker processes, by default one per CPU (`processes=None`), and hands every run to the next free process. A run is a function of its seed alone, so the results are the same on any computer and with any number of processes; only the time it takes changes. With fewer cores, pass `processes` or `--jobs` explicitly if you want to keep some free, and expect the time to grow with the number of runs divided by the cores. Each process holds one run in memory at a time, about a third of a gigabyte for a seeded run on the large field, so a machine with little memory may need fewer processes than cores.
-
-Three rules follow from running in separate processes:
+`Experiment.run` starts a pool of worker processes, by default one per CPU, and hands every run to the next free process. A run is a function of its seed alone, so the results are the same on any computer and with any number of processes; only the time changes. Pass `processes`, or `--jobs` in a study, to keep some cores free. Three rules follow from running in separate processes:
 
 1. The run function must be a module-level function, such as `measure_pest_response`, not a lambda or a nested function.
 2. Every configuration must pickle; the dataclasses of `swarm_field` do.
 3. The script must start from `if __name__ == "__main__":`, so that worker processes that import it do not start an experiment of their own.
 
-As a guide on 22 processes, measured with killers at 0.1 m/s: 12 seeds of `seeded` and `hop-tuned` on both ready fields, 3 h each, take about 6 minutes. A single 3-hour run takes about 30 s (`seeded`) or 11 s (`hop-tuned`) on the small field, and about 300 s or 100 s on the large one.
+As a guide, one run of a default scenario at its default load takes about 45 s on a small field and about 170 s on a large one. A run with more pests takes longer, up to a few times as long when the killers fall behind, and the batch logs nothing until it ends.
 
 ## 4. Averages, standard errors and the table
 
@@ -310,12 +227,12 @@ from swarm_field.experiments import (
 
 grouped = by_arm(results)
 baseline = [result.infested for result in grouped["seeded"]]
-headers = pest_table_headers(hours=3)
-headers.extend(["treated %", "Δ infested"])
+headers = pest_table_headers(hours=2)
+headers.extend(["treated", "Δ infested"])
 rows: list[list[str]] = []
 for arm, arm_results in grouped.items():
     infested = [result.infested for result in arm_results]
-    cells = pest_table_cells(arm, arm_results, hours=3)
+    cells = pest_table_cells(arm, arm_results, hours=2)
     cells.extend([treated_share(arm_results), paired_difference(infested, baseline)])
     rows.append(cells)
 table = markdown_table(headers, rows)
@@ -339,11 +256,11 @@ $$\bar{x} = \frac{1}{n}\sum_{s=1}^{n} x_s, \qquad \text{SE} = \frac{\text{sd}(x)
 | $b_s$ | the baseline arm's value with the same seed |
 | $\text{sd}$ | the sample standard deviation over the seeds |
 
-A difference of about two standard errors or more is unlikely to be chance.
+A difference smaller than one or two standard errors supports no conclusion.
 
 ## 5. Where the results are
 
-Every `Experiment` makes a new folder in `output/`, at the root of the repository, which git ignores. Its name starts with the date and time, so a listing sorts by time, and ends in four random digits, so two experiments of the same name started in the same second get folders of their own:
+Every `Experiment` makes a new folder in `output/`, at the root of the repository, which git ignores. Its name starts with the date and time, so a listing sorts by time, and ends in four random digits, so two experiments started in the same second get folders of their own:
 
 ```text
 output/
@@ -355,12 +272,11 @@ output/
       hop_seed0.mp4
 ```
 
-- **`experiment.json`** says what was run: the name, the start time, the command line, the git commit (with `+dirty` if there were uncommitted changes) and every arm with its seeds. The configurations themselves are not written yet, since they have no JSON form so far; the commit and the command reproduce them.
+- **`experiment.json`** says what was run: the name, the start time, the command line, the git commit (with `+dirty` if there were uncommitted changes) and every arm with its seeds. The configurations themselves are not written; the commit and the command reproduce them.
 - **`results.json`** has one record per run: its `name` (`ARM/seedN`), `arm`, `seed`, `wall`, and `result`, the `PestResponse` as an object.
-- **`video/`** holds the videos of section 6, one per filmed run, named after it.
-- **Anything else** goes next to them with `experiment.write_text(name, text)`, `experiment.write_json(name, data)` or `experiment.path(name)`, which gives a path for a video or a figure.
+- **Anything else**, such as tables and figures, goes next to them with `experiment.write_text(name, text)`, `experiment.write_json(name, data)` or `experiment.path(name)`, which gives a path to write to.
 
-To use the results again without running anything, read `results.json`:
+To use the results again without running anything, e.g. to plot them, read `results.json`:
 
 ```python
 import json
@@ -377,65 +293,20 @@ for arm, values in infested.items():
 
 ## 6. Watch a run: videos
 
-The table says how well an arm did, not why. To see what its robots actually did, film a few of its runs. `record_videos` runs them again and renders each into a video in the experiment's folder. A run is a function of its arm and seed, so the video shows exactly the run that `results.json` describes.
-
-Pass it the folder and the runs to film. `runs_for` builds those runs from the same arms as the batch, here the `hop` arm with seed 0:
+The table says how well an arm did, not why. `record_videos` runs some runs of a batch again and renders each into a video in the experiment's folder. A run is a function of its arm and seed, so the video shows exactly the run that `results.json` describes:
 
 ```python
 from swarm_field.experiments import record_videos
 
-experiment = Experiment("seeded_vs_hop_small")
-runs = runs_for(arms, seeds=range(12), cost=SwarmScenario.run_cost)
-results = experiment.run(runs, measure_pest_response)
 record_videos(experiment.directory, runs_for({"hop": arms["hop"]}, seeds=[0]))
 ```
 
-The video goes to `video/hop_seed0.mp4` in the experiment's folder. Its name is the run's name, `ARM/seedN`, with every `/` turned into `_`; `video_path(directory, run)` gives it.
+The video goes to `video/hop_seed0.mp4`: the run's name, `ARM/seedN`, with every `/` turned into `_`. Several runs are filmed in parallel, one per process. A folder of an earlier experiment works too, with the same arm name and scenario as in its batch.
 
-- **Several runs** are filmed in parallel, one per process, as in `Experiment.run`: `runs_for({"seeded": arms["seeded"], "hop": arms["hop"]}, seeds=[0, 1])` gives four videos. `processes` sets the number of processes.
-- **An experiment run earlier** works too. Pass its folder, e.g. `Path("output/2026-10-22_22-19-02_seeded_vs_hop_small_4821")`, and the same arm name and scenario as in the batch, so the run is the same one. The arm name matters: it is the run's label.
-- **Only pest runs** can be filmed: `record_videos` takes runs of a `SwarmScenario`, which it steps like `measure_pest_response`.
+A video draws three frames per decision interval (`frames_per_step`) and plays at 16 frames per second (`fps`), so one second of video is 80 s of the run. It shows pests as red cells, light at a new one and dark at a full one, killers as big red dots with a dashed line to their target, explorers as blue dots, obstacles as dark grey cells, and a side panel with the time, the infested cells, the pests treated so far and the killers by goal. The panel's measures are those of `measure_pest_response`, so at the last frame they agree with `results.json`.
 
-### What a video shows
+An `.mp4` needs [ffmpeg](https://ffmpeg.org/) on the `PATH`. Drawing a frame takes about 0.3 s on top of the simulation, so film a few runs, not every seed. `record_video(run, path)` films one run on its own, to an `.mp4`, a `.gif` or a directory of PNG frames.
 
-A video draws three frames per decision interval (`frames_per_step`), so one frame shows 5 s of the run, and plays at 16 frames per second (`fps`): one second of video is 80 s of the run, and a 3-hour run is 2,160 frames, a 135-second video. Robots glide between cells as they move. The run is measured only at the end of each interval, as in `measure_pest_response`, so the frames in between do not change it. The frames are drawn with `MatplotlibRenderer`:
+## 7. An experiment as a JSON file
 
-| Mark | Meaning |
-| --- | --- |
-| red cells | Pests, light red at a new one and dark at a full one. |
-| big red dots | Killers, with a line along their last 3 cells and a dashed line to their target. |
-| blue dots | Explorers, in a swarm with explorers, with a line along their last 3 cells. `explorer_targets=True` also draws their targets. |
-| small grey dots | Relays, in a swarm of relays without explorers. |
-| dark grey cells | Obstacles. |
-| side panel | The run's setup, the infested cells now, the pests treated so far and their mean response, the killers by goal, and the doses used. |
-
-The panel's measures are those of `measure_pest_response` (`MeasuredPestRun`), so at the last frame they agree with the run's record in `results.json`.
-
-### Requirements and time
-
-- An `.mp4` needs [ffmpeg](https://ffmpeg.org/) on the `PATH` (`sudo apt install ffmpeg`).
-- Drawing a frame takes about 0.3 s, on top of the simulation. One 3-hour video on the small field takes about 11 minutes, and the large field is slower. Film a few runs, not every seed; `frames_per_step=1` draws a third of the frames.
-- To try a video on its own, without a batch, `record_video(run, path)` films one run to any path: `.mp4`, `.gif`, or a directory of PNG frames. It returns the run's `PestResponse`.
-
-## Example: the obstacle benchmark
-
-[`studies/benchmark_obstacles.py`](../studies/benchmark_obstacles.py) is this page as a script for the earlier relay benchmark: every configuration of its `pest_response_configurations`, the untuned and tuned variants of both methods, on `RELAYED_RIVER_SMALL` and `RELAYED_RIVERS_LARGE`, one table per field, the treated share and the paired difference to `seeded`.
-
-```bash
-uv run python -m studies.benchmark_obstacles --seeds 12
-```
-
-| Option | Meaning |
-| --- | --- |
-| `--scenario river-small` | Run only one field (`river-small`, `rivers-large` or `both`). |
-| `--seeds` | Seeds per arm. |
-| `--hours`, `--warmup-hours` | How long a run lasts, and how much of it is left out of `infested`. |
-| `--killers` | Override the number of killers. |
-| `--seeded-no-yield` | Add the seeded arm without the claims. |
-| `--jobs` | Processes; one per CPU if not given. |
-
-For a quick check that everything works, a run of a few seconds:
-
-```bash
-uv run python -m studies.benchmark_obstacles --scenario river-small --seeds 1 --hours 1 --warmup-hours 0
-```
+A simple sweep needs no script: a JSON file in [`configs/`](../configs/) names a scenario, the seeds and the conditions, and `uv run python -m swarm_field.experiments.from_json FILE` runs it with `measure_pest_response`. The default scenarios are named `river-small`, `rivers-large`, `open-small` and `open-large`. The file format is in the [README](../README.md).

@@ -547,13 +547,13 @@ STATIC_PESTS = PestConfig(
 treats one in a few seconds (``FAST_TREATMENT``) and never runs out of doses. The field's pest
 parts (``SMALL_FIELD_PESTS``, ``LARGE_FIELD_PESTS``) set how many there are."""
 
-SMALL_FIELD_PESTS = replace(STATIC_PESTS, pests_per_hour=12.0, initial_pests=12)
-"""``STATIC_PESTS`` for a small field and the default swarm: as many pests at the start as
-appear in an hour."""
+SMALL_FIELD_PESTS = replace(STATIC_PESTS, pests_per_hour=20.0, initial_pests=20)
+"""``STATIC_PESTS`` for a small field and the default swarm: 20 pests at the start and 20 per
+hour. A starting point; an experiment sets the load its question needs."""
 
-LARGE_FIELD_PESTS = replace(STATIC_PESTS, pests_per_hour=12.0, initial_pests=12)
-"""``STATIC_PESTS`` for a large field and the default swarm: as many pests at the start as
-appear in an hour."""
+LARGE_FIELD_PESTS = replace(STATIC_PESTS, pests_per_hour=8.0, initial_pests=8)
+"""``STATIC_PESTS`` for a large field and the default swarm: 8 pests at the start and 8 per
+hour. A starting point; an experiment sets the load its question needs."""
 
 DEFAULT_EXPLORERS = 10
 """Explorers in a swarm of the experiments, by default."""

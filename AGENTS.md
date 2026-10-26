@@ -10,6 +10,7 @@ A decentralized swarm of robots that monitor and cultivate a crop field. Each ro
 
 - [`docs/system-decomposition.md`](docs/system-decomposition.md) — the module boundaries and the interface contracts between them.
 - [`docs/architecture.md`](docs/architecture.md) — inter- and intra-module architecture: the composable brain (A) and the discrete-event simulation (B).
+- [`docs/experiment-plan.md`](docs/experiment-plan.md) — the experiments behind the report: their default settings, the running, plotting and analysis guidelines, and what each experiment asks.
 - [`docs/experiments.md`](docs/experiments.md) — how to run an experiment: configure seeded and hop-based arms, measure them, run seeds in parallel, and read the results in `output/`.
 - [`docs/research/`](docs/research/) — research notes: navigation design, and the robustness measurement (failure and position error).
 - `docs/*.pdf` — the problem statement and literature review (domain background on swarm robotics for crop fields).
