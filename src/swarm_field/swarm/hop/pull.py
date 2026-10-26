@@ -31,8 +31,12 @@ class HopPull:
 
 
 def beacon_strength(heard: HeardBeacon, now: Time, config: BeaconConfig) -> float:
-    """How strongly a beacon attracts: ``gamma`` per hop, decaying with the beacon's age."""
-    return config.gamma**heard.beacon.value * exp(-(now - heard.sent_at) / config.decay)
+    """How strongly a beacon attracts: ``gamma`` per hop, decaying with the beacon's age, unless
+    ``decay`` is ``None``."""
+    strength = config.gamma**heard.beacon.value
+    if config.decay is not None:
+        strength *= exp(-(now - heard.sent_at) / config.decay)
+    return strength
 
 
 def downhill_beacons(

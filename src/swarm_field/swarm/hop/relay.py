@@ -22,19 +22,22 @@ from swarm_field.swarm.hop.memory import BeaconView, HeardBeacon
 class DockBeacons:
     """How DOCK beacons differ from TREAT beacons: a dock never moves or vanishes.
 
-    A DOCK beacon heard from a cell stays true as long as the dock stands, so it is kept and
-    weighed for long and never capped, and killers do not repel each other on the way to a dock.
+    A DOCK beacon heard on a cell stays a true upper bound on the hops from that cell to a dock
+    for the whole run, so by default it never expires and its pull never fades: the memory's
+    cap per kind (``MEMORY_CAP``, the oldest forgotten first) is the only bound it needs. Its
+    value is never capped either, and killers do not repel each other on the way to a dock.
 
     Attributes:
-        fresh_for: How long a heard DOCK beacon counts after it was sent.
-        decay: The decay time of its pull with its age.
+        fresh_for: How long a heard DOCK beacon counts after it was sent; ``None`` for as long
+            as the memory keeps it.
+        decay: The decay time of its pull with its age; ``None`` for a pull that never fades.
         gamma: The hop discount of DOCK beacons. Nearer 1 than TREAT's, since a dock may lie
             many hops away, where a discount of 0.5 per hop would leave no pull worth following.
         max_value: DOCK beacons above this are ignored and not relayed; ``None`` for no limit.
     """
 
-    fresh_for: Time = 30 * TimeUnit.MINUTE
-    decay: Time = 30 * TimeUnit.MINUTE
+    fresh_for: Time | None = None
+    decay: Time | None = None
     gamma: float = 0.8
     max_value: float | None = None
 
@@ -44,11 +47,13 @@ class BeaconConfig:
     """How beacons are kept, relayed and weighed.
 
     Attributes:
-        fresh_for: How long a heard beacon counts after it was sent.
+        fresh_for: How long a heard beacon counts after it was sent; ``None`` for as long as the
+            memory keeps it, which only DOCK beacons do by default (``DockBeacons``).
         source_for: How long a robot stays a pest's source after it saw the pest itself.
         gamma: The hop discount, between 0 and 1: a beacon attracts ``gamma`` to the power of
             its value.
-        decay: The decay time of a beacon's attraction with its age.
+        decay: The decay time of a beacon's attraction with its age; ``None`` for an attraction
+            that never fades, as for DOCK beacons by default.
         hop_cells: With a length, a hop costs the distance to the beacon's cell in units of
             this many cells (metric hops); without one, every hop costs 1.
         min_hop_cells: With metric hops, the distance a hop costs at least. Without it, two
@@ -69,10 +74,10 @@ class BeaconConfig:
             The other fields hold for TREAT beacons; ``for_kind`` gives the settings of a kind.
     """
 
-    fresh_for: Time = TimeUnit.MINUTE
+    fresh_for: Time | None = TimeUnit.MINUTE
     source_for: Time = TimeUnit.MINUTE
     gamma: float = 0.5
-    decay: Time = TimeUnit.MINUTE
+    decay: Time | None = TimeUnit.MINUTE
     hop_cells: float | None = None
     min_hop_cells: float = 1.0
     max_value: float | None = None
@@ -106,10 +111,11 @@ class BeaconConfig:
 def fresh_beacons(
     beacons: BeaconView, kind: BeaconKind, now: Time, config: BeaconConfig
 ) -> list[HeardBeacon]:
-    """The beacons of ``kind`` heard within ``fresh_for``, up to ``max_value``."""
+    """The beacons of ``kind`` heard within ``fresh_for``, or all if it is ``None``, up to
+    ``max_value``."""
     fresh: list[HeardBeacon] = []
     for heard in beacons.beacons(kind):
-        if now - heard.sent_at > config.fresh_for:
+        if config.fresh_for is not None and now - heard.sent_at > config.fresh_for:
             continue
         if config.max_value is not None and heard.beacon.value > config.max_value:
             continue

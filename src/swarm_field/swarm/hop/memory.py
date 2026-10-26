@@ -116,24 +116,31 @@ class BeaconMemory:
         else:
             self._sightings.pop(cell, None)
 
-    def forget(self, heard_before: Mapping[BeaconKind, Time], seen_before: Time, now: Time) -> None:
+    def forget(
+        self, heard_before: Mapping[BeaconKind, Time | None], seen_before: Time, now: Time
+    ) -> None:
         """Drop what no longer counts at ``now``.
 
         Args:
-            heard_before: Per kind, heard beacons sent before this are dropped; a kind not in
-                it is dropped altogether. Killers that last reported before the TREAT cutoff are
-                dropped too: a killer's status comes with its beacon.
+            heard_before: Per kind, heard beacons sent before this are dropped; with ``None``
+                none of the kind is, and a kind not in it is dropped altogether. Killers that
+                last reported before the TREAT cutoff are dropped too: a killer's status comes
+                with its beacon.
             seen_before: Pest sightings older than this are dropped.
             now: Placed beacons that have faded by now are dropped.
         """
         kept: dict[tuple[RobotId, BeaconKind], HeardBeacon] = {}
         for key, heard in self._heard.items():
-            cutoff = heard_before.get(key[1])
-            if cutoff is not None and heard.sent_at >= cutoff:
+            kind = key[1]
+            if kind not in heard_before:
+                continue
+            cutoff = heard_before[kind]
+            if cutoff is None or heard.sent_at >= cutoff:
                 kept[key] = heard
         self._heard = kept
         killers_before = heard_before.get(BeaconKind.TREAT, now)
-        self._killers = {peer: at for peer, at in self._killers.items() if at >= killers_before}
+        if killers_before is not None:
+            self._killers = {peer: at for peer, at in self._killers.items() if at >= killers_before}
         self._sightings = {cell: at for cell, at in self._sightings.items() if at >= seen_before}
         self._placed = {
             cell: placed

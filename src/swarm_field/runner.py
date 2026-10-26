@@ -169,7 +169,8 @@ def _build_hop_field(params: dict[str, Any], rng: Random) -> HopField:
 
 @FIELDS.register(HopDockField.name)
 def _build_hop_dock_field(params: dict[str, Any], rng: Random) -> HopDockField:
-    """Build the hop field of the DOCK beacons, over the robot's own beacons.
+    """Build the hop field of the DOCK beacons, over the robot's own beacons, heading for the
+    nearest of the scenario's docks when no DOCK beacon pulls.
 
     Raises:
         ValueError: If the spec's ``BeaconConfig`` relays no DOCK beacons.
@@ -177,7 +178,8 @@ def _build_hop_dock_field(params: dict[str, Any], rng: Random) -> HopDockField:
     config, beacons = _beacon_parts(params, f"the {HopDockField.name} field")
     if config.dock is None:
         raise ValueError(f"the {HopDockField.name} field needs BeaconConfig.dock")
-    return HopDockField(config, beacons)
+    docks: tuple[CellId, ...] = tuple(params.get("docks", ()))
+    return HopDockField(config, beacons, docks)
 
 
 def _beacon_parts(params: dict[str, Any], part: str) -> tuple[BeaconConfig, BeaconView]:

@@ -86,20 +86,22 @@ The escape cannot free a killer held at the geometric median of several pests by
 
 ### Finding a dock
 
-A hop killer has no map, so it cannot plan to a dock. Docks are infrastructure with a radio of their own: every decision interval, every dock broadcasts a DOCK beacon of 0 on its cell (`DockBroadcast`), as far as `MapConfig.dock_range_m`, by default the robots' radio range. Every robot relays its own DOCK value next to its TREAT value, in the same message, by the same rule as for TREAT beacons, and a killer that must charge or restock walks down the DOCK gradient on `HopDockField` (`ReturnToDock` and `Resupply`). It uses the configured dock cells only to tell whether it stands on one.
+A hop killer has no map, so it cannot plan to a dock. Docks are infrastructure with a radio of their own: every decision interval, every dock broadcasts a DOCK beacon of 0 on its cell (`DockBroadcast`), as far as `MapConfig.dock_range_m`, by default the robots' radio range. Every robot relays its own DOCK value next to its TREAT value, in the same message, by the same rule as for TREAT beacons, and a killer that must charge or restock walks down the DOCK gradient on `HopDockField` (`ReturnToDock` and `Resupply`). When no DOCK beacon pulls it, it heads straight for the nearest of the 1 or 2 configured dock cells instead, and its steerer walks that heading by what it senses around itself, until a beacon pulls again. Otherwise it would idle where it stands, since the dock behaviours bid above every other one. Beyond that it uses the dock cells only to tell whether it stands on one.
 
-A dock never moves or vanishes, so a DOCK beacon heard from a cell stays a true upper bound on the hops to a dock for the whole run. DOCK beacons therefore have settings of their own (`BeaconConfig.dock`, a `DockBeacons`): they stay fresh and decay over 30 minutes instead of one, they have no cap, since a dock leaves no ghosts, their discount per hop is 0.8 instead of 0.5, since a dock may lie many hops away, and killers do not repel each other on the way. The gradient follows the radio distance, not the walking distance, so the steerer and the escape have to find a bridge over a river.
+A dock never moves or vanishes, so a DOCK beacon heard on a cell stays a true upper bound on the hops from that cell to a dock for the whole run. DOCK beacons therefore have settings of their own (`BeaconConfig.dock`, a `DockBeacons`): they never expire and their pull never fades, so the memory's cap of 100 per kind, the oldest forgotten first, is the only bound on them, they have no cap on their value, since a dock leaves no ghosts, their discount per hop is 0.8 instead of 0.5, since a dock may lie many hops away, and killers do not repel each other on the way. The gradient follows the radio distance, not the walking distance, so the steerer and the escape have to find a bridge over a river.
 
-**It finds a dock, but slowly.** `studies/hop_dock_return.py` runs the moving-explorer scenario of `explorer_hop_killers.py` for 6 h, 8 seeds, with the dock at `(0, 0)` west of the river. With 10 doses per killer and unlimited battery, every killer has to restock:
+**It finds a dock, but slowly.** `studies/hop_dock_return.py` runs the moving-explorer scenario of `explorer_hop_killers.py` for 6 h, 8 seeds, with the dock at `(0, 0)` west of the river, or with a dock on each bank. With 10 doses per killer and unlimited battery, every killer has to restock:
 
 | Arm | Infested | Restock trips started | Completed | Trip time (min) | Longest (min) | Still under way at the end |
 | --- | --- | --- | --- | --- | --- | --- |
-| seeded | 1.32 ± 0.06 | 6.1 | 5.8 | 11.6 ± 0.7 | 19 | 0.4 |
-| hop | 9.01 ± 0.86 | 4.6 | 2.4 | 58.6 ± 11.4 | 166 | 2.3 |
-| seeded, a dock on each bank | 1.29 ± 0.08 | 5.9 | 5.6 | 6.0 ± 0.4 | 10 | 0.3 |
-| hop, a dock on each bank | 6.32 ± 0.43 | 4.6 | 3.9 | 38.0 ± 5.4 | 133 | 0.8 |
+| seeded | 1.28 ± 0.07 | 7.0 | 6.6 | 16.0 ± 1.1 | 40 | 0.4 |
+| hop | 9.41 ± 1.09 | 4.8 | 3.1 | 42.4 ± 10.8 | 211 | 1.6 |
+| seeded, a dock on each bank | 1.28 ± 0.09 | 6.9 | 6.8 | 9.3 ± 0.7 | 24 | 0.1 |
+| hop, a dock on each bank | 5.41 ± 0.66 | 4.8 | 4.8 | 20.7 ± 4.0 | 92 | 0.0 |
 
-The beacons and the arbitration work: while a hop killer is low on doses and off the dock, `resupply` wins 98 % of its decisions and a DOCK beacon pulls it 93 % of the time. But it spends 64 % of that time east of the river, and a quarter of it pulled by a beacon on the far bank, straight across the water, which the flying explorers relayed. A dock on each bank shortens the trips, but they still take six times as long as a seeded killer's. The TREAT gradient crosses the river in the same way, which is a likely reason why hop killers walk 56 cells per treatment in these runs and seeded killers 20. With half a battery and unlimited doses, a hop killer died of an empty battery in 2 of 8 runs, while seeded killers never even needed a dock.
+These numbers hold after four changes to the first version of the study, measured one at a time on the same seeds. A tank now gives exactly its 10 doses, where a rounding error used to give an 11th, and a killer finishes the treatment of its last dose before it leaves for the dock. A robot charges on a dock only when it came to charge. A hop killer restocks only an empty tank, since its treat bid is often below the restock bid, which with one dock left 1.42 ± 0.60 fewer infested cells. And a DOCK beacon never expires, while a killer that hears none heads straight for the nearest dock. With a dock on each bank, the last change left 1.89 ± 0.54 fewer infested cells, better on all 8 seeds, every trip was completed and the trips took half as long. With one dock it changed nothing, since the trouble there is the river, not a missing beacon.
+
+The beacons and the arbitration work. In the first version of the study, while a hop killer was low on doses and off the dock, `resupply` won 98 % of its decisions and a DOCK beacon pulled it 93 % of the time. But it spent 64 % of that time east of the river, and a quarter of it pulled by a beacon on the far bank, straight across the water, which the flying explorers relayed. A dock on each bank still leaves hop trips twice as long as a seeded killer's. The TREAT gradient crosses the river in the same way, which is a likely reason why hop killers walk 59 cells per treatment in these runs and seeded killers 20. With half a battery and unlimited doses and one dock, 3 hop killers died of an empty battery in 2 of 8 runs, and none with a dock on each bank, while a seeded killer needed a dock only every other run.
 
 ### What a robot keeps
 
@@ -124,6 +126,10 @@ A hop robot keeps no list that grows with the swarm or the field. `BeaconMemory`
 | EscapeStrength | `escape.escape_strength` | 1 (escape off in `hop repel`) |
 | EscapeDecayTime | `escape.escape_decay` | 10 min (escape off in `hop repel`) |
 | EscapeBoost | `escape.escape_boost` | 2 (escape off in `hop repel`) |
+| `fresh_for` of a DOCK beacon | `dock.fresh_for` | never expires (`None`) |
+| DecayTime of a DOCK beacon | `dock.decay` | never fades (`None`) |
+| PullPerHop of a DOCK beacon | `dock.gamma` | 0.8 |
+| `max_value` of a DOCK beacon | `dock.max_value` | none (`None`) |
 
 The supervisor's literal rule, "go to the robot with the next lower hop number", is the case of integer hops and no killer repulsion: only beacons at the lowest hop number are downhill, and they pull equally apart from their age.
 

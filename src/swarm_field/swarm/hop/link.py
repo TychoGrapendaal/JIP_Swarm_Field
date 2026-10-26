@@ -68,13 +68,16 @@ class BeaconLink:
         """Take in a decision's sensing and the beacons and statuses it received.
 
         First the memory forgets what no longer counts: beacons older than their kind's
-        ``fresh_for``, sightings older than ``source_for``, and placed beacons that faded.
+        ``fresh_for``, if it has one, sightings older than ``source_for``, and placed beacons
+        that faded.
         """
         now = perception.time
         self._speed_mps = perception.self_state.speed_mps
-        heard_before = {BeaconKind.TREAT: now - self.config.fresh_for}
+        heard_before: dict[BeaconKind, Time | None] = {
+            BeaconKind.TREAT: _cutoff(now, self.config.fresh_for)
+        }
         if self.config.dock is not None:
-            heard_before[BeaconKind.DOCK] = now - self.config.dock.fresh_for
+            heard_before[BeaconKind.DOCK] = _cutoff(now, self.config.dock.fresh_for)
         self.memory.forget(heard_before, now - self.config.source_for, now)
         self.surroundings.sense(perception.sensed)
         for fact in perception.sensed:
@@ -157,3 +160,10 @@ class BeaconLink:
             push = obstacle_strength(placed, now)
         if strength > push:
             self.memory.place(cell, now, strength, decay)
+
+
+def _cutoff(now: Time, fresh_for: Time | None) -> Time | None:
+    """The send time before which a beacon no longer counts at ``now``, or ``None`` for never."""
+    if fresh_for is None:
+        return None
+    return now - fresh_for

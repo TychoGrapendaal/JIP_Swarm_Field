@@ -349,7 +349,7 @@ def test_a_killers_dock_beacon_pulls_although_its_treat_beacon_does_not() -> Non
     assert to_the_dock is not None and to_the_dock.offset[0] > 0
 
 
-def test_dock_beacons_are_kept_long_after_treat_beacons_of_the_same_age_are_forgotten() -> None:
+def test_a_dock_beacon_still_pulls_at_full_strength_hours_after_treat_beacons_expire() -> None:
     killer = _hop_killer(_DOCKING)
     beacon = Message(
         sender=2,
@@ -357,14 +357,15 @@ def test_dock_beacons_are_kept_long_after_treat_beacons_of_the_same_age_are_forg
         kind=MessageKind.BEACON,
         payload=(Beacon(BeaconKind.TREAT, 0.0, (5, 0)), Beacon(BeaconKind.DOCK, 0.0, (0, 5))),
     )
+    later = 5 * TimeUnit.HOUR
     killer.decide(Perception(time=0, self_state=_self_state((0, 0)), sensed=[], inbox=[beacon]))
-    killer.decide(
-        Perception(time=5 * TimeUnit.MINUTE, self_state=_self_state((0, 0)), sensed=[], inbox=[])
-    )
+    killer.decide(Perception(time=later, self_state=_self_state((0, 0)), sensed=[], inbox=[]))
 
     memory = _beacons_of(killer)
+    pull = hop_pull(memory, (0, 0), later, _DOCKING, BeaconKind.DOCK)
     assert list(memory.beacons(BeaconKind.TREAT)) == []
     assert len(list(memory.beacons(BeaconKind.DOCK))) == 1
+    assert pull is not None and pull.strength == 1.0
 
 
 def test_a_hop_killer_low_on_battery_walks_down_the_dock_beacons_and_charges_on_the_dock() -> None:
@@ -393,3 +394,19 @@ def test_a_hop_killer_low_on_battery_walks_down_the_dock_beacons_and_charges_on_
 
     assert on_the_way.action == Move((1, 0))
     assert on_the_dock.action == Charge()
+
+
+def test_a_hop_killer_low_on_battery_that_hears_no_dock_beacon_heads_for_the_dock() -> None:
+    spec = BrainSpec(
+        behaviors=(TreatByBeacon.name, ReturnToDock.name),
+        seeders=(HopField.name, HopDockField.name),
+        sharing=SharingConfig(facts=KnowledgeSharing.NOTHING),
+        beacons=_DOCKING,
+        keeps_map=False,
+    )
+    killer = build_agent(spec, 1, _FIELD, Random(0), docks=((5, 0), (9, 9)))
+    low = replace(_self_state((0, 0)), battery=0.05)
+
+    decision = killer.decide(Perception(time=0, self_state=low, sensed=[], inbox=[]))
+
+    assert decision.action == Move((1, 0))

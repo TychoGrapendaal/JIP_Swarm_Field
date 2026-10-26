@@ -104,7 +104,9 @@ def test_a_stale_beacon_is_not_relayed() -> None:
     )
     assert _beacon_messages(relay, _perception(1, (8, 8), 0, [source])) != []
 
-    later = BeaconConfig().fresh_for + TimeUnit.SECOND
+    fresh_for = BeaconConfig().fresh_for
+    assert fresh_for is not None
+    later = fresh_for + TimeUnit.SECOND
     assert _beacon_messages(relay, _perception(1, (8, 8), later)) == []
 
 
