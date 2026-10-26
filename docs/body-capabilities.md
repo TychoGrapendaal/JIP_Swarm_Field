@@ -14,7 +14,7 @@ particular commercial robot.
 | Default cell size in preset scenarios | 10 m, therefore 1.25 s for a straight one-cell move | 10 m, therefore 10 s for a straight one-cell move | 10 m, therefore 10 s for a straight one-cell move |
 | Endurance | 30 minutes | 8 hours | 8 hours (initial assumption) |
 | Dock recharge duration | 45 minutes | 60 minutes (initial assumption) | 60 minutes (initial assumption) |
-| Pest sensing | 3 × 3 cell footprint, including terrain | Current cell only | Does not sense infestations |
+| Pest sensing | Current cell only | Current cell only | Does not sense infestations |
 | Local obstacle / peer sensing | 3 × 3 footprint | 3 × 3 local ring | 3 × 3 local ring, including peer battery level |
 | Treatment | Not permitted | Severity decreases linearly; severity 1.0 takes one simulated hour | Not permitted |
 | Battery support | Can receive a replacement | Can receive a replacement | Carries three charged spares; one exchange takes 224 seconds |

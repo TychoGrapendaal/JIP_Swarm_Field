@@ -198,7 +198,6 @@ def test_pr61_numeric_defaults_remove_optional_battery_fields() -> None:
         action_types=frozenset(),
         can_fly=True,
         speed_mps=8.0,
-        pest_sensing_radius=1,
         terrain_sensing_radius=1,
         peer_sensing_radius=1,
         endurance_seconds=1800.0,
