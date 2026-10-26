@@ -1,6 +1,6 @@
 # EXPLORE: drawing robots to stale information (#41)
 
-This document describes the EXPLORE field seeder, how it is measured, and what the measurements say. The seeder is `ExploreSeeder` in `swarm/explore.py`; the measurements come from `MetricsCollector` (`simulation/metrics.py`), the experiment `ExploreScenario` in `swarm_field.experiments`, run by `swarm_field.runner`, and `tests/benchmark_explore.py`. How a seeder fits into the brain is described in [`robot-memory-and-navigation.md`](./robot-memory-and-navigation.md) under "Writing a behaviour".
+This document describes the EXPLORE field seeder, how it is measured, and what the measurements say. The seeder is `ExploreSeeder` in `swarm/explore.py`; the measurements come from `MetricsCollector` (`simulation/metrics.py`), the experiment `EXPLORE`, a `SwarmScenario` of explorers alone, in `swarm_field.experiments`, run by `swarm_field.runner`, and `studies/explore_variants.py`. How a seeder fits into the brain is described in [`robot-memory-and-navigation.md`](./robot-memory-and-navigation.md) under "Writing a behaviour".
 
 Exploring a new field and monitoring a known one are one objective. A cell is worth visiting again by how long ago anyone observed it, and a never-seen cell is simply the oldest information there is. A robot observes only the cell it stands on, so visiting a cell is observing it.
 
@@ -56,7 +56,7 @@ $$v'(c) = \frac{v(c)}{1 + n_{b(c)}}, \qquad w'_b = \frac{w_b}{1 + n_b}$$
 | $n_b$ | The number of peers whose reported cell or reported target lies in block $b$. |
 | $b(c)$ | The block containing cell $c$. |
 
-Every robot broadcasts its cell and its target at every decision point (`MessageKind.STATUS`), and memory keeps the newest report per peer. With `ExploreConfig.spread_peers`, a block's worths are divided by one plus the number of peers in it or heading to it (`PeerDiscount`), counting only reports younger than `peer_max_age`. The discount applies to the robot's own block too, so a robot sharing its block with a peer is drawn to a block nobody covers. There is no kernel and no further parameter. Robots are thus made to spread explicitly, not only through shared observations making each other's ground look fresh.
+Every robot broadcasts its cell and its target at every decision point (`MessageKind.STATUS`), and memory keeps the newest report per peer; a newer sighting of the peer by another robot updates its cell but keeps its reported target. With `ExploreConfig.spread_peers`, a block's worths are divided by one plus the number of peers in it or heading to it (`PeerDiscount`), counting only reports younger than `peer_max_age`. The discount applies to the robot's own block too, so a robot sharing its block with a peer is drawn to a block nobody covers. There is no kernel and no further parameter. Robots are thus made to spread explicitly, not only through shared observations making each other's ground look fresh.
 
 ## Parameters
 
@@ -64,7 +64,7 @@ The defaults are the ones that did best in the benchmark below.
 
 | Parameter | Default | Meaning |
 | --- | --- | --- |
-| `revisit_age` | 28 min | How long a cell is worth nothing after an observation. |
+| `revisit_age` | 28 min | How long a cell is worth nothing after an observation. An explorer built from `ExplorerPreset` sets it to half its swarm's sweep time instead (see "The revisit age from the sweep time"). |
 | `beta` | 64 | Cells of travel a fully stale cell or block is worth. |
 | `rebuild_period` | 5 min | Longest drift of the other blocks' worths between rebuilds. |
 | `block_side` | 8 | The side of a block in cells. |
@@ -87,9 +87,9 @@ The mean idleness is also the expected detection latency. A pest appearing at a 
 
 ## The experiment and the benchmark
 
-`ExploreScenario.into_experiment` describes one run as an `ExperimentConfig`, which `swarm_field.runner` assembles and runs: a field with optional obstacles, robots starting side by side in a corner, each a real `ComposedAgent` on the real simulation loop, and a `MetricsCollector`. Every robot has one behaviour, the mock explore behaviour `FollowSeederField`, which follows the field of its seeder and bids a fixed score, so the arbiter has nothing to choose. Robots start with the terrain map, so they plan around obstacles they have not seen yet. They share their memory and status over the channel, with an unlimited radio range unless `radio_range_m` says otherwise. `ExploreScenario.seed` staggers the robots' first decisions, so repeated runs interleave them differently. `RandomWaypointSeeder` in `tests/baselines.py` is the baseline: one random target cell, and a new one once the robot stands on it.
+`SwarmScenario.into_experiment` describes one run of `EXPLORE` as an `ExperimentConfig`, which `swarm_field.runner` assembles and runs: a field with optional obstacles, explorers starting side by side in a corner, each a real `ComposedAgent` on the real simulation loop, and a `MetricsCollector`. Every explorer has one behaviour, the explore behaviour on its seeder's field, so the arbiter has nothing to choose. Robots start with the terrain map, so they plan around obstacles they have not seen yet. They share their memory and status over the channel, with an unlimited radio range unless `radio_range_m` says otherwise. The scenario's `seed` staggers the robots' first decisions, so repeated runs interleave them differently. `RandomWaypointSeeder` in `studies/baselines.py` is the baseline: one random target cell, and a new one once the robot stands on it.
 
-`tests/benchmark_explore.py` runs every variant with several seeds and prints the mean of each measure; `tests/test_explore_swarm.py` checks the main findings on a small field.
+`studies/explore_variants.py` runs every variant with several seeds and prints the mean of each measure; `tests/test_explore_swarm.py` checks the main findings on a small field.
 
 ## Results
 
@@ -172,10 +172,47 @@ The revisit age with saturating values and the block max (32 × 32, four seeds; 
 | 28 min | 44.9 | 20.4 | 57.5 | 183.4 | 88.4 | 332.7 |
 | 56 min | 43.0 | 27.7 | 73.6 | 167.8 | 85.4 | 324.7 |
 
+## The revisit age from the sweep time
+
+A revisit age that suits one swarm does not suit another. With 20 explorers on the 32 × 32 river field and the 28-minute default, the explorers keep the field almost all fresh: only 40 to 60 of its cells are stale at a time, in 3 or 4 of its 16 blocks. Every explorer then heads for those blocks, and 12 to 25 % of them stand idle with no stale cell to go to, so the swarm moves as a flock. The peer discount cannot spread them, since it divides the worth of the few targets there are but cannot add any.
+
+The revisit age should therefore follow the time the swarm needs to sweep its field once, if every explorer visits new cells:
+
+$$S = \frac{C \cdot t_\text{step}}{n}, \qquad t_\text{step} = \left\lceil \frac{d / v}{\Delta t} \right\rceil \Delta t, \qquad A = k \cdot S$$
+
+| Symbol | Meaning |
+| --- | --- |
+| $S$ | The sweep time: how long the explorers need to visit every free cell once (`SwarmScenario.sweep_time`). |
+| $C$ | The free cells of the field. |
+| $n$ | The explorers: the robots of an `ExplorerPreset`. |
+| $t_\text{step}$ | The time an explorer needs per cell. A robot moves one cell per decision at most, so a move is rounded up to whole decision intervals. |
+| $d$ | The side of a cell. |
+| $v$ | The explorers' speed. |
+| $\Delta t$ | The decision interval. |
+| $A$ | The revisit age. |
+| $k$ | The revisit age in sweep times (`ExplorerPreset.revisit_sweeps`, `REVISIT_SWEEPS` = 0.5 by default). |
+
+The default fits this rule: five explorers on 32 × 32 cells, with 10 s per cell, sweep the field in 34 minutes, and 28 minutes is 0.8 sweeps. To choose $k$, explorers ran alone on the river field of `river_and_rocks` with flying explorers, for 4 h, two seeds each, idleness measured over the last 2 h. The mean idleness in minutes, by $k$:
+
+| Setup | $S$ (min) | $k$ = 0.25 | 0.5 | 0.8 | 1.2 | 2 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 32 × 32, 5 explorers | 47.4 | **12.9** | 13.3 | 18.4 | 30.2 | 37.3 |
+| 32 × 32, 10 explorers | 23.7 | **6.6** | 7.9 | 8.8 | 12.2 | 17.5 |
+| 32 × 32, 20 explorers | 11.8 | **2.7** | 3.2 | 3.5 | 5.6 | 9.2 |
+| 32 × 32, 40 explorers | 5.9 | 1.8 | 1.7 | **1.6** | 2.2 | 4.2 |
+| 64 × 64, 20 explorers | 49.5 | **15.8** | 17.9 | 18.4 | 22.7 | 35.2 |
+| 32 × 32, 20 explorers, 5 s decisions | 4.0 | **1.3** | 1.4 | 1.5 | 1.6 | 3.5 |
+
+The setups span eight times the explorers, four times the area and a third of the step time, and at $k \le 0.8$ the mean idleness is 0.23 to 0.39 sweep times in every one of them: the sweep time is the right scale. From 0.25 to 0.8 the idleness is flat, and it climbs from 1.2 on. The worst idleness argues against the lowest values: with 40 explorers, 0.25 leaves the worst cell waiting 5.8 sweep times, against 2.7 to 3.2 at 0.8 to 1.2. At $k$ = 0.5 the mean idleness is within 15 % of the best in every setup, and the worst idleness is one to two sweep times but for 40 explorers (4.4), so it is the default.
+
+In the pest study of `studies/explorer_hop_killers.py` (20 explorers, 4 killers), going from the fixed 28 minutes to a revisit age of a little over half a sweep time spread the explorers over 12 of the 16 blocks instead of 4 to 6, and cut the mean idleness from 10.6 to 3.3 minutes and the seeded killers' infested cells from 7.9 to 5.1.
+
+`ExplorerPreset(revisit_sweeps=None)` keeps the revisit age of its `explore`, as `studies/explore_variants.py` does to compare fixed revisit ages.
+
 ## What is not done
 
-- **The behaviour.** `ExploreBehaviour` (Jin, branch `41-explore-objective`) scores EXPLORE against other objectives. The experiments use the stand-in `FollowSeederField`.
-- **Results recorded before the move to the runner.** The tables above were measured with `CoverageTracker`, which no longer exists, and with a perfect pool that shared every sensed fact instantly. The experiments now share over the channel, and the "no sharing" variants are a radio range of 0, which also turns off the peer discount. The tables need a re-run with `tests/benchmark_explore.py`.
+- **The behaviour's bid.** `ExploreBehaviour` (see [`explore-behaviour.md`](./explore-behaviour.md)) scores EXPLORE from memory, but an explorer has no other behaviour, so the bid never competes with anything yet. The random-waypoint baseline of `studies/baselines.py` follows its seeder with `FollowSeederField`, a fixed bid of 0.5.
+- **Results recorded before the move to the runner.** The tables above were measured with `CoverageTracker`, which no longer exists, and with a perfect pool that shared every sensed fact instantly. The experiments now share over the channel, and the "no sharing" variants are a radio range of 0, which also turns off the peer discount. The tables need a re-run with `studies/explore_variants.py`.
 - **Holes on large fields.** On 64 × 64 cells the worst idleness stays above 300 minutes. Uncapped linear growth fixed most of it (see "Earlier value rules") but was left out to keep the rule simple.
-- **Choosing the revisit age.** It should grow with the time the swarm needs to sweep its field, which depends on the field and the number of robots; it is a fixed parameter for now, and the swarm-size experiment is still to do.
+- **Redundancy with a 3 × 3 footprint.** A scout senses the 3 × 3 cells around it, and `MetricsCollector` counts every sensed cell other than the robot's last one as a visit. Nearly every such cell was sensed a step before, so the redundancy is close to 1 for any swarm, and the redundancy figures above, measured when a robot sensed only its own cell, cannot be compared with new runs. The measure needs a new definition for a footprint.
 - **Decisions while moving.** Robots decide every 2.5 s while a move takes 10 to 14 s. The navigator then sees no progress for three ticks and hands over to the steerer, whose moves the simulation ignores while the robot is moving. This is harmless but wasted work.

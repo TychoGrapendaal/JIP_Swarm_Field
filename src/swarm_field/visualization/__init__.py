@@ -2,25 +2,54 @@
 
 Consumes read-only ``WorldSnapshot``s and renders them behind the ``Renderer`` port, which lives
 in ``swarm_field.contracts`` so a run can be handed a renderer the way it is handed an agent.
-``SimulationViewer`` animates any running simulation with overlays, trails, goals and a panel.
-The matplotlib renderers are imported lazily (they only need matplotlib when instantiated), so
-this package stays importable without the optional visualization technology installed.
+``overlays`` draws what a study adds on top of a rendered snapshot: a cell overlay, trails,
+targets, lines, arrows, markers and a side panel. The matplotlib renderers are imported lazily
+(they only need matplotlib when instantiated), so this package stays importable without the
+optional visualization technology installed.
 """
 
 from swarm_field.contracts import Renderer
 from swarm_field.visualization.matplotlib_renderer import (
     FrameWriter,
     MatplotlibRenderer,
+    RobotStyle,
     save_frames,
 )
+from swarm_field.visualization.overlays import (
+    DEFAULT_TRAIL_LENGTH,
+    Arrow,
+    CellOverlay,
+    Marker,
+    PanelSource,
+    Polyline,
+    RobotTrails,
+    SidePanel,
+    draw_arrows,
+    draw_cell_overlay,
+    draw_markers,
+    draw_polylines,
+    draw_targets,
+)
 from swarm_field.visualization.renderer import TextRenderer
-from swarm_field.visualization.viewer import SimulationViewer
 
 __all__ = [
+    "DEFAULT_TRAIL_LENGTH",
+    "Arrow",
+    "CellOverlay",
     "FrameWriter",
+    "Marker",
     "MatplotlibRenderer",
+    "PanelSource",
+    "Polyline",
     "Renderer",
-    "SimulationViewer",
+    "RobotStyle",
+    "RobotTrails",
+    "SidePanel",
     "TextRenderer",
+    "draw_arrows",
+    "draw_cell_overlay",
+    "draw_markers",
+    "draw_polylines",
+    "draw_targets",
     "save_frames",
 ]

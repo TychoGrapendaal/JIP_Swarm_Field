@@ -174,6 +174,20 @@ def test_no_reachable_target_means_infinite_potential() -> None:
     assert field.target_for((0, 0)) is None
 
 
+def test_a_wall_on_the_edge_of_the_window_is_not_crossed() -> None:
+    terrain = DrawnTerrain(
+        [
+            ". # . .",
+            ". # . .",
+        ]
+    )
+    quadtree = Quadtree(traversable_cells(terrain, flies=False), max_leaf_side=2)
+
+    field = build_grid_potential_field((Seed((3, 0), 0.0),), quadtree, (0, 0), window_blocks=0)
+
+    assert field.value_at((0, 0)) == inf
+
+
 def test_drones_fly_over_obstacles() -> None:
     terrain = DrawnTerrain([". # ."])
     seeds = (Seed((2, 0), 0.0),)

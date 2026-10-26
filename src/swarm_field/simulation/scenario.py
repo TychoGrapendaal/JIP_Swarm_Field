@@ -17,8 +17,9 @@ from swarm_field.contracts import (
     TimeUnit,
 )
 from swarm_field.simulation.world import EnergyConfig, RobotState, WorldState
+from swarm_field.swarm.capabilities import capabilities_for
 
-_DEFAULT_CELL_SIZE = 5.0
+_DEFAULT_CELL_SIZE = 10.0
 _DEFAULT_ROW_SPACING = 2.0
 _DEFAULT_IN_ROW_SPACING = 1.0
 _DEFAULT_HEADLAND = 5.0
@@ -34,7 +35,11 @@ def build_world(config: ScenarioConfig) -> WorldState:
     """
     _validate_config(config)
     world = WorldState(
-        config.field, energy=EnergyConfig.from_spec(config.energy), roles=config.roles
+        config.field,
+        docks=config.docks,
+        energy=EnergyConfig.from_spec(config.energy),
+        treatment_rate=config.treatment_rate,
+        treatment_doses=config.treatment_doses,
     )
 
     for cell, crop in config.crops.items():
@@ -56,6 +61,7 @@ def build_world(config: ScenarioConfig) -> WorldState:
                 speed_mps=spec.v_max,
                 radio_range_m=spec.radio_range,
                 battery=spec.battery,
+                spare_batteries=spec.spare_batteries,
             )
         )
 
@@ -81,6 +87,7 @@ def _build_s1(seed: int) -> ScenarioConfig:
         crops=_uniform_crop(field, CropType.MAIZE),
         robots=_robot_specs(field, 10, BodyType.SCOUT, ()),
         seed=seed,
+        docks=((0, 0),),
         initial_infestation={},
         obstacles=(),
         pest_dynamics=PestDynamicsSpec(
@@ -103,6 +110,7 @@ def _build_s2(seed: int) -> ScenarioConfig:
         crops=_uniform_crop(field, CropType.MAIZE),
         robots=robots,
         seed=seed,
+        docks=((0, 0),),
         initial_infestation=infestation,
         obstacles=(),
         pest_dynamics=PestDynamicsSpec(
@@ -128,6 +136,7 @@ def _build_s3(seed: int) -> ScenarioConfig:
         crops=crops,
         robots=robots,
         seed=seed,
+        docks=((0, 0),),
         initial_infestation=infestation,
         obstacles=(),
         pest_dynamics=PestDynamicsSpec(
@@ -158,6 +167,7 @@ def _build_s4(seed: int) -> ScenarioConfig:
         crops=crops,
         robots=robots,
         seed=seed,
+        docks=((0, 0),),
         initial_infestation=infestation,
         obstacles=(),
         pest_dynamics=PestDynamicsSpec(
@@ -197,6 +207,7 @@ def _build_s5(seed: int) -> ScenarioConfig:
         crops=crops,
         robots=robots,
         seed=seed,
+        docks=((0, 0),),
         initial_infestation=infestation,
         obstacles=obstacles,
         pest_dynamics=PestDynamicsSpec(
@@ -313,9 +324,10 @@ def _robot_specs(
             robot_id=start_offset + index + 1,
             body=body,
             start=start,
-            v_max=1.0 if body is BodyType.SCOUT else 0.8,
+            v_max=capabilities_for(body).speed_mps,
             battery=1.0,
             radio_range=25.0,
+            spare_batteries=capabilities_for(body).spare_battery_capacity,
         )
         for index, start in enumerate(starts)
     ]
@@ -378,6 +390,13 @@ def _validate_config(config: ScenarioConfig) -> None:
     for cell in config.obstacles:
         if not _inside(field, cell):
             raise ValueError(f"obstacle cell outside field: {cell}")
+    if len(set(config.docks)) != len(config.docks):
+        raise ValueError("dock cells must be unique")
+    for cell in config.docks:
+        if not _inside(field, cell):
+            raise ValueError(f"dock outside field: {cell}")
+        if cell in config.obstacles:
+            raise ValueError(f"dock cannot be placed on obstacle cell: {cell}")
 
     for cell, severity in config.initial_infestation.items():
         if not _inside(field, cell):
@@ -398,6 +417,12 @@ def _validate_config(config: ScenarioConfig) -> None:
             raise ValueError("robot battery must be between 0 and 1")
         if robot.radio_range < 0.0:
             raise ValueError("robot radio_range cannot be negative")
+        if robot.spare_batteries < 0:
+            raise ValueError("robot spare_batteries cannot be negative")
+        if robot.spare_batteries > capabilities_for(robot.body).spare_battery_capacity:
+            raise ValueError("robot spare_batteries exceeds body capacity")
+        if robot.body is not BodyType.BATTERY and robot.spare_batteries != 0:
+            raise ValueError("only battery robots may carry spare batteries")
 
 
 def _inside(field: FieldGeometry, cell: CellId) -> bool:

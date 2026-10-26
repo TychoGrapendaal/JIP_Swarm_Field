@@ -10,19 +10,23 @@ A decentralized swarm of robots that monitor and cultivate a crop field. Each ro
 
 - [`docs/system-decomposition.md`](docs/system-decomposition.md) — the module boundaries and the interface contracts between them.
 - [`docs/architecture.md`](docs/architecture.md) — inter- and intra-module architecture: the composable brain (A) and the discrete-event simulation (B).
+- [`docs/experiments.md`](docs/experiments.md) — how to run an experiment: configure seeded and hop-based arms, measure them, run seeds in parallel, and read the results in `output/`.
 - [`docs/research/`](docs/research/) — research notes: navigation design, and the robustness measurement (failure and position error).
 - `docs/*.pdf` — the problem statement and literature review (domain background on swarm robotics for crop fields).
 - Source lives under `src/swarm_field/<package>/`; tests mirror it under `tests/`.
+- `output/` (git-ignored) — one folder per experiment run through `swarm_field.experiments.Experiment`, named `YYYY-MM-DD_HH-MM-SS_<name>`, with `experiment.json` (what was run, from which commit), `results.json` (one record per run) and whatever else the experiment writes, such as tables and videos.
+- [`studies/`](studies/README.md) — the experiments behind the report, one script per research question; `examples/` holds demonstrations.
+- [`configs/`](configs/) — experiments described in JSON, run with `uv run python -m swarm_field.experiments.from_json FILE` (see the README).
 
 ## Modules
 
 - `contracts/` — shared boundary types (dataclasses, enums, the `SwarmAgent` protocol). Depends on nothing; everything depends on it.
-- `swarm/` (A) — the robot brain: `ComposedAgent` combines `Behavior`s that propose scored actions.
+- `swarm/` (A) — the robot brain: `ComposedAgent` combines `Behavior`s that propose scored actions. `swarm/hop/` holds the hop method (pest response on relayed hop beacons): its parts read only the robot's beacons, never the map, and a `BeaconLink` connects them to the brain. A brain of the hop method alone sets `BrainSpec.keeps_map=False`: it then stores no map, and a seeded field cannot be added to it.
 - `simulation/` (B) — the environment simulation: `SimulationLoop` processes timestamped events from an `EventQueue`, and owns ground truth.
 - `visualization/` (C) — the visualization adapter: `Renderer`s draw read-only `WorldSnapshot`s.
-- `runner.py` — the composition root: resolves brain parts from registries, assembles one run, and holds the sweep logic. The only module that knows every concrete class.
-- `experiments/` — hand-built scenarios (exploration, pests) described as `ExperimentConfig`s for the runner, and `LiveRun` to step one for a viewer.
-- `console.py` — the interactive console: advances one run frame by frame, turns key presses and clicks into `Command`s, and records and replays runs. It sits at the package root next to `runner.py` because it combines the simulation and the visualization, which must not import each other.
+- `runner.py` — the composition root: resolves brain parts from registries, assembles one run, and runs it to its end. The only module that knows every concrete class.
+- `experiments/` — `SwarmScenario` (`scenario.py`): a field (`MapConfig`, in `maps.py`), pests (`PestConfig`), settings every robot shares (`RobotConfig`) and a swarm built with `add_robots`, described as an `ExperimentConfig` for the runner; the robot presets and their brains (`presets.py`: explorer, relay, seeded killer, hop killer, and `CustomPreset` for any other brain); the catalogue that names every scenario (presets and hand-built) for sweeps and viewers, `LiveRun`: one run, stepped by a frontend, that records and replays the commands applied to it, `Experiment` (`batch.py`): runs a batch of named runs in parallel and writes their results to `output/`, `measure_pest_response` (`pest_response.py`): the standard measurement of a run, pest response with coverage, idleness and redundancy, and its table columns, robustness runs under robot failures and position error (`robustness.py`), and `record_videos` (`video.py`): runs some runs of a batch again and renders them into videos in the experiment's folder. Like `console.py`, `video.py` combines the simulation and the visualization.
+- `console.py` — the interactive console: advances a `LiveRun` frame by frame and turns key presses and clicks into `Command`s. It sits at the package root next to `runner.py` because it combines the simulation and the visualization, which must not import each other.
 
 ## Architecture rules
 

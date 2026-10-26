@@ -1,15 +1,17 @@
-"""The robot's navigator: the one seam that turns a grid potential field into a movement action.
+"""The robot's navigator: the one seam that turns an objective's guidance into a movement action.
 
 The navigator only moves the robot for the winning candidate: :meth:`Navigator.step_towards`
-follows the field the brain hands it, from the ``FieldProvider``, and hands over to the
-reactive ``Steerer`` when the field cannot guide the robot, which is the fallback that keeps a
-robot moving over ground it has no plan for.
+follows the guidance the brain hands it, from the ``FieldProvider``. A grid potential field is
+followed step by step, and the reactive ``Steerer`` takes over when the field cannot guide the
+robot, which is the fallback that keeps a robot moving over ground it has no plan for. A
+``Heading`` goes to the steerer directly.
 """
 
 from swarm_field.contracts import CellId, Idle, Move
 from swarm_field.swarm.field import Quadtree, Seed
+from swarm_field.swarm.guidance import Guidance, Heading
 from swarm_field.swarm.seeder import SeededField
-from swarm_field.swarm.steering import QuadtreeSensing, Steerer, SteeringConfig
+from swarm_field.swarm.steering import QuadtreeSensing, Sensing, Steerer, SteeringConfig
 
 _PLAN_PATIENCE_TICKS = 3
 """Field-following ticks without the potential beating its minimum before the steerer takes over.
@@ -26,15 +28,44 @@ class Navigator:
     robot, so it can tell when the field stopped guiding.
     """
 
-    def __init__(self, quadtree: Quadtree, steering: SteeringConfig | None = None) -> None:
+    def __init__(
+        self,
+        quadtree: Quadtree | None,
+        steering: SteeringConfig | None = None,
+        heading_sensing: Sensing | None = None,
+    ) -> None:
+        """Steer over ``quadtree``, and steer headings by ``heading_sensing`` if given.
+
+        A heading is a direction rather than a route, so a robot of the hop method steers it by
+        what it senses around itself, without a map; without ``heading_sensing`` headings are
+        steered over the quadtree like a stalled field. A robot without a map has no quadtree,
+        and steers by ``heading_sensing`` alone.
+
+        Raises:
+            ValueError: If neither a quadtree nor ``heading_sensing`` is given.
+        """
         self._config: SteeringConfig = steering if steering is not None else SteeringConfig()
-        self._steerer: Steerer = Steerer(QuadtreeSensing(quadtree), self._config)
+        if quadtree is not None:
+            self._steerer: Steerer = Steerer(QuadtreeSensing(quadtree), self._config)
+            self._heading_steerer: Steerer = self._steerer
+            if heading_sensing is not None:
+                self._heading_steerer = Steerer(heading_sensing, self._config)
+        elif heading_sensing is not None:
+            self._steerer = Steerer(heading_sensing, self._config)
+            self._heading_steerer = self._steerer
+        else:
+            raise ValueError("a navigator needs a quadtree or heading sensing to steer by")
         self._followed: SeededField | None = None
         self._best_value: float | None = None
         self._no_progress_ticks: int = 0
 
-    def step_towards(self, seeded: SeededField, robot: CellId) -> tuple[Move | Idle, CellId | None]:
+    def step_towards(self, guidance: Guidance, robot: CellId) -> tuple[Move | Idle, CellId | None]:
         """The one movement action of this decision point, on the way towards a field's targets.
+
+        A ``Heading`` is handed to the steerer as it is. A heading that finds the steerer
+        stalled resets it, so a stall does not hold the robot for good; otherwise the steerer
+        keeps its state, so a wall it follows is followed to its end however the heading's
+        target changes. The rest of this describes a ``SeededField``.
 
         A field guides the robot while it can: the robot steps into the neighbouring cell the
         field points at, which is one step of a route that is near-optimal around the obstacles
@@ -45,10 +76,17 @@ class Navigator:
         forward once more.
 
         Args:
-            seeded: The field to follow, from ``FieldProvider.field_for``. A different field
+            guidance: What to follow, from ``FieldProvider.field_for``. A different field
                 than at the last call (another seeder's, or a rebuild) starts a new plan.
             robot: The robot's current cell, the origin the step is taken from.
         """
+        if isinstance(guidance, Heading):
+            self._followed = None
+            self._forget_plan()
+            if self._heading_steerer.is_stalled:
+                self._heading_steerer.reset()
+            return self._heading_steerer.steer(guidance.offset, robot), guidance.target
+        seeded = guidance
         if seeded is not self._followed:
             self._followed = seeded
             self._forget_plan()

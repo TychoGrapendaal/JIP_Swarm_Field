@@ -21,6 +21,7 @@ class RobotSelfState:
         speed_mps: Current maximum travel speed in metres per second.
         consumable: Remaining treatment consumable, 0..1.
         health: Condition, 0..1.
+        spare_batteries: Number of charged spare batteries carried by a support robot.
     """
 
     robot_id: RobotId
@@ -30,6 +31,7 @@ class RobotSelfState:
     speed_mps: float
     consumable: float
     health: float
+    spare_batteries: int = 0
 
 
 @dataclass(frozen=True)
@@ -65,6 +67,8 @@ class RobotPublicState:
         current_action: The currently executing action, if any.
         failed: Whether the robot has stopped taking part in the run, so a renderer can tell a
             lost robot from a live one.
+        point: Where the robot is, in cells: between two cells while it moves, so a renderer can
+            draw it gliding. ``None`` places it at the centre of ``position``.
     """
 
     robot_id: RobotId
@@ -76,6 +80,13 @@ class RobotPublicState:
     target: CellId | None
     current_action: Action | None
     failed: bool = False
+    point: tuple[float, float] | None = None
+
+    def drawn_at(self) -> tuple[float, float]:
+        """Where to draw the robot, in cells: ``point``, else the centre of its cell."""
+        if self.point is not None:
+            return self.point
+        return (self.position[0] + 0.5, self.position[1] + 0.5)
 
 
 @dataclass

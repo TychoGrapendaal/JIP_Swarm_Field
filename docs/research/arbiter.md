@@ -65,7 +65,7 @@ So a commitment is the pair (source, target) rather than the source alone, and a
 
 That puts one requirement on the behaviours: keep bidding for the committed target while it is still valid. A behaviour that only ever bids its current best leaves the arbiter nothing to compare against, so the arbiter finds no match for its commitment, decides it has vanished, and adopts the newcomer with no margin at all. A behaviour that knows many targets should bid its best few and always include the committed one.
 
-Since a behaviour never reads a field, a `FollowField` bid carries no target (`None`): the field picks the target only once the bid has won. The commitment of such a bid is to the objective alone, so this defence covers only bids that know their target from memory, such as `Treat` on the spot. Within one field, a target switch is left to the field (see "Still open").
+Since a behaviour never reads a field, a `FollowField` bid carries no target (`None`): the field picks the target only once the bid has won. The commitment of such a bid is to the objective alone, so this defence covers only bids that know their target from memory, such as `Treat` on the spot. Such a commitment also builds no effort: there is no work towards a target that a switch would throw away, and counting the time spent on the objective instead would lock an explorer in. Before this, an explore commitment reached the full margin of 0.5 after five minutes, so only an override could pull a killer away to treat (#60). Within one field, a target switch is left to the field (see "Still open").
 
 ## Parameters
 

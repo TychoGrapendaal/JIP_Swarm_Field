@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 
-from swarm_field.contracts.ids import BodyType, CellId
+from swarm_field.contracts.ids import CellId
 
 
 @dataclass(frozen=True)
@@ -36,14 +36,14 @@ class Charge:
 
 
 @dataclass(frozen=True)
-class SwitchRole:
-    """Take on another role: the simulation changes the robot's body and its speed.
+class ReplaceBattery:
+    """Replace a co-located robot's depleted battery with a charged spare.
 
-    Attributes:
-        body: The body the robot switches to.
+    The simulation validates that the acting robot is a battery-support body, both robots share
+    a cell, the recipient can accept a replacement, and the support robot has a spare available.
     """
 
-    body: BodyType
+    robot_id: int
 
 
 @dataclass(frozen=True)
@@ -51,4 +51,4 @@ class Idle:
     """Do nothing until the next decision point."""
 
 
-Action = Move | Treat | Charge | SwitchRole | Idle
+Action = Move | Treat | Charge | ReplaceBattery | Idle

@@ -110,24 +110,24 @@ class MetricsCollector:
 
         A cell counts as sensed when its infestation is: a robot also sees the terrain of the
         cells around it, which tells nothing about their pests. Sensing a cell for the first time
-        settles both the coverage figure and, for a cell that was already infested, its detection
-        latency. Every sensing keeps the cell fresh for the idleness, and a robot arriving in a
-        cell is a visit, redundant if the cell was sensed less than ``fresh_age`` before.
+        settles the coverage figure. Sensing an infested cell detects its infestation, also when
+        the cell was sensed before the pest appeared, which settles its detection latency. Every
+        sensing keeps the cell fresh for the idleness, and a robot arriving in a cell is a visit,
+        redundant if the cell was sensed less than ``fresh_age`` before.
         """
         for observation in observations:
             if not isinstance(observation, InfestationObservation):
                 continue
             cell = observation.cell
-            if cell in self._crop_cells:
-                self._record_visit(observation.source, cell, now)
-                self._last_sensed[cell] = now
-            if cell in self._observed:
-                continue
-            self._observed.add(cell)
             if cell not in self._crop_cells:
+                self._observed.add(cell)
                 continue
+            self._record_visit(observation.source, cell, now)
+            self._last_sensed[cell] = now
+            self._observed.add(cell)
             infested_at = self._infested_at.get(cell)
-            if infested_at is not None and cell not in self._detected_at:
+            seen_infested = observation.severity > self.config.target_threshold
+            if infested_at is not None and seen_infested and cell not in self._detected_at:
                 self._detected_at[cell] = now
 
     def sample(
@@ -135,7 +135,7 @@ class MetricsCollector:
     ) -> MetricsSample:
         """Read the world at ``now``, record one row of the series, and return it."""
         world.advance_to(now)
-        self._track_infestation(world, now)
+        self.track_infestation(world, now)
         self._track_idleness(now)
 
         taken = MetricsSample(
@@ -150,6 +150,7 @@ class MetricsCollector:
             mean_idleness_ms=self._mean_idleness(),
             worst_idleness_ms=self._worst_idleness,
             redundancy=self._redundancy(),
+            battery_failures=world.battery_failure_count(),
         )
         self.samples.append(taken)
         return taken
@@ -200,8 +201,12 @@ class MetricsCollector:
             return 0.0
         return self._redundant / self._visits
 
-    def _track_infestation(self, world: WorldState, now: Time) -> None:
-        """Remember when each crop cell first became an active target."""
+    def track_infestation(self, world: WorldState, now: Time) -> None:
+        """Remember when each crop cell first became an active target.
+
+        Called wherever infestation can change, ``WorldTick`` and an injected pest, so a pest is
+        dated when it appears rather than at the next sample; the sample calls it too.
+        """
         for cell in self._crop_cells:
             if cell in self._infested_at:
                 continue

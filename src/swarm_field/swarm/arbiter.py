@@ -105,7 +105,13 @@ class Commitment:
         return (candidate.source, candidate.target) == (self.source, self.target)
 
     def effort(self, now: Time, horizon: Time) -> float:
-        """The time spent on the target so far, as a fraction of ``horizon`` in [0, 1]."""
+        """The time spent on the target so far, as a fraction of ``horizon`` in [0, 1].
+
+        A commitment without a target, such as one to follow a field, has no work towards a
+        target that a switch would throw away, so its effort stays 0 (#60).
+        """
+        if self.target is None:
+            return 0.0
         if horizon <= 0:
             return 1.0
         return min(1.0, max(0, now - self.target_since) / horizon)
