@@ -286,17 +286,24 @@ class SwarmScenario:
     def starts(self) -> list[CellId]:
         """The robots' starting cells, side by side from ``(0, 0)``, skipping obstacles.
 
-        With ``RobotConfig.lattice_starts`` they are on lattices instead
+        A swarm larger than the bottom row starts over at ``(0, 0)`` once the row is full, so
+        robots share start cells, as they may share any cell, rather than start elsewhere on the
+        field. With ``RobotConfig.lattice_starts`` they are on lattices instead
         (``_lattice_start_cells``).
+
+        Raises:
+            ValueError: If the bottom row has no free cell at all.
         """
         if self.robots.lattice_starts:
             return self._lattice_start_cells()
         blocked = set(self.map.blocked_cells())
         free = [(x, 0) for x in range(self.map.size) if (x, 0) not in blocked]
-        robots = self.count()
-        if len(free) < robots:
-            raise ValueError(f"the bottom row has room for {len(free)} robots, not {robots}")
-        return free[:robots]
+        if not free:
+            raise ValueError("the bottom row has no free cell to start on")
+        starts: list[CellId] = []
+        for index in range(self.count()):
+            starts.append(free[index % len(free)])
+        return starts
 
     def _lattice_start_cells(self) -> list[CellId]:
         """The robots' starting cells: every group on a jittered lattice of its own.
