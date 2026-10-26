@@ -327,17 +327,24 @@ class SwarmScenario:
     def starts(self) -> list[CellId]:
         """The robots' starting cells, side by side from ``(0, 0)``, skipping obstacles.
 
-        With ``RobotConfig.lattice_starts`` they are on lattices instead
+        A swarm larger than the bottom row starts over at ``(0, 0)`` once the row is full, so
+        robots share start cells, as they may share any cell, rather than start elsewhere on the
+        field. With ``RobotConfig.lattice_starts`` they are on lattices instead
         (``_lattice_start_cells``).
+
+        Raises:
+            ValueError: If the bottom row has no free cell at all.
         """
         if self.robots.lattice_starts:
             return self._lattice_start_cells()
         blocked = set(self.map.blocked_cells())
         free = [(x, 0) for x in range(self.map.size) if (x, 0) not in blocked]
-        robots = self.count()
-        if len(free) < robots:
-            raise ValueError(f"the bottom row has room for {len(free)} robots, not {robots}")
-        return free[:robots]
+        if not free:
+            raise ValueError("the bottom row has no free cell to start on")
+        starts: list[CellId] = []
+        for index in range(self.count()):
+            starts.append(free[index % len(free)])
+        return starts
 
     def _lattice_start_cells(self) -> list[CellId]:
         """The robots' starting cells: every group on a jittered lattice of its own.
@@ -674,6 +681,23 @@ PESTS = (
 )
 """Five explorers and three seeded killers on the river field with one dock, while pests keep
 appearing, with every robot's settings at their defaults (``RobotConfig()``)."""
+
+SMOKE = (
+    replace(
+        PESTS,
+        metrics=MetricsConfig(period=TimeUnit.MINUTE, measure_from=30 * TimeUnit.MINUTE),
+    )
+    .without_robots()
+    .add_robots(EXPLORER, 5)
+    .add_robots(SEEDED_KILLER, 5)
+)
+"""The base demo and smoke test (#67): five explorers that only explore, five seeded killers
+that only treat, so every robot has one objective and the arbiter never has to choose.
+
+On ``PESTS``' field and pests, with its ground robots at 0.5 m/s and its 300 m radio, so a pest
+across the field is minutes away and news of it reaches the killers. Sampled every minute, with
+idleness measured after a warm-up of half an hour.
+"""
 
 
 PESTS_PER_KILLER_HOUR = 3.0

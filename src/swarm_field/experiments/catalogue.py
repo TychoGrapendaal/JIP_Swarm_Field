@@ -19,6 +19,7 @@ from swarm_field.experiments.scenario import (
     EXPLORE,
     FAST_TREATMENT,
     PESTS,
+    SMOKE,
     PestConfig,
     SwarmScenario,
 )
@@ -71,6 +72,13 @@ def _pests(seed: int, until: Time | None) -> ExperimentConfig:
     return replace(scenario.into_experiment(f"pests/{seed}"), scenario_name="pests")
 
 
+def _smoke(seed: int, until: Time | None) -> ExperimentConfig:
+    scenario = replace(SMOKE, seed=seed)
+    if until is not None:
+        scenario = replace(scenario, until=until)
+    return replace(scenario.into_experiment(f"smoke/{seed}"), scenario_name="smoke")
+
+
 LARGE_PESTS = (
     SwarmScenario(
         map=MapConfig(size=256),
@@ -101,6 +109,7 @@ def _build_catalogue() -> dict[str, ScenarioBuilder]:
         catalogue[preset.name] = _preset(preset)
     catalogue["explore"] = _explore
     catalogue["pests"] = _pests
+    catalogue["smoke"] = _smoke
     catalogue["pests-large"] = _large_pests
     return catalogue
 

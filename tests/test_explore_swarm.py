@@ -29,7 +29,7 @@ _FIELD = replace(
     .with_metrics(MetricsConfig(period=TimeUnit.MINUTE, measure_from=45 * TimeUnit.MINUTE)),
     until=90 * TimeUnit.MINUTE,
 )
-"""Idleness is measured once the field has been covered, which takes about 40 minutes."""
+"""Idleness is measured over the second half of the run, after the first exploration."""
 _SPREAD = ExploreConfig()
 _PLAIN = ExploreConfig(spread_peers=False)
 
@@ -45,17 +45,18 @@ def _final(explore: ExploreConfig | None) -> MetricsSample:
     return run_experiment(experiment)[-1]
 
 
-def test_explorers_cover_the_field_and_keep_it_fresher_than_random_waypoints() -> None:
+def test_explorers_cover_more_of_the_field_and_keep_it_fresher_than_random_waypoints() -> None:
+    # A scout senses only the cell it is in, so three scouts do not cover the whole field in the
+    # run; following the EXPLORE field they cover clearly more of it than random waypoints.
     explore = _final(_SPREAD)
     baseline = _final(None)
 
-    assert explore.coverage == 1.0
+    assert explore.coverage > baseline.coverage
     assert explore.mean_idleness_ms < baseline.mean_idleness_ms
 
 
 def test_the_peer_discount_cuts_idleness() -> None:
-    # Redundancy is left out: a scout senses a 3 x 3 square, so nearly every cell it moves to
-    # was sensed a step before, and redundancy is close to 1 with or without the discount.
+    # Redundancy is left out: idleness is what the discount is meant to improve.
     plain = _final(_PLAIN)
     spread = _final(_SPREAD)
 

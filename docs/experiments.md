@@ -112,7 +112,7 @@ The fields of the three parts, for a question that changes one of them:
 
 A larger field of the same kind is `MapConfig(size=48, obstacles=two_rivers_and_rocks(48))`.
 
-The scenarios of the earlier studies stay for those studies: `RELAYED_RIVER_SMALL`, `RELAYED_RIVERS_LARGE` and `RELAYED_KILLERS` (standing relays and mock pest sources), `PESTS`, `EXPLORE`, and `moving_explorer_scenario`. They use the earlier parts `FAST_PESTS`, `NO_PESTS`, `LATTICE_ROBOTS` and `EXPLORE_ROBOTS`, with slower robots and a shorter radio.
+The scenarios of the earlier studies stay for those studies: `RELAYED_RIVER_SMALL`, `RELAYED_RIVERS_LARGE` and `RELAYED_KILLERS` (standing relays and mock pest sources), `PESTS`, `EXPLORE`, `SMOKE` (the base demo: five explorers and five seeded killers on `PESTS`' field), and `moving_explorer_scenario`. They use the earlier parts `FAST_PESTS`, `NO_PESTS`, `LATTICE_ROBOTS` and `EXPLORE_ROBOTS`, with slower robots and a shorter radio.
 
 ## 2. Metrics
 
@@ -159,6 +159,8 @@ The other fields diagnose why an arm did as it did:
 | `doses_used` | Doses used by all killers together. |
 | `drift` | The killers' mean distance in cells from their start, after each hour. |
 | `worst_idleness_minutes` | The longest idleness, over the same samples as `idleness_minutes`. |
+
+The run's metrics have more standard measures in their last sample (`MetricsSample`, from `measured.live.metrics.latest()` of a `MeasuredPestRun`): the pests that appeared and were cleared, the knowledge latency from a pest's detection to the first killer knowing of it, the response time from detection to clearing, the shares of the killers' decisions spent idle, exploring, driving to a pest and treating, and the share of duplicate trips. `studies/smoke.py` reads them.
 
 To measure something else, write a run function of your own: it takes a `Run` and returns a dataclass. `MeasuredPestRun` steps a run as `measure_pest_response` does and gives access to its simulation and its `PestTracker` between steps; `studies/hop_dock_return.py` measures the killers' trips to a dock this way.
 

@@ -74,6 +74,7 @@ from swarm_field.experiments.scenario import (
     RELAYED_RIVERS_LARGE,
     RIVER_SMALL,
     RIVERS_LARGE,
+    SMOKE,
     PestConfig,
     RobotConfig,
     RobotGroup,
@@ -87,6 +88,7 @@ if TYPE_CHECKING:
 
 SCENARIOS: dict[str, SwarmScenario] = {
     "pests": PESTS,
+    "smoke": SMOKE,
     "explore": EXPLORE,
     "river-small": RIVER_SMALL,
     "rivers-large": RIVERS_LARGE,

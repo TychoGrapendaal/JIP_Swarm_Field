@@ -71,7 +71,7 @@ Which pest response performs better in a general scenario? Measure the standard 
 | 2 | 5 explorers and 5 hop-based killers |
 | 3 | 5 baseline killers: a simple implementation of robots that do not communicate |
 
-Status: `studies/explorer_hop_killers.py` runs explorers with seeded and with hop-based killers. It needs plots of the results. The baseline arm (3) is not implemented yet.
+Status: `studies/explorer_hop_killers.py` runs explorers with seeded and with hop-based killers. It needs plots of the results. For the baseline arm (3), `studies/baselines.py` has grid-sweep utility robots (`grid_sweep_brain`) that each sweep a strip of the field and treat what they drive over, without communicating.
 
 ### EXPLORE: exploration study
 
@@ -79,7 +79,7 @@ Assignee: Tycho. Fields: `RIVER_SMALL`, `RIVERS_LARGE`.
 
 How long does a swarm of explorers take to explore the whole field? Compare a grid search with the seeder, for 1, 5, 10 and 20 explorers.
 
-Status: most parts exist. It needs a metric for the time at which the exploration is complete.
+Status: most parts exist. The grid search is the `grid-sweep` seeder of `studies/baselines.py`. It needs a metric for the time at which the exploration is complete.
 
 ### RADIO: radio range
 
@@ -147,7 +147,7 @@ How long does a swarm take to clear the whole field, when 1 % of the plants are 
 
 - No new pests and no spreading; 1 % of the plants infested at the start (`PestConfig.initial_pests`).
 - Explorer and killer speeds: to ask the other group.
-- Compare hop-based, grid search and seeded.
+- Compare hop-based, grid search (`grid_sweep_brain` in `studies/baselines.py`) and seeded.
 - With 1, 5, 10, 20 and 40 robots.
 
 ### RESUPPLY: charging and resupply

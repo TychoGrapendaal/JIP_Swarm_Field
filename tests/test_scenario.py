@@ -268,3 +268,9 @@ def test_a_preset_with_no_robots_adds_no_brain() -> None:
     config = scenario.into_experiment()
 
     assert len(config.scenario.robots) == 4
+
+
+def test_a_swarm_larger_than_the_bottom_row_shares_its_start_cells() -> None:
+    scenario = SwarmScenario(map=MapConfig(size=4, obstacles=())).add_robots(EXPLORER, 6)
+
+    assert scenario.starts() == [(0, 0), (1, 0), (2, 0), (3, 0), (0, 0), (1, 0)]

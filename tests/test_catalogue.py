@@ -14,7 +14,17 @@ _SHORT = TimeUnit.MINUTE
 
 
 def test_the_catalogue_names_the_presets_and_the_hand_built_scenarios() -> None:
-    assert scenario_names() == ("S1", "S2", "S3", "S4", "S5", "explore", "pests", "pests-large")
+    assert scenario_names() == (
+        "S1",
+        "S2",
+        "S3",
+        "S4",
+        "S5",
+        "explore",
+        "pests",
+        "smoke",
+        "pests-large",
+    )
 
 
 @pytest.mark.parametrize("name", scenario_names())

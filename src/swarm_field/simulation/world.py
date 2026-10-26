@@ -276,39 +276,42 @@ class WorldState:
         )
 
     def observe_for(self, robot_id: RobotId, time: Time) -> list[Observation]:
-        """Generate body-specific pest, terrain, and peer observations."""
+        """Generate body-specific pest, terrain, and peer observations.
+
+        A robot senses crops and pests in its own cell only, and terrain and peers in the square
+        of its body's sensing radius around it.
+        """
         from swarm_field.swarm.capabilities import capabilities_for
 
         robot = self._robot(robot_id)
         profile = capabilities_for(robot.body)
         observations: list[Observation] = []
-        pest_cells = self._cells_in_square(robot.position, profile.pest_sensing_radius)
         terrain_cells = self._cells_in_square(robot.position, profile.terrain_sensing_radius)
         peer_cells = self._cells_in_square(robot.position, profile.peer_sensing_radius)
 
-        for cell in pest_cells:
-            state = self.cells[cell]
+        cell = robot.position
+        state = self.cells[cell]
+        observations.append(
+            CropObservation(
+                cell=cell,
+                confidence=1.0,
+                observed_at=time,
+                source=robot_id,
+                crop=state.crop,
+                growth_stage=state.growth_stage,
+            )
+        )
+        if profile.can_detect_pests:
             observations.append(
-                CropObservation(
+                InfestationObservation(
                     cell=cell,
                     confidence=1.0,
                     observed_at=time,
                     source=robot_id,
-                    crop=state.crop,
-                    growth_stage=state.growth_stage,
+                    severity=state.infestation,
+                    pest=None,
                 )
             )
-            if profile.can_detect_pests:
-                observations.append(
-                    InfestationObservation(
-                        cell=cell,
-                        confidence=1.0,
-                        observed_at=time,
-                        source=robot_id,
-                        severity=state.infestation,
-                        pest=None,
-                    )
-                )
 
         for cell in terrain_cells:
             terrain = Terrain.OBSTACLE if self.cells[cell].obstacle else Terrain.FREE

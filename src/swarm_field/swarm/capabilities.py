@@ -24,7 +24,6 @@ class CapabilitySet:
     action_types: frozenset[type[Action]]
     can_fly: bool
     speed_mps: float
-    pest_sensing_radius: int
     terrain_sensing_radius: int
     peer_sensing_radius: int
     endurance_seconds: float
@@ -52,7 +51,6 @@ BODY_CAPABILITIES: dict[BodyType, CapabilitySet] = {
         action_types=_COMMON_ACTIONS,
         can_fly=True,
         speed_mps=8.0,
-        pest_sensing_radius=1,
         terrain_sensing_radius=1,
         peer_sensing_radius=1,
         endurance_seconds=30.0 * 60.0,
@@ -64,7 +62,6 @@ BODY_CAPABILITIES: dict[BodyType, CapabilitySet] = {
         action_types=frozenset({Move, Treat, Charge, Idle}),
         can_fly=False,
         speed_mps=1.0,
-        pest_sensing_radius=0,
         terrain_sensing_radius=1,
         peer_sensing_radius=1,
         endurance_seconds=8.0 * 60.0 * 60.0,
@@ -77,7 +74,6 @@ BODY_CAPABILITIES: dict[BodyType, CapabilitySet] = {
         action_types=frozenset({Move, ReplaceBattery, Charge, Idle}),
         can_fly=False,
         speed_mps=1.0,
-        pest_sensing_radius=0,
         terrain_sensing_radius=1,
         peer_sensing_radius=1,
         endurance_seconds=8.0 * 60.0 * 60.0,

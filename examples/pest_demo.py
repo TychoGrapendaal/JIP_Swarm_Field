@@ -13,8 +13,12 @@ target each robot is heading for. The panel shows the measures of ``MetricsColle
 killers spent their time, and what each killer does and knows. The console's controls work as in
 ``scenario_viewer.py``: pause, step, change the speed, inject a pest, inspect a robot.
 
+``--smoke`` starts from the base demo (``SMOKE``): five explorers that only explore and five
+seeded killers that only treat. Any other option given changes that setup.
+
 Run from the repository root with:
     uv run python examples/pest_demo.py
+    uv run python examples/pest_demo.py --smoke
 
 Record a video instead (mp4 through ffmpeg, or a gif):
     uv run python examples/pest_demo.py --save videos/pests.mp4
@@ -36,13 +40,11 @@ from swarm_field.console import (
 from swarm_field.contracts import BodyType, Time, TimeUnit, WorldSnapshot
 from swarm_field.experiments import (
     EXPLORER,
-    FAST_PESTS,
     HOP_KILLER,
     PESTS,
     SEEDED_KILLER,
+    SMOKE,
     LiveRun,
-    MapConfig,
-    RobotConfig,
     RobotPreset,
     SwarmScenario,
 )
@@ -58,39 +60,72 @@ GOAL_LABELS: dict[str | None, str] = {
 
 
 def parse_args() -> argparse.Namespace:
-    """The command line; the swarm defaults to that of ``PESTS``, the settings to its parts."""
+    """The command line; an option left out keeps the value of the starting scenario."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--explorers", type=int, default=PESTS.count(EXPLORER.name))
-    parser.add_argument("--killers", type=int, default=PESTS.killers)
+    parser.add_argument(
+        "--smoke", action="store_true", help="start from the base demo: 5 + 5 robots, one task each"
+    )
+    parser.add_argument(
+        "--explorers",
+        type=int,
+        help=f"default {PESTS.count(EXPLORER.name)}, smoke {SMOKE.count(EXPLORER.name)}",
+    )
+    parser.add_argument(
+        "--killers", type=int, help=f"default {PESTS.killers}, smoke {SMOKE.killers}"
+    )
     parser.add_argument("--hop", action="store_true", help="hop killers instead of seeded ones")
     parser.add_argument(
-        "--radio", type=float, default=RobotConfig().radio_range_m, help="radio range in metres"
+        "--killer-speed",
+        type=float,
+        help=f"killers' speed in m/s (default {PESTS.robots.speed_mps_ground:g})",
     )
-    parser.add_argument("--pests-per-hour", type=float, default=FAST_PESTS.pests_per_hour)
+    parser.add_argument(
+        "--radio",
+        type=float,
+        help=f"radio range in metres (default {PESTS.robots.radio_range_m:g})",
+    )
+    parser.add_argument(
+        "--pests-per-hour", type=float, help=f"default {PESTS.pests.pests_per_hour:g}"
+    )
     parser.add_argument(
         "--spread",
         type=float,
-        default=FAST_PESTS.spread_probability,
-        help="pest spread probability",
+        help=f"pest spread probability (default {PESTS.pests.spread_probability:g})",
     )
     add_session_arguments(parser, default_speed=DEFAULT_SPEED, recording=False)
     return parser.parse_args()
 
 
 def build_scenario(args: argparse.Namespace) -> SwarmScenario:
-    """The scenario of the command line, on the river field with one dock (``MapConfig()``), with
-    ``FAST_PESTS`` changed by it."""
+    """``PESTS``, or ``SMOKE`` with ``--smoke``, changed by the options given."""
+    start = PESTS
+    if args.smoke:
+        start = SMOKE
     killer: RobotPreset = SEEDED_KILLER
     if args.hop:
         killer = HOP_KILLER
-    pests = replace(FAST_PESTS, pests_per_hour=args.pests_per_hour, spread_probability=args.spread)
+    explorers = start.count(EXPLORER.name)
+    if args.explorers is not None:
+        explorers = args.explorers
+    killers = start.killers
+    if args.killers is not None:
+        killers = args.killers
+    pests = start.pests
+    if args.pests_per_hour is not None:
+        pests = replace(pests, pests_per_hour=args.pests_per_hour)
+    if args.spread is not None:
+        pests = replace(pests, spread_probability=args.spread)
+    robots = start.robots
+    if args.radio is not None:
+        robots = replace(robots, radio_range_m=args.radio)
+    if args.killer_speed is not None:
+        robots = replace(robots, speed_mps_ground=args.killer_speed)
     scenario = (
-        SwarmScenario()
-        .with_map(MapConfig())
+        start.without_robots()
         .with_pests(pests)
-        .with_robot_config(RobotConfig(radio_range_m=args.radio))
-        .add_robots(EXPLORER, args.explorers)
-        .add_robots(killer, args.killers)
+        .with_robot_config(robots)
+        .add_robots(EXPLORER, explorers)
+        .add_robots(killer, killers)
     )
     if args.seed is not None:
         scenario = replace(scenario, seed=args.seed)

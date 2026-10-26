@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Protocol
 from swarm_field.contracts import (
     Beacon,
     BeaconKind,
+    BodyType,
     CellId,
     DockBeaconSpec,
     FailureMode,
@@ -28,6 +29,7 @@ from swarm_field.contracts import (
     RobotId,
     Time,
     TimeUnit,
+    Treat,
 )
 from swarm_field.simulation.metrics import MetricsConfig
 
@@ -122,8 +124,14 @@ class RobotDecision:
             # Coverage and detection latency are per-sensing events, so they are recorded
             # here rather than at the next sample, which would only see the latest sensing.
             ctx.metrics.observe(perception.sensed, self.time)
-        decision = ctx.agents[self.robot].decide(perception)
+        agent = ctx.agents[self.robot]
+        decision = agent.decide(perception)
         arrival = ctx.world.apply_action(self.robot, decision.action, self.time)
+        if ctx.metrics is not None:
+            if isinstance(decision.action, Treat):
+                ctx.metrics.track_infestation(ctx.world, self.time)
+            if ctx.world.robots[self.robot].body is BodyType.KILLER:
+                ctx.metrics.observe_killer(self.robot, decision.action, agent.inspect(), self.time)
         ctx.channel.broadcast(ctx.world, self.time, decision.outbox)
         next_time = self.time + self.decision_interval
         if arrival is not None and arrival > self.time:

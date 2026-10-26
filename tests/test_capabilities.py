@@ -101,14 +101,12 @@ def test_capability_profiles_match_the_three_body_roles() -> None:
     battery = capabilities_for(BodyType.BATTERY)
 
     assert scout.can_fly and scout.can_detect_pests
-    assert scout.pest_sensing_radius == 1
     assert scout.speed_mps == 8.0
     assert scout.endurance_seconds == 30 * 60
     assert scout.dock_recharge_seconds == 5 * 60
     assert not scout.can(Treat) and not scout.can(ReplaceBattery)
 
     assert not killer.can_fly and killer.can_detect_pests and killer.can_treat
-    assert killer.pest_sensing_radius == 0
     assert killer.speed_mps == 1.0
     assert killer.endurance_seconds == 8 * 60 * 60
     assert killer.can(Treat) and not killer.can(ReplaceBattery)
@@ -174,7 +172,6 @@ def test_body_mismatch_cannot_expand_capabilities() -> None:
         action_types=scout_profile.action_types | {Treat},
         can_fly=scout_profile.can_fly,
         speed_mps=scout_profile.speed_mps,
-        pest_sensing_radius=scout_profile.pest_sensing_radius,
         terrain_sensing_radius=scout_profile.terrain_sensing_radius,
         peer_sensing_radius=scout_profile.peer_sensing_radius,
         endurance_seconds=scout_profile.endurance_seconds,
@@ -323,16 +320,17 @@ def test_sensing_footprints_are_body_specific() -> None:
         RobotState(3, (2, 2), BodyType.BATTERY, speed_mps=1.0, spare_batteries=3),
     ]
     world = WorldState(FIELD, robots=robots)
+    world.cell((2, 2)).infestation = 0.7
     world.cell((3, 3)).infestation = 0.7
 
     scout_obs = world.observe_for(1, 0)
     killer_obs = world.observe_for(2, 0)
     battery_obs = world.observe_for(3, 0)
 
-    assert any(isinstance(obs, InfestationObservation) and obs.cell == (3, 3) for obs in scout_obs)
-    assert not any(
-        isinstance(obs, InfestationObservation) and obs.cell == (3, 3) for obs in killer_obs
-    )
+    # Scouts and killers sense pests in their own cell only; a battery robot senses none.
+    for observations in (scout_obs, killer_obs):
+        pests = {obs.cell for obs in observations if isinstance(obs, InfestationObservation)}
+        assert pests == {(2, 2)}
     assert not any(isinstance(obs, InfestationObservation) for obs in battery_obs)
     scout_terrain = [obs for obs in scout_obs if isinstance(obs, TerrainObservation)]
     assert len(scout_terrain) == 9
