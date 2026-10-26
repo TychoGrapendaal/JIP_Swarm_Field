@@ -380,12 +380,21 @@ class WorldTick:
         )
 
     def _grow(self, ctx: SimulationContext) -> None:
-        """Increase every existing infestation without exceeding full severity."""
+        """Increase every existing infestation without exceeding full severity.
+
+        A cell a killer is treating does not grow: treatment removes a unit of severity per
+        hour, which would otherwise lose to any growth faster than that, so no pest could be
+        cleared.
+        """
         if self.config.growth_rate == 0.0:
             return
 
-        for state in ctx.world.cells.values():
-            if state.infestation <= 0.0:
+        treated: set[CellId] = set()
+        for robot in ctx.world.robots.values():
+            if robot.treating_cell is not None:
+                treated.add(robot.treating_cell)
+        for cell, state in ctx.world.cells.items():
+            if state.infestation <= 0.0 or cell in treated:
                 continue
             state.infestation = min(1.0, state.infestation + self.config.growth_rate)
 

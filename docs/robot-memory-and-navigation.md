@@ -130,28 +130,27 @@ A **`Behavior`** (`swarm/behavior.py`) bids for what the robot does next. Its `p
 
 An `Intent` is `FollowField`, `Treat`, `Charge` or `Idle`. There is deliberately no `Move`, so the type checker keeps every step inside the navigator. Every behaviour bids on the shared `[0, 1]` scale of the arbiter (see [`research/arbiter.md`](./research/arbiter.md)), from 0.9 up only for needs that override everything else.
 
-`TreatSeeder`, in outline, has target value severity × confidence. A cell that a peer is already heading for, with the objective `TREAT`, keeps only `reduction_rate` of its value, and clustered pests reinforce each other (left out here). The value is worth at most `value_amplifier` cells of travel, one by default, so the discount rarely changes which pest a robot picks. With `yield_to_closer` the seeder leaves a cell out altogether when a peer heading for it is closer to it, counting only reports younger than `claim_fresh_for`; if every pest is claimed by a closer peer, it keeps them all. This set depends on the robot's own cell, so it is part of the key. The key is a one-minute time bucket, so the field follows the decaying confidences, plus the infested cells and the peers' targets, so the field reacts at once when a pest is treated or a peer picks a target:
+`TreatSeeder`, in outline, has target value severity × confidence, and clustered pests reinforce each other (left out here). With `yield_to_closer` (a seeded killer's `claims`, on by default) only the pests left to this robot count. A pest is left to a robot unless a peer killer reported it, within `claim_fresh_for` (two minutes), as the target it is heading for to `TREAT`, and is closer to it, or as close with a lower robot id (`pests_left_to_robot`). Of two killers heading for one pest, exactly one keeps it, which is how killers avoid driving to the same pest. The tie-break matters, because killers that travel together are equally close to everything. The key is a one-minute time bucket, so the field follows the decaying confidences, plus the infested cells and the pests left, so the field reacts at once when a pest is treated or a closer peer claims it:
 
 ```python
 class TreatSeeder:
     name: str = "treat"
 
     def field_key(self, memory: MemoryView, robot: CellId, now: Time) -> Hashable:
-        return (now // TimeUnit.MINUTE, infested_cells(memory), cells_targeted_by_peers(memory))
+        left = {pest.cell for pest in pests_left_to_robot(memory, robot, now)}
+        return (now // TimeUnit.MINUTE, infested_cells(memory), frozenset(left))
 
     def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
         seeds: list[Seed] = []
-        targeted = cells_targeted_by_peers(memory)
-        for pest in memory.infestations():
-            if pest.severity > 0:
-                value = pest.severity * memory.confidence(pest, now)
-                if pest.cell in targeted:
-                    value *= self.reduction_rate
-                seeds.append(Seed(pest.cell, -self.value_amplifier * value))
+        for pest in pests_left_to_robot(memory, robot, now):
+            value = pest.severity * memory.confidence(pest, now)
+            seeds.append(Seed(pest.cell, -self.value_amplifier * value))
         return tuple(seeds)
 ```
 
-`VERIFY` would use `severity * (1 - confidence)` instead; `RECHARGE` would seed the dock cells with value 0 and a constant key. The behaviour that pursues it scores from memory alone. It treats on the spot when memory knows a pest at the robot's cell, with a score just below 1 so that a battery behaviour can still outbid it. Otherwise it bids to follow the field, and wants it more the more pests there are per killer it knows of:
+A claim needs the peer's target and objective, which only the peer's own `STATUS` report carries; a sighting of a peer in a neighbouring cell carries neither. Memory therefore takes where a peer is from its newest fact of any kind, and what it heads for from its newest own report, so being seen does not erase the pest a killer announced.
+
+`VERIFY` would use `severity * (1 - confidence)` instead; `RECHARGE` would seed the dock cells with value 0 and a constant key. The behaviour that pursues it scores from memory alone. It treats on the spot when memory knows a pest at the robot's cell, with a score just below 1 so that a battery behaviour can still outbid it. Otherwise it bids to follow the field by the worst pest left to it, between 0.8 and 0.89: above exploring in practice, since treating is a killer's job, and below the override threshold. With no pest left to it, it does not bid, so a killer whose pests are all claimed explores instead:
 
 ```python
 class TreatInfestation:
@@ -159,14 +158,14 @@ class TreatInfestation:
 
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
         position = ctx.self_state.position
-        pests = [pest for pest in ctx.memory.infestations() if pest.severity > 0]
-        if not pests:                                         # no known pests: no bid
-            return ()
         here = ctx.memory.infestation_at(position)
         if here is not None and here.severity > 0:            # on a pest: treat it
             return (ActionCandidate(Treat(position), 0.99, self.name, position),)
-        num_killers = count_known_killers(ctx.memory)
-        score = 1 / (1 + math.exp(-(len(pests) - num_killers)))
+        left = pests_left_to_robot(ctx.memory, position, ctx.time)
+        worst = max((p.severity * ctx.memory.confidence(p, ctx.time) for p in left), default=0.0)
+        if worst <= 0:                                        # nothing left to it: no bid
+            return ()
+        score = 0.8 + 0.09 * min(1.0, worst)
         return (ActionCandidate(FollowField(TreatSeeder.name), score, self.name, None),)
 ```
 
