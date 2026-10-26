@@ -101,7 +101,6 @@ from swarm_field.experiments.scenario import (
     RobotGroup,
     SwarmScenario,
     moving_explorer_scenario,
-    pest_response_configurations,
 )
 from swarm_field.experiments.video import record_video, record_videos, video_path
 
@@ -179,7 +178,6 @@ __all__ = [
     "paired_difference",
     "pest_isolation_cells",
     "pest_isolation_headers",
-    "pest_response_configurations",
     "pest_table_cells",
     "pest_table_headers",
     "record_video",

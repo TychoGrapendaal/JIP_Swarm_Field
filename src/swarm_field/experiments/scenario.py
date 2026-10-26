@@ -8,10 +8,10 @@ ready parts, a map (``swarm_field.experiments.maps``), pests and robot settings:
     scenario = (
         SwarmScenario()
         .with_map(SMALL_RIVER_MAP)
-        .with_pests(FAST_PESTS)
-        .with_robot_config(LATTICE_ROBOTS)
+        .with_pests(SMALL_FIELD_PESTS)
+        .with_robot_config(DEFAULT_ROBOTS)
         .add_robots(EXPLORER, 10)
-        .add_robots(HOP_KILLER, 4)
+        .add_robots(HOP_BEST, 4)
     )
 
 ``into_experiment`` describes the run as an ``ExperimentConfig`` for ``swarm_field.runner``,
@@ -25,14 +25,15 @@ spreads them. Robots share what they know only through the channel, within the r
 mock source on every pest (``PestConfig.source_range_m``) can stand in for the explorer that
 found it.
 
-The ready parts are the pests ``FAST_PESTS`` and ``NO_PESTS``, and the robot settings
-``LATTICE_ROBOTS`` and ``EXPLORE_ROBOTS``. The ready scenarios are composed from them:
-``RIVER_SMALL``, ``RIVERS_LARGE`` and ``RELAYED_KILLERS``, the swarms of the pest-response
-benchmarks, ``EXPLORE``, explorers alone on an open field, and ``PESTS``,
-explorers and seeded killers on the river field. ``moving_explorer_scenario`` builds the
-scenario of the comparison experiments, moving explorers and killers without relays or mock
-sources, and ``pest_response_configurations`` turns a scenario into the compared pest
-responses.
+The experiments' defaults are the pests ``STATIC_PESTS``, ``SMALL_FIELD_PESTS`` and
+``LARGE_FIELD_PESTS``, and the robot settings ``DEFAULT_ROBOTS``; the default scenarios
+``RIVER_SMALL``, ``RIVERS_LARGE``, ``OPEN_SMALL`` and ``OPEN_LARGE`` put the default swarm on
+each standard field. The earlier parts are the pests ``FAST_PESTS`` and ``NO_PESTS``, and the
+robot settings ``LATTICE_ROBOTS`` and ``EXPLORE_ROBOTS``. The earlier scenarios are composed
+from them: ``RELAYED_RIVER_SMALL``, ``RELAYED_RIVERS_LARGE`` and ``RELAYED_KILLERS``, the swarms
+of the relay benchmarks, ``EXPLORE``, explorers alone on an open field, and ``PESTS``, explorers
+and seeded killers on the river field. ``moving_explorer_scenario`` builds the scenario of the
+earlier comparison experiments, moving explorers and killers without relays or mock sources.
 """
 
 from __future__ import annotations
@@ -69,12 +70,9 @@ from swarm_field.experiments.presets import (
     SEEDED_BEST,
     SEEDED_KILLER,
     ExplorerPreset,
-    HopKillerPreset,
     Relaying,
     RobotPreset,
-    SeededKillerPreset,
     SwarmContext,
-    hop_beacon_variants,
 )
 from swarm_field.runner import BrainSpec, ExperimentConfig
 from swarm_field.simulation import MetricsConfig
@@ -182,10 +180,6 @@ class RobotGroup:
     count: int
 
 
-def _metrics_every_second() -> MetricsConfig:
-    return MetricsConfig(period=TimeUnit.SECOND)
-
-
 @dataclass(frozen=True)
 class SwarmScenario:
     """The field, the pests and the swarm of one run.
@@ -210,7 +204,7 @@ class SwarmScenario:
     robots: RobotConfig = field(default_factory=RobotConfig)
     swarm: tuple[RobotGroup, ...] = ()
     arbiter: ArbiterConfig = field(default_factory=ArbiterConfig)
-    metrics: MetricsConfig = field(default_factory=_metrics_every_second)
+    metrics: MetricsConfig = field(default_factory=lambda: MetricsConfig(period=TimeUnit.SECOND))
     until: Time = 3 * TimeUnit.HOUR
     seed: int = 0
 
@@ -609,7 +603,7 @@ def _default_scenario(field: MapConfig, pests: PestConfig, hours: int) -> SwarmS
 RIVER_SMALL = _default_scenario(SMALL_RIVER_MAP, SMALL_FIELD_PESTS, SMALL_FIELD_HOURS)
 """The default experiment on the small river field (``SMALL_RIVER_MAP``): 10 explorers and 4
 seeded killers (``SEEDED_BEST``), ``DEFAULT_ROBOTS`` and ``SMALL_FIELD_PESTS``, for 2 hours.
-``pest_response_configurations`` swaps the killers for the hop arm."""
+The hop arm is the same scenario with its killers swapped for ``HOP_BEST``."""
 
 RIVERS_LARGE = _default_scenario(LARGE_RIVERS_MAP, LARGE_FIELD_PESTS, LARGE_FIELD_HOURS)
 """The default experiment on the large river field (``LARGE_RIVERS_MAP``), as ``RIVER_SMALL``,
@@ -633,7 +627,6 @@ RELAYED_KILLERS = (
 
 A mock source on every pest stands in for the explorer that found it. The radio reaches 1.25
 relay pitches, so a pest reaches the nearest killer through several relays.
-``pest_response_configurations`` turns it into the compared pest responses.
 """
 
 RELAYED_RIVER_SMALL = (
@@ -729,34 +722,3 @@ def moving_explorer_scenario(
         .add_robots(explorer, explorers)
         .add_robots(killer, killers)
     )
-
-
-def pest_response_configurations(
-    scenario: SwarmScenario, seeded_no_yield: bool = False
-) -> dict[str, SwarmScenario]:
-    """The pest responses compared on ``scenario``, by name, each with its killers.
-
-    Each is ``scenario`` with its killers, as many as it has of every preset, replaced by
-    killers of one response, added after its other robots: ``seeded`` with claims,
-    ``seeded-best`` (``SEEDED_BEST``), and the hop configurations of ``hop_beacon_variants``
-    (``hop``, ``hop-repel``, ``hop-tuned`` and ``hop-best``, the beacons of ``HOP_BEST``), so a
-    tuned arm of one method is never compared with only an untuned one of the other.
-
-    Args:
-        scenario: The scenario every configuration is a variant of.
-        seeded_no_yield: Whether to add ``seeded-no-yield``: the seeded response without the
-            claims, whose relays pass on only the pests, as before the claims existed.
-    """
-    killers = scenario.killers
-    others = scenario.without_robots(BodyType.KILLER)
-    configurations = {
-        "seeded": others.add_robots(SEEDED_KILLER, killers),
-        "seeded-best": others.add_robots(SEEDED_BEST, killers),
-    }
-    if seeded_no_yield:
-        no_claims = SeededKillerPreset(claims=False)
-        configurations["seeded-no-yield"] = others.add_robots(no_claims, killers)
-    hop_cells = scenario.robots.radio_range_m / scenario.map.cell_size
-    for name, beacons in hop_beacon_variants(hop_cells).items():
-        configurations[name] = others.add_robots(HopKillerPreset(beacons=beacons), killers)
-    return configurations

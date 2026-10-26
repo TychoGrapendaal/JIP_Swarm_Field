@@ -29,7 +29,6 @@ from swarm_field.experiments import (
     MapConfig,
     SeededKillerPreset,
     SwarmScenario,
-    pest_response_configurations,
 )
 from swarm_field.runner import BrainSpec
 from swarm_field.swarm import (
@@ -95,9 +94,9 @@ def test_the_default_scenarios_run_the_default_swarm_on_static_pests() -> None:
         assert scenario.until == hours * TimeUnit.HOUR
         assert scenario.metrics.period == TimeUnit.MINUTE
         assert scenario.metrics.measure_from == 0
-        hop = pest_response_configurations(scenario)["hop-best"]
+        hop = scenario.without_robots(BodyType.KILLER).add_robots(HOP_BEST, DEFAULT_KILLERS)
         assert hop.count(EXPLORER.name) == DEFAULT_EXPLORERS
-        assert hop.killers == DEFAULT_KILLERS
+        assert hop.into_experiment().scenario.dock_beacons is not None
 
 
 def test_the_bridges_join_every_free_cell_of_the_two_rivers_field() -> None:
@@ -228,34 +227,15 @@ def test_presets_that_need_different_beacons_are_refused() -> None:
 
 
 def test_mock_pest_sources_send_only_what_the_killers_read() -> None:
-    configurations = pest_response_configurations(RELAYED_KILLERS)
+    relays = RELAYED_KILLERS.without_robots(BodyType.KILLER)
 
-    seeded = configurations["seeded"].pest_sources()
-    hop = configurations["hop-tuned"].pest_sources()
-    nobody = RELAYED_KILLERS.without_robots(BodyType.KILLER).pest_sources()
+    seeded = relays.add_robots(SEEDED_KILLER, 2).pest_sources()
+    hop = relays.add_robots(HOP_KILLER, 2).pest_sources()
+    nobody = relays.pest_sources()
 
     assert seeded is not None and seeded.kinds == {MessageKind.KNOWLEDGE}
     assert hop is not None and hop.kinds == {MessageKind.BEACON}
     assert nobody is None
-
-
-def test_the_pest_responses_keep_the_number_of_killers() -> None:
-    configurations = pest_response_configurations(RELAYED_KILLERS, seeded_no_yield=True)
-
-    expected = [
-        "seeded",
-        "seeded-best",
-        "seeded-no-yield",
-        "hop",
-        "hop-repel",
-        "hop-tuned",
-        "hop-best",
-    ]
-    assert list(configurations) == expected
-    for configured in configurations.values():
-        assert configured.killers == RELAYED_KILLERS.killers
-        assert configured.count(RELAY.name) == RELAYED_KILLERS.count(RELAY.name)
-    assert configurations["hop-tuned"].count(HOP_KILLER.name) == RELAYED_KILLERS.killers
 
 
 def test_explorers_revisit_after_half_the_time_their_swarm_needs_to_sweep_the_field() -> None:

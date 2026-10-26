@@ -1,8 +1,8 @@
 """Demo videos of the obstacle comparison (#70): record a run once, render it as often as wanted.
 
-Each pest response of ``CONFIGS``, from ``pest_response_configurations``, runs on
-``RELAYED_RIVER_SMALL`` or ``RELAYED_RIVERS_LARGE``; ``--config seeded-no-yield`` records the
-seeded response without the claims.
+Each pest response of ``CONFIGS``, from ``pest_response_configurations`` of
+``studies/benchmark_obstacles.py``, runs on one of its ``SCENARIOS``; ``--config seeded-no-yield``
+records the seeded response without the claims.
 ``record`` runs it once through ``LiveRun``, one frame per decision interval, and writes a
 ``Trace``: everything the videos might show, so that new visuals need no new run. ``render``
 turns traces into videos with ``MatplotlibRenderer`` and the overlays, without the simulation.
@@ -19,14 +19,14 @@ and their sum, its heading. For a seeded killer: its TREAT field over the quadtr
 overlay, and its route through the field to its target. Blue relays show how the news of a pest
 spreads: those with a hop value, or those that know of pests.
 
-Run from the repository root, e.g.:
+Run from the repository root as a module, since it imports the study, e.g.:
 
-    uv run python examples/obstacle_demos.py record --seed 0
-    uv run python examples/obstacle_demos.py render runs/70-obstacle-comparison/traces
-    uv run python examples/obstacle_demos.py record --scenario rivers-large \\
+    uv run python -m examples.obstacle_demos record --seed 0
+    uv run python -m examples.obstacle_demos render runs/70-obstacle-comparison/traces
+    uv run python -m examples.obstacle_demos record --scenario rivers-large \\
         --config seeded hop-tuned --killers 1 --pests-per-hour 3 --hours 6 --explain \\
         --treat-window-blocks 0
-    uv run python examples/obstacle_demos.py render --fps 20 \\
+    uv run python -m examples.obstacle_demos render --fps 20 \\
         runs/70-obstacle-comparison/traces/explainer_1-killer_rivers-large_seeded_seed0.pkl.gz
 """
 
@@ -45,6 +45,7 @@ from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
 
+from studies.benchmark_obstacles import SCENARIOS, pest_response_configurations
 from swarm_field.contracts import (
     BeaconKind,
     BodyType,
@@ -59,13 +60,10 @@ from swarm_field.contracts import (
     WorldSnapshot,
 )
 from swarm_field.experiments import (
-    RELAYED_RIVER_SMALL,
-    RELAYED_RIVERS_LARGE,
     SEEDED_KILLER,
     LiveRun,
     SeededKillerPreset,
     SwarmScenario,
-    pest_response_configurations,
 )
 from swarm_field.swarm import BeaconLink, Heading, SeededField, treat_beacon
 from swarm_field.swarm.field import Leaf
@@ -92,11 +90,6 @@ from swarm_field.visualization import (
 
 logger = logging.getLogger(__name__)
 
-SCENARIOS: dict[str, SwarmScenario] = {
-    "river-small": RELAYED_RIVER_SMALL,
-    "rivers-large": RELAYED_RIVERS_LARGE,
-}
-"""The scenarios by the name used in file names and titles."""
 CONFIGS = ("seeded", "seeded-best", "seeded-no-yield", "hop", "hop-repel", "hop-tuned", "hop-best")
 """Every configuration that can be recorded."""
 DEFAULT_CONFIGS = ("seeded", "hop", "hop-repel", "hop-tuned")

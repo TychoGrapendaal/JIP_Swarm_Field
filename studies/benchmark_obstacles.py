@@ -30,16 +30,19 @@ from swarm_field.experiments import (
     RELAY,
     RELAYED_RIVER_SMALL,
     RELAYED_RIVERS_LARGE,
+    SEEDED_BEST,
     SEEDED_KILLER,
     Experiment,
+    HopKillerPreset,
     PestResponse,
+    SeededKillerPreset,
     SwarmScenario,
     arm_name,
     by_arm,
+    hop_beacon_variants,
     markdown_table,
     measure_pest_response,
     paired_difference,
-    pest_response_configurations,
     pest_table_cells,
     pest_table_headers,
     runs_for,
@@ -53,6 +56,37 @@ SCENARIOS: dict[str, SwarmScenario] = {
 """The scenarios by the name used in arm names and tables."""
 BASELINE = "seeded"
 """The configuration every other is compared with, seed by seed."""
+
+
+def pest_response_configurations(
+    scenario: SwarmScenario, seeded_no_yield: bool = False
+) -> dict[str, SwarmScenario]:
+    """The pest responses this benchmark compares on ``scenario``, by name, each with its killers.
+
+    Each is ``scenario`` with its killers, as many as it has of every preset, replaced by
+    killers of one response, added after its other robots: ``seeded`` with claims,
+    ``seeded-best`` (``SEEDED_BEST``), and the hop configurations of ``hop_beacon_variants``
+    (``hop``, ``hop-repel``, ``hop-tuned`` and ``hop-best``, the beacons of ``HOP_BEST``), so a
+    tuned arm of one method is never compared with only an untuned one of the other.
+
+    Args:
+        scenario: The scenario every configuration is a variant of.
+        seeded_no_yield: Whether to add ``seeded-no-yield``: the seeded response without the
+            claims, whose relays pass on only the pests, as before the claims existed.
+    """
+    killers = scenario.killers
+    others = scenario.without_robots(BodyType.KILLER)
+    configurations = {
+        "seeded": others.add_robots(SEEDED_KILLER, killers),
+        "seeded-best": others.add_robots(SEEDED_BEST, killers),
+    }
+    if seeded_no_yield:
+        no_claims = SeededKillerPreset(claims=False)
+        configurations["seeded-no-yield"] = others.add_robots(no_claims, killers)
+    hop_cells = scenario.robots.radio_range_m / scenario.map.cell_size
+    for name, beacons in hop_beacon_variants(hop_cells).items():
+        configurations[name] = others.add_robots(HopKillerPreset(beacons=beacons), killers)
+    return configurations
 
 
 @dataclass(frozen=True)

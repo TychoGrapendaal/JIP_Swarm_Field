@@ -14,6 +14,7 @@ import argparse
 import math
 from dataclasses import replace
 
+from studies.benchmark_obstacles import pest_response_configurations
 from swarm_field.contracts import BodyType
 from swarm_field.experiments import (
     RELAY,
@@ -25,7 +26,6 @@ from swarm_field.experiments import (
     by_arm,
     markdown_table,
     measure_pest_response,
-    pest_response_configurations,
     pest_table_cells,
     pest_table_headers,
     runs_for,

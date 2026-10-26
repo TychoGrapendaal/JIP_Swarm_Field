@@ -47,7 +47,7 @@ A part with one value changed is `dataclasses.replace(SMALL_FIELD_PESTS, pests_p
 
 `count(name)` says how many robots of a preset a scenario has, `killers` how many killers of every preset. `until` (3 h) and `seed` are plain fields; set them with `dataclasses.replace(scenario, seed=3)`.
 
-A few whole scenarios are ready too, composed from the parts. The four default scenarios are the experiments' standard runs: the default swarm on each standard field, for the default length. `pest_response_configurations` swaps their `SEEDED_BEST` killers for the hop arm.
+A few whole scenarios are ready too, composed from the parts. The four default scenarios are the experiments' standard runs: the default swarm on each standard field, for the default length. Their killers are `SEEDED_BEST`; the hop arm swaps them for `HOP_BEST` (section "The pest response: seeded or hop-based").
 
 | Scenario | Field | Pests | Robot settings | Robots | Length |
 | --- | --- | --- | --- | --- | --- |
@@ -167,20 +167,20 @@ larger = SwarmScenario().with_map(MapConfig(size=48, obstacles=two_rivers_and_ro
 
 ### The pest response: seeded or hop-based
 
-`pest_response_configurations(scenario)` turns a scenario into the compared responses, by name: the same scenario with its killers, as many as it has of every preset, replaced by seeded or by hop killers. Use the two best ones:
+The two methods differ only in their killers. Compare them with each method's best killers, `SEEDED_BEST` and `HOP_BEST`, on the same scenario: the default scenarios have `SEEDED_BEST` killers, so the hop arm swaps them.
 
 ```python
-from swarm_field.experiments import pest_response_configurations
+from swarm_field.contracts import BodyType
+from swarm_field.experiments import DEFAULT_KILLERS, HOP_BEST, RIVER_SMALL
 
-configurations = pest_response_configurations(scenario)
-seeded = configurations["seeded"]
-hop = configurations["hop-tuned"]
+seeded = RIVER_SMALL
+hop = RIVER_SMALL.without_robots(BodyType.KILLER).add_robots(HOP_BEST, DEFAULT_KILLERS)
 ```
 
-- **`seeded`** shares pest cells. Relays gossip the pests they know and the killers' claims; a killer plans a route to a remembered pest over the terrain it sensed, leaves a pest to a closer killer that claimed it, and does not join a pest another killer already treats.
-- **`hop-tuned`** shares hop numbers only. A source beacons 0, every relay broadcasts its distance in hops, and a killer walks down the hop values to the pest; killers repel each other, pulls are weighted by the square root of the distance, and a killer stuck in place pushes itself out. See [`research/hop-field.md`](research/hop-field.md).
+- **Seeded killers** (`SEEDED_BEST`) share pest cells. The swarm gossips the pests it knows and the killers' claims; a killer plans a route to a remembered pest over the terrain it sensed, leaves a pest to a closer killer that claimed it, and does not join a pest another killer already treats.
+- **Hop killers** (`HOP_BEST`) share hop numbers only. A source beacons 0, every robot broadcasts its distance in hops, and a killer walks down the hop values to the pest; killers repel each other, pulls are weighted by the square root of the distance, and a killer stuck in place pushes itself out. See [`research/hop-field.md`](research/hop-field.md).
 
-The dictionary also has `seeded-best` and `hop-best`, the arms of `SEEDED_BEST` and `HOP_BEST`, which a comparison of the methods should use, and `hop` and `hop-repel`, the hop method without its later improvements, and with `seeded_no_yield=True` it adds `seeded-no-yield`, the seeded method without the claims. Use them only when a question is about those differences.
+The untuned and earlier variants of both methods (`SEEDED_KILLER`, the hop beacons of `hop_beacon_variants`) are for questions about those differences; the obstacle benchmark compares them all (section "Example: the obstacle benchmark").
 
 ### Time and seeds
 
@@ -252,21 +252,21 @@ A *run* (`Run`) is an arm name, a configuration and a seed. `runs_for` makes one
 ```python
 """Compare the seeded and the hop-based pest response on the small river field."""
 
+from swarm_field.contracts import BodyType
 from swarm_field.experiments import (
-    RELAYED_RIVER_SMALL,
+    DEFAULT_KILLERS,
+    HOP_BEST,
+    RIVER_SMALL,
     Experiment,
     SwarmScenario,
     measure_pest_response,
-    pest_response_configurations,
     runs_for,
 )
 
 
 def main() -> None:
-    configurations = pest_response_configurations(RELAYED_RIVER_SMALL)
-    arms: dict[str, SwarmScenario] = {}
-    for name in ("seeded", "hop-tuned"):
-        arms[name] = configurations[name].with_hours(3, warmup_hours=1)
+    hop = RIVER_SMALL.without_robots(BodyType.KILLER).add_robots(HOP_BEST, DEFAULT_KILLERS)
+    arms: dict[str, SwarmScenario] = {"seeded": RIVER_SMALL, "hop": hop}
 
     experiment = Experiment("seeded_vs_hop_small")
     runs = runs_for(arms, seeds=range(12), cost=SwarmScenario.run_cost)
@@ -352,7 +352,7 @@ output/
     results.json
     tables.md
     video/
-      hop-tuned_seed0.mp4
+      hop_seed0.mp4
 ```
 
 - **`experiment.json`** says what was run: the name, the start time, the command line, the git commit (with `+dirty` if there were uncommitted changes) and every arm with its seeds. The configurations themselves are not written yet, since they have no JSON form so far; the commit and the command reproduce them.
@@ -379,7 +379,7 @@ for arm, values in infested.items():
 
 The table says how well an arm did, not why. To see what its robots actually did, film a few of its runs. `record_videos` runs them again and renders each into a video in the experiment's folder. A run is a function of its arm and seed, so the video shows exactly the run that `results.json` describes.
 
-Pass it the folder and the runs to film. `runs_for` builds those runs from the same arms as the batch, here the `hop-tuned` arm with seed 0:
+Pass it the folder and the runs to film. `runs_for` builds those runs from the same arms as the batch, here the `hop` arm with seed 0:
 
 ```python
 from swarm_field.experiments import record_videos
@@ -387,12 +387,12 @@ from swarm_field.experiments import record_videos
 experiment = Experiment("seeded_vs_hop_small")
 runs = runs_for(arms, seeds=range(12), cost=SwarmScenario.run_cost)
 results = experiment.run(runs, measure_pest_response)
-record_videos(experiment.directory, runs_for({"hop-tuned": arms["hop-tuned"]}, seeds=[0]))
+record_videos(experiment.directory, runs_for({"hop": arms["hop"]}, seeds=[0]))
 ```
 
-The video goes to `video/hop-tuned_seed0.mp4` in the experiment's folder. Its name is the run's name, `ARM/seedN`, with every `/` turned into `_`; `video_path(directory, run)` gives it.
+The video goes to `video/hop_seed0.mp4` in the experiment's folder. Its name is the run's name, `ARM/seedN`, with every `/` turned into `_`; `video_path(directory, run)` gives it.
 
-- **Several runs** are filmed in parallel, one per process, as in `Experiment.run`: `runs_for({"seeded": arms["seeded"], "hop-tuned": arms["hop-tuned"]}, seeds=[0, 1])` gives four videos. `processes` sets the number of processes.
+- **Several runs** are filmed in parallel, one per process, as in `Experiment.run`: `runs_for({"seeded": arms["seeded"], "hop": arms["hop"]}, seeds=[0, 1])` gives four videos. `processes` sets the number of processes.
 - **An experiment run earlier** works too. Pass its folder, e.g. `Path("output/2026-10-22_22-19-02_seeded_vs_hop_small_4821")`, and the same arm name and scenario as in the batch, so the run is the same one. The arm name matters: it is the run's label.
 - **Only pest runs** can be filmed: `record_videos` takes runs of a `SwarmScenario`, which it steps like `measure_pest_response`.
 
@@ -419,7 +419,7 @@ The panel's measures are those of `measure_pest_response` (`MeasuredPestRun`), s
 
 ## Example: the obstacle benchmark
 
-[`studies/benchmark_obstacles.py`](../studies/benchmark_obstacles.py) is this page as a script: every configuration of `pest_response_configurations` on both ready fields, one table per field, the treated share and the paired difference to `seeded`.
+[`studies/benchmark_obstacles.py`](../studies/benchmark_obstacles.py) is this page as a script for the earlier relay benchmark: every configuration of its `pest_response_configurations`, the untuned and tuned variants of both methods, on `RELAYED_RIVER_SMALL` and `RELAYED_RIVERS_LARGE`, one table per field, the treated share and the paired difference to `seeded`.
 
 ```bash
 uv run python -m studies.benchmark_obstacles --seeds 12
