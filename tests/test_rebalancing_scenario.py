@@ -14,7 +14,9 @@ from swarm_field.contracts import (
 )
 from swarm_field.experiments import (
     EXPLORER,
+    HOP_KILLER,
     REBALANCING,
+    REBALANCING_HOP,
     SEEDED_KILLER,
     LiveRun,
     RebalancingPreset,
@@ -132,3 +134,37 @@ def test_a_switch_takes_the_scenarios_role_switch_time() -> None:
     assert roles.duration == 2 * TimeUnit.MINUTE
     assert roles.speeds[BodyType.SCOUT] == scenario.robots.speed_mps_drone
     assert roles.speeds[BodyType.KILLER] == scenario.robots.speed_mps_ground
+
+
+def test_a_hop_swarm_rebalances_into_robots_that_treat_by_beacon() -> None:
+    switching = rebalancing_configurations(REBALANCING_HOP)["rebalancing"]
+    brain = switching.brain(switching.swarm[-1].preset)
+
+    assert brain.beacons is not None
+    assert "treat-hop" in brain.behaviors
+    assert "treat-infestation" not in brain.behaviors
+    assert brain.params["body_gates"]["treat-hop"] == (BodyType.KILLER,)
+    assert brain.keeps_map
+
+
+def test_a_swarm_with_seeded_and_hop_killers_is_refused() -> None:
+    mixed = REBALANCING.add_robots(HOP_KILLER, 1)
+
+    with pytest.raises(ValueError):
+        rebalancing_configurations(mixed)
+
+
+def test_an_unknown_pest_response_is_refused() -> None:
+    with pytest.raises(ValueError):
+        RebalancingPreset(BodyType.SCOUT, response="teleport")
+
+
+def test_the_hop_rebalancing_swarm_also_lets_go_of_killers_a_clean_field_does_not_need() -> None:
+    until = 20 * TimeUnit.MINUTE
+    switching = LiveRun.from_config(build_named_experiment("rebalancing-hop", 0, until))
+    switching.advance_to(until)
+
+    robots = switching.context.world.robots.values()
+    killers = sum(1 for robot in robots if robot.body is BodyType.KILLER)
+    assert killers < REBALANCING_HOP.killers
+    assert sum(robot.role_switches for robot in robots) > 0

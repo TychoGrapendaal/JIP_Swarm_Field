@@ -45,6 +45,7 @@ from swarm_field.experiments.presets import (
     HOP_KILLER,
     REBALANCING_EXPLORER,
     REBALANCING_KILLER,
+    REBALANCING_RESPONSES,
     RELAY,
     REVISIT_SWEEPS,
     SEEDED_KILLER,
@@ -61,6 +62,7 @@ from swarm_field.experiments.presets import (
 )
 from swarm_field.experiments.rebalancing import (
     REBALANCING,
+    REBALANCING_HOP,
     monitors_needed,
     rebalancing_configurations,
 )
@@ -95,7 +97,9 @@ __all__ = [
     "PESTS",
     "REBALANCING",
     "REBALANCING_EXPLORER",
+    "REBALANCING_HOP",
     "REBALANCING_KILLER",
+    "REBALANCING_RESPONSES",
     "RELAY",
     "RELAYED_KILLERS",
     "REVISIT_SWEEPS",

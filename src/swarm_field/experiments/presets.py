@@ -12,7 +12,8 @@ A preset names a kind of robot, gives its body, and builds its brain. Four are r
   and shares no memory.
 
 ``RebalancingPreset`` is a robot that may switch between explorer and killer (#64): it carries
-both brains, each gated to its body, and ``RebalanceRoles`` decides when it switches.
+both brains, each gated to its body, and ``RebalanceRoles`` decides when it switches. As a killer
+it treats like a seeded killer, or with ``response="hop"`` like a hop killer.
 
 Each is an instance of its preset class with the default parameters, so a variant is the class
 with other ones, e.g. ``HopKillerPreset(beacons=...)``. ``CustomPreset`` takes any ``BrainSpec``.
@@ -320,11 +321,20 @@ class RebalancingPreset:
     """A robot that switches between explorer and killer as the swarm needs (#64).
 
     It carries the brains of both roles: the explore behaviour bids only while it is a scout, and
-    ``TreatInfestation`` only while it is a killer, so its role follows its body at once when it
+    its pest response only while it is a killer, so its role follows its body at once when it
     switches. ``RebalanceRoles`` bids ``SwitchRole`` when the split the robot counts is off; see
-    ``docs/research/rebalancing.md``. It returns to a dock when its battery runs low, shares
-    everything it knows, and claims pests like a seeded killer. It plans its routes on the
-    ground, since it may become a killer, which cannot cross an obstacle.
+    ``docs/research/rebalancing.md``. It returns to a dock when its battery runs low and shares
+    everything it knows. It plans its routes on the ground, since it may become a killer, which
+    cannot cross an obstacle.
+
+    As a killer it responds to pests as ``response`` says:
+
+    - ``"seeded"``: ``TreatInfestation`` on the TREAT field of its map, claiming pests like a
+      seeded killer;
+    - ``"hop"``: ``TreatByBeacon`` on the hop field, like a hop killer, so the swarm relays hop
+      beacons and the robot is the source of the pests it sees while it explores. Unlike a hop
+      killer it keeps its map, for exploring, for counting the pests it rebalances on, and for
+      the way to a dock.
 
     Attributes:
         body: The body it starts with: ``BodyType.SCOUT`` or ``BodyType.KILLER``.
@@ -332,6 +342,9 @@ class RebalancingPreset:
         explore: The parameters of its EXPLORE field.
         revisit_sweeps: Its revisit age in sweep times of its swarm, as for ``ExplorerPreset``,
             or ``None`` to keep the revisit age of ``explore``.
+        response: How it treats as a killer: ``"seeded"`` or ``"hop"``.
+        beacons: The hop beacons of ``response="hop"``, or ``None`` for ``hop-tuned`` of
+            ``hop_beacon_variants``; unused when seeded.
         name: The preset's name.
     """
 
@@ -339,22 +352,55 @@ class RebalancingPreset:
     rebalance: RebalanceConfig = field(default_factory=RebalanceConfig)
     explore: ExploreConfig = field(default_factory=ExploreConfig)
     revisit_sweeps: float | None = REVISIT_SWEEPS
+    response: str = "seeded"
+    beacons: BeaconConfig | None = None
     name: str = "rebalancing-explorer"
 
     def __post_init__(self) -> None:
-        """Check the starting body.
+        """Check the starting body and the response.
 
         Raises:
-            ValueError: If it starts as neither a scout nor a killer.
+            ValueError: If it starts as neither a scout nor a killer, or the response is unknown.
         """
         if self.body not in (BodyType.SCOUT, BodyType.KILLER):
             raise ValueError("a rebalancing robot starts as a scout or a killer")
+        if self.response not in REBALANCING_RESPONSES:
+            raise ValueError(f"unknown pest response: {self.response}")
 
     def needs(self, hop_cells: float) -> Relaying:
+        if self.response == "hop":
+            beacons = self.beacons
+            if beacons is None:
+                beacons = hop_beacon_variants(hop_cells)["hop-tuned"]
+            return Relaying(beacons=beacons)
         return Relaying(pest_facts=KnowledgeSharing.INFESTATIONS_AND_TARGETS)
 
     def brain(self, swarm: SwarmContext) -> BrainSpec:
+        """Its brain in ``swarm``.
+
+        Raises:
+            ValueError: If it responds by hop but the swarm relays no beacons, which
+                ``SwarmScenario`` never does.
+        """
         explore = ExplorerPreset(self.explore, self.revisit_sweeps).explore_config(swarm.sweep_time)
+        if self.response == "hop":
+            if swarm.relaying.beacons is None:
+                raise ValueError("a hop-responding robot needs a swarm that relays beacons")
+            return BrainSpec(
+                behaviors=(TreatByBeacon.name, "explore", ReturnToDock.name, RebalanceRoles.name),
+                seeders=(HopField.name, ExploreSeeder.name, DockSeeder.name),
+                params={
+                    "explore": explore,
+                    "rebalance": self.rebalance,
+                    "body_gates": {
+                        TreatByBeacon.name: (BodyType.KILLER,),
+                        "explore": (BodyType.SCOUT,),
+                    },
+                },
+                arbiter=swarm.arbiter,
+                beacons=swarm.relaying.beacons,
+                flies=False,
+            )
         return BrainSpec(
             behaviors=(TreatInfestation.name, "explore", ReturnToDock.name, RebalanceRoles.name),
             seeders=(TreatSeeder.name, ExploreSeeder.name, DockSeeder.name),
@@ -377,6 +423,8 @@ EXPLORER = ExplorerPreset()
 RELAY = RelayPreset()
 SEEDED_KILLER = SeededKillerPreset()
 HOP_KILLER = HopKillerPreset()
+REBALANCING_RESPONSES: tuple[str, ...] = ("seeded", "hop")
+"""How a ``RebalancingPreset`` treats as a killer: like a seeded killer or like a hop killer."""
 REBALANCING_EXPLORER = RebalancingPreset(BodyType.SCOUT, name="rebalancing-explorer")
 REBALANCING_KILLER = RebalancingPreset(BodyType.KILLER, name="rebalancing-killer")
 

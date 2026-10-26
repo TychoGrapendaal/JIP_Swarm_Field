@@ -1,6 +1,6 @@
 # Role rebalancing: when, and how many, robots switch between monitor and killer
 
-This covers #64: how the swarm decides, without a central controller, how many robots monitor the field (explorers, scout body) and how many treat pests (killers), and when a robot changes from one role to the other. The decision is `RebalanceRoles` in `swarm/rebalance.py`. The simulation side is the `SwitchRole` action in `contracts/actions.py`, which scouts and killers may emit (`swarm/capabilities.py`), and `WorldState._switch_role` in `simulation/world.py`. A robot that may switch is a `RebalancingPreset` (`experiments/presets.py`), and `experiments/rebalancing.py` builds the compared swarms. The results below come from `uv run python -m studies.rebalancing --seeds 8` and are reproducible from the seeds.
+This covers #64: how the swarm decides, without a central controller, how many robots monitor the field (explorers, scout body) and how many treat pests (killers), and when a robot changes from one role to the other. The decision is `RebalanceRoles` in `swarm/rebalance.py`. The simulation side is the `SwitchRole` action in `contracts/actions.py`, which scouts and killers may emit (`swarm/capabilities.py`), and `WorldState._switch_role` in `simulation/world.py`. A robot that may switch is a `RebalancingPreset` (`experiments/presets.py`), and `experiments/rebalancing.py` builds the compared swarms. The results below come from `uv run python -m studies.rebalancing --seeds 8`, for seeded and hop killers, and are reproducible from the seeds.
 
 ## What it has to solve
 
@@ -59,7 +59,9 @@ A `RebalancingPreset` carries the behaviours of both roles: `TreatInfestation`, 
 
 The world changes the robot's body and sets its speed from `RoleSwitchSpec.speeds`, which `SwarmScenario` fills from `RobotConfig`; sensing and battery drain follow the new body's capabilities. The renderer colours robots by body, so a switch is visible in the viewer.
 
-**What a switch stands for.** On main a scout is a flying drone and a killer a ground robot, so no real robot turns one into the other. A switch stands for a robot whose role is a module: a sensor head or a sprayer. Three choices follow from that. A rebalancing robot plans its routes on the ground whatever its body (`BrainSpec.flies = False`), so a robot that becomes a killer is never planned across the river. Only scouts and killers switch; a battery robot cannot. And with `switch_at_dock` a robot switches only on a dock, where a module swap would happen; that is off in the results below, so they show the best case of switching anywhere.
+**What a switch stands for.** On main a scout is a flying drone and a killer a ground robot, so no real robot turns one into the other. A switch stands for a robot whose role is a module: a sensor head or a sprayer.
+
+**Seeded or hop.** As a killer a `RebalancingPreset` treats like a seeded killer (`TreatInfestation` on the TREAT field of its map) or, with `response="hop"`, like a hop killer (`TreatByBeacon` on the hop field). `rebalancing_configurations` picks the response from the scenario's killers: a swarm of hop killers rebalances into robots that treat by the hop beacons the swarm relays. Unlike main's hop killer, a hop-responding robot keeps its map, which it needs for exploring, for the pests it counts and for the way to a dock; it still finds pests only by beacons. Three choices follow from that. A rebalancing robot plans its routes on the ground whatever its body (`BrainSpec.flies = False`), so a robot that becomes a killer is never planned across the river. Only scouts and killers switch; a battery robot cannot. And with `switch_at_dock` a robot switches only on a dock, where a module swap would happen; that is off in the results below, so they show the best case of switching anywhere.
 
 ## Parameters
 
@@ -87,6 +89,24 @@ Like the arbiter's margins, these are first guesses.
 | Rebalancing | 4.82 ± 0.32 | −1.70 ± 0.67 | 52.3 ± 3.0 | 14.4 ± 0.4 | 5.1 ± 1.0 | 6.8 ± 0.1 | 2.6 (1 to 6) | 27.3 ± 1.4 |
 
 The rebalancing swarm keeps about a quarter fewer cells infested, answers a pest five minutes sooner and keeps the field fresher, with fewer than half the killers on average. It was better on 7 of the 8 seeds and 0.11 cells worse on the eighth (seed 0), and gained most where fixed roles did worst (seed 2: 8.1 to 4.4, seed 5: 9.3 to 4.6). Two things can carry the gain: the killers it does not need explore instead, and a robot that becomes a killer is the explorer nearest a known pest, which got there flying at four times a killer's speed. The second depends on switching anywhere; with `switch_at_dock` it would be lost, which is not measured yet.
+
+### With hop killers
+
+`REBALANCING_HOP` is the same scenario with six hop killers (`hop-tuned`). Same seeds, same measures:
+
+| Arm | Infested cells | Δ infested | Treated | Response (min) | Open at the end | Killers | Role switches |
+|---|---|---|---|---|---|---|---|
+| Fixed roles | 15.41 ± 1.81 | – | 39.5 ± 2.3 | 34.5 ± 1.8 | 17.4 ± 2.3 | 6 | 0 |
+| Rebalancing | 26.92 ± 2.28 | +11.51 ± 0.92 | 19.4 ± 1.7 | 35.8 ± 3.3 | 37.0 ± 3.4 | 5.3 (1 to 7) | 12.3 ± 1.2 |
+
+With hop killers rebalancing makes things worse, on all 8 seeds: it treats half as many pests. What was ruled out (4 seeds each, 3 h):
+
+- **The robot's brain.** Hop-responding robots that never switch, next to main's explorers, keep 15.6 cells infested against 13.8 for main's hop killers on the same seeds, and our ground-planning explorers next to main's hop killers keep 14.9. Each part works; the loss comes with switching.
+- **Turning a pest's beacon source into a killer.** The explorer nearest a pest is its hop source, and a killer's beacon repels. Leaving explorers within 2 or 4 cells of a known pest out of the ranking changed nothing (27.6 and 25.8 infested).
+- **The demand being tuned for seeded killers.** A hop killer takes 35 min per pest against 14 to 19 for a seeded one, so at 20 pests an hour even six hop killers are overloaded. Keeping more killers (`pests_per_killer = 1`, `min_killers = 2`) still left 24.9 infested, and at 8 pests an hour, where six fixed hop killers keep up (5.5 infested), rebalancing still lost (6.8).
+- **Killers that switched in.** In seed 1 they treat about as often per hour as killers they replaced (1.8 against 1.4 treatments per killer-hour); both are below the 2.2 per killer-hour of the fixed hop killers over the 8 seeds.
+
+So the swarm has fewer killer-hours and every killer treats less often while robots switch. A likely cause, not yet measured, is that hop killers have no claims: the explorers nearest the same pests become killers together and crowd one pest, which seeded killers avoid by claiming. Until that is understood, keep fixed roles with hop killers.
 
 **Doses.** At main's default of ten doses per killer the fixed killers run dry within the run (all six, on each of seeds 0 to 3), while a robot that becomes a killer brings a full supply, so rebalancing then looks far better (5.0 against 12.2 infested cells over seeds 0 to 3) for a reason that has nothing to do with the split. `REBALANCING` gives killers a hundred doses so that doses do not decide the comparison. How a switched robot's doses should work (a refilled module from the dock, or the supply it had) is open.
 
@@ -116,7 +136,7 @@ What it does well is reuse the scores robots already compute, which on main reac
 - **It only counts the pests it knows of.** Robots that have heard of only a few of the pests keep too few killers, and a robot can count a pest a peer has already treated until it hears otherwise. The estimate is only as good as the swarm's shared map.
 - **It does not weigh where pests are.** A cluster of pests far from every killer needs more killers than the same number next to one; `pests_per_killer` is a flat rate.
 - **The ranking ignores the battery.** A robot about to recharge may still be the one chosen to switch.
-- **Only seeded killers.** A `RebalancingPreset` treats like a seeded killer; switching into a hop killer, which keeps no map, is not built.
+- **It does not help hop killers yet.** See the results above.
 - **It does not interact with crowding yet.** Two new killers can head for the same pest; that is the crowding problem of #42 and the TREAT seeder's peer discount, not of rebalancing.
 
 ## Using it
@@ -124,7 +144,9 @@ What it does well is reuse the scores robots already compute, which on main reac
 ```bash
 uv run python examples/scenario_viewer.py --scenario rebalancing
 uv run python examples/scenario_viewer.py --scenario rebalancing-fixed
+uv run python examples/scenario_viewer.py --scenario rebalancing-hop
 uv run python -m studies.rebalancing --seeds 8
+uv run python -m studies.rebalancing --seeds 8 --response hop
 ```
 
 The viewer colours robots by body, so every switch shows. In code, `rebalancing_configurations(scenario)` turns any scenario of explorers and seeded killers into the two arms, and `rebalancing_configurations(scenario, RebalanceConfig(switch_at_dock=True))` switches only at docks. A swarm can also mix fixed and switching robots, e.g. `SwarmScenario().add_robots(EXPLORER, 4).add_robots(REBALANCING_EXPLORER, 4).add_robots(SEEDED_KILLER, 2)`.

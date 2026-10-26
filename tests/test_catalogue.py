@@ -25,6 +25,8 @@ def test_the_catalogue_names_the_presets_and_the_hand_built_scenarios() -> None:
         "pests-large",
         "rebalancing",
         "rebalancing-fixed",
+        "rebalancing-hop",
+        "rebalancing-hop-fixed",
     )
 
 
