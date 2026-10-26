@@ -41,6 +41,7 @@ from swarm_field.swarm import (
     HopField,
     KnowledgeSharing,
     Resupply,
+    ResupplyConfig,
     ReturnToDock,
     SharingConfig,
     TreatByBeacon,
@@ -256,8 +257,10 @@ class HopKillerPreset:
     """A hop killer: ``TreatByBeacon`` on the hop field, with no map and no shared memory.
 
     When its swarm relays DOCK beacons (``BeaconConfig.dock``), it returns to a dock down them
-    (``HopDockField``) when its battery runs low (``ReturnToDock``) or its doses do
-    (``Resupply``), still without a map.
+    (``HopDockField``) when its battery runs low (``ReturnToDock``) or its tank is empty
+    (``Resupply``), still without a map. It restocks only an empty tank: its treat bid is the
+    strength of a beacon, often below 0.5, so a restock bid above it would send a killer with
+    doses left to the dock and keep it from the pests it hears of.
 
     Attributes:
         beacons: How it and every robot of its swarm keep, relay and weigh beacons, or ``None``
@@ -291,12 +294,15 @@ class HopKillerPreset:
             raise ValueError("a hop killer needs a swarm that relays beacons")
         behaviors = [TreatByBeacon.name]
         seeders = [HopField.name]
+        params: dict[str, object] = {}
         if beacons.dock is not None:
             behaviors.extend([ReturnToDock.name, Resupply.name])
             seeders.append(HopDockField.name)
+            params["resupply"] = ResupplyConfig(low_doses=0)
         return BrainSpec(
             behaviors=tuple(behaviors),
             seeders=tuple(seeders),
+            params=params,
             arbiter=swarm.arbiter,
             sharing=SharingConfig(facts=KnowledgeSharing.NOTHING),
             beacons=beacons,

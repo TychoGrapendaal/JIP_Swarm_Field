@@ -5,7 +5,7 @@ from dataclasses import replace
 
 import pytest
 
-from swarm_field.contracts import BodyType, CellId, MessageKind, TimeUnit
+from swarm_field.contracts import BodyType, CellId, MessageKind, RobotSelfState, TimeUnit
 from swarm_field.experiments import (
     EXPLORER,
     HOP_BEST,
@@ -23,7 +23,14 @@ from swarm_field.experiments import (
     pest_response_configurations,
 )
 from swarm_field.runner import BrainSpec
-from swarm_field.swarm import BeaconConfig, ExploreConfig, KnowledgeSharing
+from swarm_field.swarm import (
+    AgentMemory,
+    BeaconConfig,
+    DecisionContext,
+    ExploreConfig,
+    KnowledgeSharing,
+    Resupply,
+)
 
 _OPEN = SwarmScenario(map=MapConfig(size=16, obstacles=()), until=TimeUnit.MINUTE)
 
@@ -108,6 +115,29 @@ def test_only_a_swarm_that_relays_dock_beacons_gets_the_docks_radio() -> None:
     assert spec is not None and spec.radio_range_m == hop.robots.radio_range_m
     assert no_docks.into_experiment().scenario.dock_beacons is None
     assert "dock-hop" in hop.brain(HOP_KILLER).seeders
+
+
+def test_a_hop_killer_restocks_only_an_empty_tank() -> None:
+    hop = _OPEN.add_robots(EXPLORER, 2).add_robots(HOP_KILLER, 1)
+    resupply = Resupply(docks=((0, 0),), config=hop.brain(HOP_KILLER).params["resupply"])
+    memory = AgentMemory(1, hop.map.field_geometry(), keeps_map=False)
+
+    def bids(doses_left: int) -> int:
+        killer = RobotSelfState(
+            robot_id=1,
+            position=(5, 5),
+            battery=1.0,
+            body=BodyType.KILLER,
+            speed_mps=0.5,
+            consumable=doses_left / 10,
+            health=1.0,
+            doses_left=doses_left,
+        )
+        ctx = DecisionContext(time=0, self_state=killer, sensed=[], memory=memory)
+        return len(resupply.propose(ctx))
+
+    assert bids(1) == 0
+    assert bids(0) == 1
 
 
 def test_the_best_hop_killer_keeps_its_tuned_times_and_scales_its_hops_with_the_radio() -> None:

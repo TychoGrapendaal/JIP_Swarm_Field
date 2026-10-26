@@ -650,21 +650,23 @@ def test_resupply_bids_with_two_doses_of_ten_left_and_not_with_three() -> None:
     assert len(bids(2)) == 1
 
 
-def test_resupply_bids_more_as_the_consumable_runs_out_and_restocks_on_a_dock() -> None:
+def test_resupply_bids_more_as_the_doses_run_out_and_restocks_on_a_dock() -> None:
     behavior = Resupply(docks=((9, 9),))
     memory = AgentMemory(1, _FIELD)
     killer = _perception(body=BodyType.KILLER).self_state
 
-    def bids(consumable: float, position: CellId = (0, 0)) -> list[ActionCandidate]:
-        self_state = replace(killer, consumable=consumable, position=position)
+    def bids(doses_left: int, position: CellId = (0, 0)) -> list[ActionCandidate]:
+        self_state = replace(
+            killer, consumable=doses_left / 10, doses_left=doses_left, position=position
+        )
         ctx = DecisionContext(time=0, self_state=self_state, sensed=[], memory=memory)
         return list(behavior.propose(ctx))
 
-    (half_low,) = bids(0.1)
-    (empty,) = bids(0.0)
-    (on_dock,) = bids(0.1, position=(9, 9))
+    (one_left,) = bids(1)
+    (empty,) = bids(0)
+    (on_dock,) = bids(1, position=(9, 9))
 
-    assert bids(0.5) == []
-    assert half_low.score < 0.8 < 0.9 < empty.score
+    assert bids(5) == []
+    assert one_left.score < 0.8 < 0.9 < empty.score
     assert isinstance(empty.action, FollowField)
     assert isinstance(on_dock.action, Charge)

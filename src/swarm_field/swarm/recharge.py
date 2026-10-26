@@ -36,27 +36,30 @@ class RechargeConfig:
 
 @dataclass(frozen=True)
 class ResupplyConfig:
-    """When a killer returns to a dock to restock its treatment consumable, and how eagerly.
+    """When a killer returns to a dock to restock its doses, and how eagerly.
+
+    The threshold is a number of doses, not a share of the tank, so that it means the same with
+    any tank size: a share of 0.2 would be 200 doses of a tank of 1000.
 
     Attributes:
-        low_consumable: At or below this share of a full consumable the killer bids to restock.
-            0.2 is two doses of the default ten, so a killer restocks before it runs dry.
-        low_priority: The bid at ``low_consumable``: below a treat bid (0.8 to 0.89), so a killer
-            with doses left treats the pests it knows of before it restocks.
-        empty_priority: The bid with nothing left: above the arbiter's override threshold (0.9),
+        low_doses: At or below this many doses left the killer bids to restock. 2, the default,
+            lets a seeded killer restock before it runs dry; 0 restocks only an empty tank.
+        low_priority: The bid at ``low_doses``: below a seeded treat bid (0.8 to 0.89), so a
+            seeded killer with doses left treats the pests it knows of before it restocks.
+        empty_priority: The bid with no dose left: above the arbiter's override threshold (0.9),
             since an empty killer can do nothing else of use.
         dock_priority: The bid to restock on a dock, which the dock serves at once.
     """
 
-    low_consumable: float = 0.2
+    low_doses: int = 2
     low_priority: float = 0.6
     empty_priority: float = 0.95
     dock_priority: float = 1.0
 
     def __post_init__(self) -> None:
         """Validate the threshold and the bids against the shared [0, 1] scale."""
-        if not 0.0 < self.low_consumable < 1.0:
-            raise ValueError("low_consumable must be between 0 and 1")
+        if self.low_doses < 0:
+            raise ValueError("low_doses must not be negative")
         if not 0.0 <= self.low_priority <= self.empty_priority <= 1.0:
             raise ValueError("bids must satisfy 0 <= low_priority <= empty_priority <= 1")
         if not 0.0 <= self.dock_priority <= 1.0:
