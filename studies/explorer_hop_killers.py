@@ -57,7 +57,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--explorers", type=int, default=20)
     parser.add_argument("--killers", type=int, default=4)
     parser.add_argument(
-        "--pests-per-hour", type=float, help="pest rate; RIVER_SMALL's load per killer if not given"
+        "--pests-per-hour",
+        type=float,
+        help="pest rate; PESTS_PER_KILLER_HOUR per killer if not given",
     )
     parser.add_argument(
         "--radio", type=float, default=RIVER_SMALL.robots.radio_range_m, help="radio range in m"

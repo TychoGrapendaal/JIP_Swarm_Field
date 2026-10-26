@@ -524,9 +524,9 @@ UNLIMITED_DOSES = 1000
 """Doses every killer carries in ``moving_explorer_scenario``: enough that no killer runs out
 during a run."""
 
-PESTS_PER_KILLER_HOUR = RIVER_SMALL.pests.pests_per_hour / RIVER_SMALL.killers
-"""The load of ``RIVER_SMALL`` on each killer: multiplied by the killers, the pest rate of a
-``moving_explorer_scenario`` that loads its killers as ``RIVER_SMALL`` does."""
+PESTS_PER_KILLER_HOUR = 3.0
+"""The pests per killer and hour of the comparison experiments, a load found by experiment:
+multiplied by the killers, the pest rate of a ``moving_explorer_scenario``."""
 
 
 def moving_explorer_scenario(
