@@ -52,6 +52,7 @@ from swarm_field.swarm.provider import FieldProvider
 from swarm_field.swarm.recharge import RechargeConfig, ResupplyConfig
 from swarm_field.swarm.resupply import Resupply
 from swarm_field.swarm.seeder import (
+    CLAIM_FRESH_FOR,
     BatteryRequestSeeder,
     DockSeeder,
     FieldSeeder,
@@ -76,6 +77,7 @@ from swarm_field.swarm.steering import (
 
 __all__ = [
     "BODY_CAPABILITIES",
+    "CLAIM_FRESH_FOR",
     "ActionCandidate",
     "AgentMemory",
     "Arbiter",

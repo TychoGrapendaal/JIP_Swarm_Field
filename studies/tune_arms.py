@@ -106,9 +106,9 @@ def variants() -> list[Variant]:
         "escape=off": replace(base, escape=None),
     }
     seeded_changes: dict[str, SeededKillerPreset] = {
-        "claim_age=1m": replace(SEEDED_KILLER, claim_age=MINUTE),
-        "claim_age=5m": replace(SEEDED_KILLER, claim_age=5 * MINUTE),
-        "claim_age=10m": replace(SEEDED_KILLER, claim_age=10 * MINUTE),
+        "claim_fresh_for=1m": replace(SEEDED_KILLER, claim_fresh_for=MINUTE),
+        "claim_fresh_for=5m": replace(SEEDED_KILLER, claim_fresh_for=5 * MINUTE),
+        "claim_fresh_for=10m": replace(SEEDED_KILLER, claim_fresh_for=10 * MINUTE),
         "window_blocks=1": replace(SEEDED_KILLER, window_blocks=1),
         "window_blocks=4": replace(SEEDED_KILLER, window_blocks=4),
         "claims=off": replace(SEEDED_KILLER, claims=False),
@@ -153,8 +153,8 @@ def combine_variants() -> list[Variant]:
             )
         )
     for minutes in (5, 10):
-        killer = replace(SEEDED_KILLER, claim_age=minutes * MINUTE)
-        found.append(Variant(f"seeded/claim_age={minutes}m", "seeded", killer))
+        killer = replace(SEEDED_KILLER, claim_fresh_for=minutes * MINUTE)
+        found.append(Variant(f"seeded/claim_fresh_for={minutes}m", "seeded", killer))
     return found
 
 
@@ -170,10 +170,10 @@ def refine_variants() -> list[Variant]:
                 f"hop/fresh_for={minutes}m", "hop/fresh_for=2m", HopKillerPreset(beacons=beacons)
             )
         )
-    seeded = replace(SEEDED_KILLER, claim_age=10 * MINUTE)
-    found.append(Variant("seeded/claim_age=10m", None, seeded))
-    longer = replace(SEEDED_KILLER, claim_age=20 * MINUTE)
-    found.append(Variant("seeded/claim_age=20m", "seeded/claim_age=10m", longer))
+    seeded = replace(SEEDED_KILLER, claim_fresh_for=10 * MINUTE)
+    found.append(Variant("seeded/claim_fresh_for=10m", None, seeded))
+    longer = replace(SEEDED_KILLER, claim_fresh_for=20 * MINUTE)
+    found.append(Variant("seeded/claim_fresh_for=20m", "seeded/claim_fresh_for=10m", longer))
     return found
 
 

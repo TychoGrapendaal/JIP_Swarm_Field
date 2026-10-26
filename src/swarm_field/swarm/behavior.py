@@ -25,7 +25,7 @@ from swarm_field.swarm.explore import ExploreConfig, ExploreSeeder, revisit_wort
 from swarm_field.swarm.memory import MemoryView
 from swarm_field.swarm.recharge import RechargeConfig
 from swarm_field.swarm.seeder import (
-    CLAIM_MAX_AGE,
+    CLAIM_FRESH_FOR,
     BatteryRequestSeeder,
     RegroupSeeder,
     TreatSeeder,
@@ -155,7 +155,7 @@ class TreatInfestation:
 
     With ``yield_to_treating_peer`` the killer claims pests: it may go only for the pests left to
     it (``pests_left_to_robot``), and standing on a pest that a peer with a lower id reports,
-    within ``claim_fresh_for``, to be treating on that same cell, it proposes nothing until the
+    within ``treating_fresh_for``, to be treating on that same cell, it proposes nothing until the
     pest is cleared, so two killers do not spend two doses on one pest. Without it, every known
     pest counts.
 
@@ -164,8 +164,8 @@ class TreatInfestation:
 
     Attributes:
         yield_to_treating_peer: Whether the killer claims pests and leaves them to its peers.
-        claim_fresh_for: How old a peer's report of treating a cell may be to count.
-        claim_max_age: How old a peer's report of heading for a pest may be to keep the pest
+        treating_fresh_for: How old a peer's report of treating a cell may be to count.
+        claim_fresh_for: How old a peer's report of heading for a pest may be to keep the pest
             claimed, as for the TREAT field (``TreatSeeder.claim_fresh_for``).
     """
 
@@ -175,13 +175,13 @@ class TreatInfestation:
         self,
         seeder: str = TreatSeeder.name,
         yield_to_treating_peer: bool = False,
-        claim_fresh_for: Time = 30 * TimeUnit.SECOND,
-        claim_max_age: Time = CLAIM_MAX_AGE,
+        treating_fresh_for: Time = 30 * TimeUnit.SECOND,
+        claim_fresh_for: Time = CLAIM_FRESH_FOR,
     ) -> None:
         self._seeder: str = seeder
         self.yield_to_treating_peer: bool = yield_to_treating_peer
+        self.treating_fresh_for: Time = treating_fresh_for
         self.claim_fresh_for: Time = claim_fresh_for
-        self.claim_max_age: Time = claim_max_age
 
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
         # An empty killer cannot treat, and a bid would claim a pest it can never clear.
@@ -200,7 +200,7 @@ class TreatInfestation:
         # to explore.
         pests = infested(ctx.memory)
         if self.yield_to_treating_peer:
-            pests = pests_left_to_robot(ctx.memory, position, ctx.time, self.claim_max_age)
+            pests = pests_left_to_robot(ctx.memory, position, ctx.time, self.claim_fresh_for)
         worst = 0.0
         for pest in pests:
             worst = max(worst, pest.severity * ctx.memory.confidence(pest, ctx.time))
@@ -214,7 +214,7 @@ class TreatInfestation:
         for peer in ctx.memory.peers():
             if peer.peer is None or peer.peer >= ctx.self_state.robot_id:
                 continue
-            if ctx.time - peer.observed_at > self.claim_fresh_for:
+            if ctx.time - peer.observed_at > self.treating_fresh_for:
                 continue
             if peer.cell == cell and peer.target == cell and peer.objective is _TREAT:
                 return True

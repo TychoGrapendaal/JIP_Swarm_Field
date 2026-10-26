@@ -202,7 +202,15 @@ def test_mock_pest_sources_send_only_what_the_killers_read() -> None:
 def test_the_pest_responses_keep_the_number_of_killers() -> None:
     configurations = pest_response_configurations(RELAYED_KILLERS, seeded_no_yield=True)
 
-    expected = ["seeded", "seeded-no-yield", "hop", "hop-repel", "hop-tuned", "hop-best"]
+    expected = [
+        "seeded",
+        "seeded-best",
+        "seeded-no-yield",
+        "hop",
+        "hop-repel",
+        "hop-tuned",
+        "hop-best",
+    ]
     assert list(configurations) == expected
     for configured in configurations.values():
         assert configured.killers == RELAYED_KILLERS.killers

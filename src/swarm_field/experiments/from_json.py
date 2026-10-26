@@ -57,8 +57,10 @@ from swarm_field.experiments.pest_response import (
 )
 from swarm_field.experiments.presets import (
     EXPLORER,
+    HOP_BEST,
     HOP_KILLER,
     RELAY,
+    SEEDED_BEST,
     SEEDED_KILLER,
     ExplorerPreset,
     RobotPreset,
@@ -90,7 +92,8 @@ SCENARIOS: dict[str, SwarmScenario] = {
 """The scenarios a file can name, by name."""
 
 PRESETS: dict[str, RobotPreset] = {
-    preset.name: preset for preset in (EXPLORER, RELAY, SEEDED_KILLER, HOP_KILLER)
+    preset.name: preset
+    for preset in (EXPLORER, RELAY, SEEDED_KILLER, HOP_KILLER, SEEDED_BEST, HOP_BEST)
 }
 """The presets ``swarm`` can add to a scenario that has none of them yet, by name."""
 

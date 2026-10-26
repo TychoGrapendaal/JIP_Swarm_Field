@@ -52,6 +52,7 @@ from swarm_field.experiments.maps import (
 from swarm_field.experiments.presets import (
     EXPLORER,
     RELAY,
+    SEEDED_BEST,
     SEEDED_KILLER,
     ExplorerPreset,
     HopKillerPreset,
@@ -519,8 +520,10 @@ def pest_response_configurations(
     """The pest responses compared on ``scenario``, by name, each with its killers.
 
     Each is ``scenario`` with its killers, as many as it has of every preset, replaced by
-    killers of one response, added after its other robots: ``seeded`` with claims, and the hop
-    configurations of ``hop_beacon_variants`` (``hop``, ``hop-repel`` and ``hop-tuned``).
+    killers of one response, added after its other robots: ``seeded`` with claims,
+    ``seeded-best`` (``SEEDED_BEST``), and the hop configurations of ``hop_beacon_variants``
+    (``hop``, ``hop-repel``, ``hop-tuned`` and ``hop-best``, the beacons of ``HOP_BEST``), so a
+    tuned arm of one method is never compared with only an untuned one of the other.
 
     Args:
         scenario: The scenario every configuration is a variant of.
@@ -529,7 +532,10 @@ def pest_response_configurations(
     """
     killers = scenario.killers
     others = scenario.without_robots(BodyType.KILLER)
-    configurations = {"seeded": others.add_robots(SEEDED_KILLER, killers)}
+    configurations = {
+        "seeded": others.add_robots(SEEDED_KILLER, killers),
+        "seeded-best": others.add_robots(SEEDED_BEST, killers),
+    }
     if seeded_no_yield:
         no_claims = SeededKillerPreset(claims=False)
         configurations["seeded-no-yield"] = others.add_robots(no_claims, killers)

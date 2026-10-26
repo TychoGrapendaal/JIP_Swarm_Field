@@ -1,4 +1,4 @@
-"""Benchmark pest response on fields with obstacles: four configurations, two scenarios (#70).
+"""Benchmark pest response on fields with obstacles: every compared configuration, two scenarios.
 
 Every configuration of ``pest_response_configurations`` runs on ``RIVER_SMALL`` and on
 ``RIVERS_LARGE``, with the same seeds. A run is measured with ``measure_pest_response``, whose

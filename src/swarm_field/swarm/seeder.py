@@ -75,7 +75,7 @@ class SeededField:
     field: GridPotentialField
 
 
-CLAIM_MAX_AGE: Time = 2 * TimeUnit.MINUTE
+CLAIM_FRESH_FOR: Time = 2 * TimeUnit.MINUTE
 """How long a peer's report that it is heading for a pest keeps the pest claimed.
 
 A killer reports its target with every status message, so a recent report means it is still on
@@ -114,7 +114,7 @@ class TreatSeeder:
         cutoff_sigmas: float = 3.0,
         window_blocks: int = 2,
         yield_to_closer: bool = False,
-        claim_fresh_for: Time = CLAIM_MAX_AGE,
+        claim_fresh_for: Time = CLAIM_FRESH_FOR,
     ) -> None:
         if value_amplifier < 0.0:
             raise ValueError("value_amplifier must be non-negative")
@@ -308,7 +308,7 @@ class DockSeeder:
 
 
 def pests_left_to_robot(
-    memory: MemoryView, robot: CellId, now: Time, claim_fresh_for: Time = CLAIM_MAX_AGE
+    memory: MemoryView, robot: CellId, now: Time, claim_fresh_for: Time = CLAIM_FRESH_FOR
 ) -> list[InfestationObservation]:
     """The known pests that no closer killer is heading for, to treat them.
 

@@ -30,6 +30,7 @@ from typing import Protocol
 from swarm_field.contracts import BodyType, Time, TimeUnit
 from swarm_field.runner import BrainSpec
 from swarm_field.swarm import (
+    CLAIM_FRESH_FOR,
     ArbiterConfig,
     BeaconConfig,
     DockBeacons,
@@ -48,7 +49,6 @@ from swarm_field.swarm import (
     TreatInfestation,
     TreatSeeder,
 )
-from swarm_field.swarm.seeder import CLAIM_MAX_AGE
 
 REVISIT_SWEEPS = 0.5
 """An explorer's revisit age in sweep times of its swarm. From 0.25 to 0.8 the mean idleness
@@ -215,13 +215,13 @@ class SeededKillerPreset:
         claims: Whether it claims pests.
         window_blocks: How many blocks of the quadtree around its own its TREAT field is searched
             cell by cell; beyond them, leaf by leaf.
-        claim_age: How old a peer's claim on a pest may be and still count.
+        claim_fresh_for: How old a peer's claim on a pest may be and still count.
         name: The preset's name.
     """
 
     claims: bool = True
     window_blocks: int = 2
-    claim_age: Time = CLAIM_MAX_AGE
+    claim_fresh_for: Time = CLAIM_FRESH_FOR
     name: str = "seeded-killer"
 
     @property
@@ -238,7 +238,7 @@ class SeededKillerPreset:
             params={
                 "treat_window_blocks": self.window_blocks,
                 "treat_yield": self.claims,
-                "treat_claim_age": self.claim_age,
+                "treat_claim_fresh_for": self.claim_fresh_for,
             },
             arbiter=swarm.arbiter,
             sharing=SharingConfig(facts=self._pest_facts()),
@@ -340,7 +340,7 @@ EXPLORER = ExplorerPreset()
 RELAY = RelayPreset()
 SEEDED_KILLER = SeededKillerPreset()
 HOP_KILLER = HopKillerPreset()
-SEEDED_BEST = SeededKillerPreset(claim_age=10 * TimeUnit.MINUTE, name="seeded-best")
+SEEDED_BEST = SeededKillerPreset(claim_fresh_for=10 * TimeUnit.MINUTE, name="seeded-best")
 """The seeded killer tuned on the small and the large river field with moving explorers
 (``studies/tune_arms.py``): a claim counts for 10 minutes instead of 2, since claims relayed
 through moving explorers arrive late."""

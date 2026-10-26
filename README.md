@@ -47,13 +47,13 @@ uv run ruff check . && uv run ruff format --check . && uv run pyrefly check && u
 
 ## Studies
 
-`examples/` shows what the simulation and its tools can do; [`studies/`](studies/README.md) holds the experiments behind the report, one script per research question. A study runs fixed configurations with fixed seeds through `swarm_field.experiments.Experiment` (a tutorial is [`docs/experiments.md`](docs/experiments.md)), which runs them in parallel and writes their results and tables to a new folder `output/<date>_<time>_<name>/`, which git ignores:
+`examples/` shows what the simulation and its tools can do; [`studies/`](studies/README.md) holds the experiments behind the report, one script per research question. A study runs fixed configurations with fixed seeds through `swarm_field.experiments.Experiment` (a tutorial is [`docs/experiments.md`](docs/experiments.md)), which runs them in parallel and writes their results and tables to a new folder `output/<date>_<time>_<name>_<NNNN>/`, with four random digits at the end, which git ignores:
 
 ```bash
 uv run python -m studies.radio_range --ranges 50 150 300 --seeds 3 --hours 1
 ```
 
-Compare the four pest responses on the two fields with obstacles:
+Compare the pest responses on the two fields with obstacles:
 
 ```bash
 uv run python -m studies.benchmark_obstacles --seeds 12
@@ -106,7 +106,7 @@ uv run python -m swarm_field.experiments.from_json configs/radio_range.json
 
 - `scenario` is a ready scenario: `pests`, `explore`, `river-small`, `rivers-large` or `relayed-killers`. Every run starts from it.
 - `parameters` changes it for every run, and each entry of `conditions` (optional) changes it further for one condition. Every condition runs with every seed.
-- Parameters come in groups: `map`, `pests`, `robots` and `metrics` take the fields of `MapConfig`, `PestConfig`, `RobotConfig` and `MetricsConfig` (see [`docs/experiments.md`](docs/experiments.md)), with their names and units, so times are in milliseconds. `explore` takes the explorers' `ExploreConfig` fields, and `swarm` the number of robots of each preset by name (`explorer`, `relay`, `seeded-killer`, `hop-killer`); a count of 0 leaves a preset out, which is how a condition switches the killers' navigation, as in `seeded_vs_hop.json`. Hop killers cannot find a dock yet, so give them a large `robots.battery_capacity` and `pests.treatment_doses` for a fair comparison. List them all with their values with `uv run python -m swarm_field.experiments.from_json --list pests`. An unknown name is an error rather than silently ignored.
+- Parameters come in groups: `map`, `pests`, `robots` and `metrics` take the fields of `MapConfig`, `PestConfig`, `RobotConfig` and `MetricsConfig` (see [`docs/experiments.md`](docs/experiments.md)), with their names and units, so times are in milliseconds. `explore` takes the explorers' `ExploreConfig` fields, and `swarm` the number of robots of each preset by name (`explorer`, `relay`, `seeded-killer`, `hop-killer`, and the tuned `seeded-best` and `hop-best`, which a comparison of the two methods should use); a count of 0 leaves a preset out, which is how a condition switches the killers' navigation, as in `seeded_vs_hop.json`. Hop killers find a dock down the DOCK beacons the docks broadcast; a large `robots.battery_capacity` and `pests.treatment_doses` still keep a run about the pest response alone. List them all with their values with `uv run python -m swarm_field.experiments.from_json --list pests`. An unknown name is an error rather than silently ignored.
 - `hours` sets every run's length in whole hours, `warmup_hours` how much of it is left out of the infested cells (0 by default), and `jobs` how many runs go at once (one per CPU by default).
 
 Every run is measured with `measure_pest_response`. The run prints one row per condition, and writes every run's result, the table and a copy of the JSON file to a new folder in `output/`.

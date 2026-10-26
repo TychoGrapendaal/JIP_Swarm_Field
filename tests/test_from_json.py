@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from swarm_field.contracts import TimeUnit
-from swarm_field.experiments import EXPLORER, PESTS, SEEDED_KILLER
+from swarm_field.experiments import EXPLORER, HOP_BEST, PESTS, SEEDED_BEST, SEEDED_KILLER
 from swarm_field.experiments.from_json import ExperimentFile, run_file
 
 _CONFIGS = sorted(Path(__file__).parent.parent.joinpath("configs").glob("*.json"))
@@ -35,6 +35,26 @@ def test_every_condition_changes_the_shared_parameters_group_by_group() -> None:
         assert spec.scenario.robots.speed_mps_drone == 4.0
     assert specs["short"].scenario.robots.radio_range_m == 50
     assert specs["long"].scenario.robots.radio_range_m == 300
+
+
+def test_a_file_can_compare_the_frozen_presets() -> None:
+    experiment = ExperimentFile.from_dict(
+        {
+            "name": "best",
+            "scenario": "pests",
+            "parameters": {"swarm": {"seeded-killer": 0}},
+            "conditions": {
+                "seeded": {"swarm": {"seeded-best": 3}},
+                "hop": {"swarm": {"hop-best": 3}},
+            },
+        }
+    )
+
+    specs = experiment.into_specs()
+
+    assert specs["seeded"].scenario.count(SEEDED_BEST.name) == 3
+    assert specs["hop"].scenario.count(HOP_BEST.name) == 3
+    assert specs["hop"].scenario.killers == 3
 
 
 def test_cells_given_as_json_lists_become_the_scenarios_cells() -> None:

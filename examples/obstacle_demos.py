@@ -1,7 +1,7 @@
 """Demo videos of the obstacle comparison (#70): record a run once, render it as often as wanted.
 
-Each of the four pest responses of ``pest_response_configurations`` runs on ``RIVER_SMALL`` or
-``RIVERS_LARGE``; ``--config seeded-no-yield`` records the seeded response without the claims.
+Each pest response of ``CONFIGS``, from ``pest_response_configurations``, runs on ``RIVER_SMALL``
+or ``RIVERS_LARGE``; ``--config seeded-no-yield`` records the seeded response without the claims.
 ``record`` runs it once through ``LiveRun``, one frame per decision interval, and writes a
 ``Trace``: everything the videos might show, so that new visuals need no new run. ``render``
 turns traces into videos with ``MatplotlibRenderer`` and the overlays, without the simulation.
@@ -93,7 +93,7 @@ logger = logging.getLogger(__name__)
 
 SCENARIOS: dict[str, SwarmScenario] = {"river-small": RIVER_SMALL, "rivers-large": RIVERS_LARGE}
 """The scenarios by the name used in file names and titles."""
-CONFIGS = ("seeded", "seeded-no-yield", "hop", "hop-repel", "hop-tuned")
+CONFIGS = ("seeded", "seeded-best", "seeded-no-yield", "hop", "hop-repel", "hop-tuned", "hop-best")
 """Every configuration that can be recorded."""
 DEFAULT_CONFIGS = ("seeded", "hop", "hop-repel", "hop-tuned")
 """The configurations recorded when none is named: the four of the comparison."""

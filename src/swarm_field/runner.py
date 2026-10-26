@@ -52,6 +52,7 @@ from swarm_field.simulation import (
     build_world,
 )
 from swarm_field.swarm import (
+    CLAIM_FRESH_FOR,
     AgentMemory,
     ArbiterConfig,
     BatteryRequestSeeder,
@@ -87,7 +88,6 @@ from swarm_field.swarm import (
     capabilities_for,
     message_items,
 )
-from swarm_field.swarm.seeder import CLAIM_MAX_AGE
 
 T = TypeVar("T")
 """What a ``Registry`` holds: a swappable brain part."""
@@ -137,7 +137,7 @@ def _build_treat_infestation(params: dict[str, Any], rng: Random) -> TreatInfest
     """Build the pest-response behaviour, following the TREAT seeder the spec names first.
 
     It leaves a pest to a peer already treating it with ``"treat_yield"``, and counts claims as
-    old as ``"treat_claim_age"``, as the TREAT seeder does.
+    old as ``"treat_claim_fresh_for"``, as the TREAT seeder does.
 
     Raises:
         ValueError: If the spec names no seeder, so there is no field to follow.
@@ -146,9 +146,9 @@ def _build_treat_infestation(params: dict[str, Any], rng: Random) -> TreatInfest
     if not seeders:
         raise ValueError("treat-infestation needs a seeder to follow")
     yield_to_treating_peer: bool = params.get("treat_yield", False)
-    claim_age: Time = params.get("treat_claim_age", CLAIM_MAX_AGE)
+    claim_fresh_for: Time = params.get("treat_claim_fresh_for", CLAIM_FRESH_FOR)
     return TreatInfestation(
-        seeders[0], yield_to_treating_peer=yield_to_treating_peer, claim_max_age=claim_age
+        seeders[0], yield_to_treating_peer=yield_to_treating_peer, claim_fresh_for=claim_fresh_for
     )
 
 
@@ -201,12 +201,14 @@ def _beacon_parts(params: dict[str, Any], part: str) -> tuple[BeaconConfig, Beac
 @SEEDERS.register("treat")
 def _build_treat_seeder(params: dict[str, Any], rng: Random) -> TreatSeeder:
     """Build the TREAT seeder, with ``"treat_window_blocks"``, ``"treat_yield"`` and
-    ``"treat_claim_age"`` if given."""
+    ``"treat_claim_fresh_for"`` if given."""
     window_blocks: int = params.get("treat_window_blocks", 2)
     yield_to_closer: bool = params.get("treat_yield", False)
-    claim_age: Time = params.get("treat_claim_age", CLAIM_MAX_AGE)
+    claim_fresh_for: Time = params.get("treat_claim_fresh_for", CLAIM_FRESH_FOR)
     return TreatSeeder(
-        window_blocks=window_blocks, yield_to_closer=yield_to_closer, claim_fresh_for=claim_age
+        window_blocks=window_blocks,
+        yield_to_closer=yield_to_closer,
+        claim_fresh_for=claim_fresh_for,
     )
 
 
