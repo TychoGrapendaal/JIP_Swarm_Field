@@ -185,6 +185,27 @@ class PositionErrorSpec:
             raise ValueError("position error offset cannot be negative")
 
 
+@dataclass(frozen=True)
+class RoleSwitchSpec:
+    """How a robot changes role when it switches body, for swarms that rebalance their roles.
+
+    Attributes:
+        speeds: The travel speed of each body in metres per second; a robot switching to a body
+            missing here keeps its speed.
+        duration: How long a switch keeps the robot from acting, in simulation milliseconds.
+    """
+
+    speeds: dict[BodyType, float] = field(default_factory=dict)
+    duration: int = 0
+
+    def __post_init__(self) -> None:
+        """Validate that speeds are positive and the duration is not negative."""
+        if any(speed <= 0.0 for speed in self.speeds.values()):
+            raise ValueError("role speeds must be positive")
+        if self.duration < 0:
+            raise ValueError("role switch duration cannot be negative")
+
+
 @dataclass
 class RobotSpec:
     """Fixed parameters of one robot at the start of a run.
@@ -229,6 +250,7 @@ class ScenarioConfig:
             1.0 a pest of full severity takes an hour.
         treatment_doses: How many treatments a killer's full consumable holds; each treatment
             uses ``1 / treatment_doses`` of it.
+        roles: How a robot changes role when it switches body.
     """
 
     field: FieldGeometry
@@ -245,3 +267,4 @@ class ScenarioConfig:
     pest_sources: PestSourceSpec | None = None
     treatment_rate: float = 1.0
     treatment_doses: int = 10
+    roles: RoleSwitchSpec = RoleSwitchSpec()

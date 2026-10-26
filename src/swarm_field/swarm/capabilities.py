@@ -7,7 +7,15 @@ assumptions based on the project specification, not hardware guarantees.
 
 from dataclasses import dataclass
 
-from swarm_field.contracts.actions import Action, Charge, Idle, Move, ReplaceBattery, Treat
+from swarm_field.contracts.actions import (
+    Action,
+    Charge,
+    Idle,
+    Move,
+    ReplaceBattery,
+    SwitchRole,
+    Treat,
+)
 from swarm_field.contracts.ids import BodyType
 
 
@@ -41,11 +49,13 @@ class CapabilitySet:
 
 
 _COMMON_ACTIONS = frozenset({Move, Charge, Idle})
+_ROLE_ACTIONS = frozenset({SwitchRole})
+"""Scouts and killers may switch into each other's role (#64); a battery robot may not."""
 
 BODY_CAPABILITIES: dict[BodyType, CapabilitySet] = {
     BodyType.SCOUT: CapabilitySet(
         body=BodyType.SCOUT,
-        action_types=_COMMON_ACTIONS,
+        action_types=_COMMON_ACTIONS | _ROLE_ACTIONS,
         can_fly=True,
         speed_mps=8.0,
         pest_sensing_radius=1,
@@ -57,7 +67,7 @@ BODY_CAPABILITIES: dict[BodyType, CapabilitySet] = {
     ),
     BodyType.KILLER: CapabilitySet(
         body=BodyType.KILLER,
-        action_types=frozenset({Move, Treat, Charge, Idle}),
+        action_types=frozenset({Move, Treat, Charge, Idle}) | _ROLE_ACTIONS,
         can_fly=False,
         speed_mps=1.0,
         pest_sensing_radius=0,

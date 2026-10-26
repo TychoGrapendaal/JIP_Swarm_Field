@@ -11,7 +11,9 @@ nearest a known pest switch. A minimum time in a role, and an imbalance that has
 keep robots from flipping back and forth on a single burst of news.
 
 ``BodyGate`` lets one brain carry the behaviours of both roles: a gated behaviour bids only
-while the robot has one of its bodies, which the robot reads from its perception.
+while the robot has one of its bodies, which the robot reads from its perception. The brain's
+capability gate cannot do this alone: it lets a scout follow the TREAT field, since following a
+field is a move. ``experiments.RebalancingPreset`` assembles such a robot.
 """
 
 import math

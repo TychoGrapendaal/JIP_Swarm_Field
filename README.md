@@ -155,21 +155,15 @@ uv run python examples/pest_demo.py
 
 Five explorers explore and three killers treat a field with a river and two rocks, while pests appear at random free cells over time. Every robot is a real `ComposedAgent` with a `UtilityArbiter`: explorers follow the EXPLORE field, and seeded killers treat the pests they know of with `TreatInfestation` on the TREAT field. `--hop` makes the killers hop killers, which follow the hop beacons every robot relays from the explorer that sees a pest. Robots share their memory and status only within radio range. The panel shows what each killer is doing and how many pests it knows of. The panel also shows the measures of `MetricsCollector`: infested cells, detection latency, coverage, idleness and redundancy. `--radio`, `--pests-per-hour`, `--spread`, `--explorers` and `--killers` change the setup, and `--save videos/pests.mp4` records a video. The killers' time per goal is weighted by simulated time, so pausing or changing the speed does not change it. `SwarmScenario` in `swarm_field.experiments` describes the run, and `swarm_field.runner` assembles and runs it.
 
-### Arbiter demonstration: every rule, fourteen robots
+### Role rebalancing (#64)
 
 ```bash
-uv run python examples/arbiter_demo.py
+uv run python examples/scenario_viewer.py --scenario rebalancing
+uv run python examples/scenario_viewer.py --scenario rebalancing-fixed
+uv run python -m studies.rebalancing --seeds 4
 ```
 
-Eight scouts and six killers on the river-and-rocks field, with four docks near the corners and batteries that drain as robots move, decide and treat. Scouts weigh exploring against `ReturnToDock`; killers weigh `TreatInfestation`, exploring and `ReturnToDock`. Pests keep spawning and robots start with staggered batteries, so every rule of `UtilityArbiter` gets exercised: overrides (treating the pest underfoot, a critical battery, charging on a dock), a finished objective freeing the robot, a finished target moving it on within its objective, the minimum dwell, and the effort margin holding a commitment or letting a rival through. Each robot's arbiter is wrapped in a `RecordingArbiter`, which reads the rule behind every choice from outside the arbiter, so `UtilityArbiter` itself is unchanged; the panel counts the `ArbiterRule` behind every choice, the switches per completed job, and each robot's goal and battery. `--scouts`, `--killers`, `--explore explore-utility` (the scored `ExploreBehaviour` instead of the even 0.5 mock), `--pests-per-hour`, `--radio` and `--seed` change the setup; `--save videos/arbiter.mp4` records a video, and `--report --out runs/arbiter.json` runs headless and prints and writes the rule counts. `ArbiterScenario` in `swarm_field.experiments` describes the run.
-
-#### Role rebalancing (#64)
-
-```bash
-uv run python examples/arbiter_demo.py --rebalance
-```
-
-With `--rebalance` every robot can switch between monitor (scout) and killer. Each carries both roles' behaviours, with `TreatInfestation` wrapped in a `BodyGate` so only killers treat, plus `RebalanceRoles`. From its own memory a robot counts the monitors, killers and pests it knows of; the swarm needs `min_killers` plus one killer per `pests_per_killer` known pests, but always keeps the `min_monitors` that the field needs (`ArbiterScenario.monitors_needed`). When the split stays off for `persistence`, only the robots best placed to switch bid `SwitchRole` (the monitors nearest a known pest, or the killers furthest from any), so the swarm does not switch all at once; a robot then keeps its new role for `role_dwell`. The simulation changes the robot's body and speed and keeps it busy for `switch_duration`. `--switch-at-dock` lets robots switch only while on a dock. The panel and `--report` show the roles over time and the number of switches.
+Robots switch between explorer and killer as the pests need. `rebalancing` is the `REBALANCING` swarm (eight explorers and six seeded killers on the river field, a dock in every corner, 20 pests an hour) with every robot a `RebalancingPreset`; `rebalancing-fixed` is the same swarm with fixed roles. A rebalancing robot carries both roles' behaviours, each wrapped in a `BodyGate` (`"body_gates"` in its `BrainSpec`) so it explores only as a scout and treats only as a killer, plus `RebalanceRoles`. From its own memory it counts the explorers, killers and pests it knows of; the swarm needs `min_killers` plus one killer per `pests_per_killer` known pests, but always keeps the `min_monitors` explorers the field needs (`monitors_needed`). When the split stays off for `persistence`, only the robots best placed to switch bid `SwitchRole` (the explorers nearest a known pest, or the killers furthest from any), so the swarm does not switch all at once; a robot then keeps its new role for `role_dwell`. The world gives it the other body and that body's speed and keeps it busy for `RobotConfig.role_switch_time`. The viewer colours robots by body, so every switch shows. `studies.rebalancing` runs both swarms on the same seeds; see [`docs/research/rebalancing.md`](docs/research/rebalancing.md).
 
 ### Wall-following steering demonstration
 

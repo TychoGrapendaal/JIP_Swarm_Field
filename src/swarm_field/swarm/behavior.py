@@ -17,6 +17,7 @@ from swarm_field.contracts import (
     Observation,
     ReplaceBattery,
     RobotSelfState,
+    SwitchRole,
     Time,
     TimeUnit,
     Treat,
@@ -46,7 +47,7 @@ class FollowField:
     seeder: str
 
 
-Intent = FollowField | Treat | Charge | ReplaceBattery | Idle
+Intent = FollowField | Treat | Charge | ReplaceBattery | SwitchRole | Idle
 """What a behaviour wants the robot to do if its candidate wins.
 
 The brain's own counterpart of a contract ``Action``; it never crosses into the simulation.

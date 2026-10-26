@@ -47,6 +47,7 @@ from swarm_field.swarm.hop import (
 from swarm_field.swarm.memory import AgentMemory, DecayConfig, KnowledgeSnapshot, MemoryView
 from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.provider import FieldProvider
+from swarm_field.swarm.rebalance import BodyGate, RebalanceConfig, RebalanceRoles
 from swarm_field.swarm.recharge import RechargeConfig
 from swarm_field.swarm.seeder import (
     BatteryRequestSeeder,
@@ -83,6 +84,7 @@ __all__ = [
     "BeaconMemory",
     "BeaconView",
     "Behavior",
+    "BodyGate",
     "CapabilitySet",
     "Commitment",
     "ComposedAgent",
@@ -109,6 +111,8 @@ __all__ = [
     "ObjectiveField",
     "PlacedBeacon",
     "QuadtreeSensing",
+    "RebalanceConfig",
+    "RebalanceRoles",
     "RechargeConfig",
     "Regroup",
     "RegroupSeeder",

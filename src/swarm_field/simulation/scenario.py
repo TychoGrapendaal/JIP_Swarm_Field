@@ -40,6 +40,7 @@ def build_world(config: ScenarioConfig) -> WorldState:
         energy=EnergyConfig.from_spec(config.energy),
         treatment_rate=config.treatment_rate,
         treatment_doses=config.treatment_doses,
+        roles=config.roles,
     )
 
     for cell, crop in config.crops.items():

@@ -25,6 +25,8 @@ from swarm_field.contracts import (
     RobotId,
     RobotPublicState,
     RobotSelfState,
+    RoleSwitchSpec,
+    SwitchRole,
     Terrain,
     TerrainObservation,
     Time,
@@ -84,6 +86,8 @@ class RobotState:
         energy_spent: Battery fraction this robot has consumed since the run began, whatever
             recharged it in between.
         failed: Whether the robot has stopped taking part in the run.
+        busy_until: Until when the robot is switching role and does not act, if it is.
+        role_switches: How often the robot has switched role since the run began.
     """
 
     robot_id: RobotId
@@ -107,6 +111,8 @@ class RobotState:
     energy_spent: float = 0.0
     failed: bool = False
     failure_mode: FailureMode | None = None
+    busy_until: Time | None = None
+    role_switches: int = 0
     charging_requested_at: Time | None = None
 
 
@@ -120,6 +126,7 @@ class WorldState:
     Attributes:
         treatment_rate: How much infestation severity one treating robot removes per hour.
         treatment_doses: How many treatments a killer's full consumable holds.
+        roles: How a robot changes speed when it switches body, and how long a switch takes.
     """
 
     def __init__(
@@ -130,6 +137,7 @@ class WorldState:
         energy: EnergyConfig | None = None,
         treatment_rate: float = 1.0,
         treatment_doses: int = 10,
+        roles: RoleSwitchSpec | None = None,
     ) -> None:
         """Create the field, fixed charging docks, and any initial robots."""
         if field.width <= 0 or field.height <= 0:
@@ -152,6 +160,9 @@ class WorldState:
         if treatment_doses <= 0:
             raise ValueError("treatment_doses must be positive")
         self.treatment_doses: int = treatment_doses
+        self.roles: RoleSwitchSpec = RoleSwitchSpec()
+        if roles is not None:
+            self.roles = roles
         self.cells: dict[CellId, CellState] = {
             (x, y): CellState(
                 crop=None,
@@ -388,6 +399,10 @@ class WorldState:
         self._spend(robot, self.energy.per_decision)
         if robot.move_target is not None:
             return robot.move_arrival_at
+        if robot.busy_until is not None and time < robot.busy_until:
+            # Still switching role: the robot has spent its decision but does not act.
+            self._settle_battery_failure(robot, time)
+            return None
 
         robot.current_action = action
         may_charge_empty_at_dock = isinstance(action, Charge) and robot.position in self.docks
@@ -433,6 +448,11 @@ class WorldState:
             self._stop_treatment(robot)
             self._stop_battery_replacement(robot)
             self._start_charging(robot, time)
+        elif isinstance(action, SwitchRole):
+            self._stop_treatment(robot)
+            self._stop_charging(robot, time)
+            self._stop_battery_replacement(robot)
+            self._switch_role(robot, action.body, time)
         elif isinstance(action, Idle):
             self._stop_treatment(robot)
             self._stop_charging(robot, time)
@@ -556,6 +576,22 @@ class WorldState:
             robots=self.public_states(time),
             metrics=metrics,
         )
+
+    def _switch_role(self, robot: RobotState, body: BodyType, time: Time) -> None:
+        """Give the robot another body, with that body's speed, and keep it busy meanwhile.
+
+        Only a scout and a killer can switch, and only into each other: the body is a role the
+        swarm assigns (#64), e.g. a module swapped on the robot, not its airframe.
+        """
+        roles = (BodyType.SCOUT, BodyType.KILLER)
+        if body is robot.body or body not in roles or robot.body not in roles:
+            robot.current_action = Idle()
+            return
+        robot.body = body
+        robot.speed_mps = self.roles.speeds.get(body, robot.speed_mps)
+        robot.role_switches += 1
+        if self.roles.duration > 0:
+            robot.busy_until = time + self.roles.duration
 
     def _start_move(self, robot: RobotState, target: CellId, time: Time) -> Time | None:
         if robot.failed or robot.move_target is not None:

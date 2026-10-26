@@ -38,6 +38,7 @@ from swarm_field.contracts import (
     PestSourceSpec,
     RobotId,
     RobotSpec,
+    RoleSwitchSpec,
     ScenarioConfig,
     Time,
     TimeUnit,
@@ -54,6 +55,7 @@ from swarm_field.experiments.presets import (
     SEEDED_KILLER,
     ExplorerPreset,
     HopKillerPreset,
+    RebalancingPreset,
     Relaying,
     RobotPreset,
     SeededKillerPreset,
@@ -125,6 +127,7 @@ class RobotConfig:
             charge lasts a body's endurance in travel, 30 minutes for a scout. A large capacity,
             e.g. ``1000``, keeps robots working without trips to a dock, and keeps hop killers,
             which cannot return to one yet, from running empty.
+        role_switch_time: How long a robot that switches role (#64) does not act.
     """
 
     speed_mps_drone: float = 2.0
@@ -135,6 +138,7 @@ class RobotConfig:
     lattice_starts: bool = False
     lattice_jitter: float = 0.3
     battery_capacity: float = 1.0
+    role_switch_time: Time = TimeUnit.MINUTE
 
     def __post_init__(self) -> None:
         """Validate the supported parameter ranges."""
@@ -142,6 +146,8 @@ class RobotConfig:
             raise ValueError("lattice jitter must be at least 0 and below half a pitch")
         if self.battery_capacity <= 0.0:
             raise ValueError("battery capacity must be positive")
+        if self.role_switch_time < 0:
+            raise ValueError("role switch time cannot be negative")
 
     def speed_of(self, body: BodyType) -> float:
         """The top speed of a robot of ``body``: the drone speed for scouts, else ground."""
@@ -261,12 +267,15 @@ class SwarmScenario:
         """How long the explorers need to visit every free cell once, if they split it evenly.
 
         A robot moves one cell per decision at most, so a step takes the move rounded up to
-        whole decision intervals. The explorers are the robots of an ``ExplorerPreset``; without
-        any, the sweep time is 0.
+        whole decision intervals. The explorers are the robots of an ``ExplorerPreset``, and the
+        robots of a ``RebalancingPreset`` that start as scouts; without any, the sweep time is 0.
         """
         explorers = 0
         for group in self.swarm:
-            if isinstance(group.preset, ExplorerPreset):
+            preset = group.preset
+            if isinstance(preset, ExplorerPreset) or (
+                isinstance(preset, RebalancingPreset) and preset.body is BodyType.SCOUT
+            ):
                 explorers += group.count
         if explorers == 0:
             return 0
@@ -400,6 +409,13 @@ class SwarmScenario:
             treatment_doses=self.pests.treatment_doses,
             energy=EnergySpec(capacity=self.robots.battery_capacity),
             docks=self.map.docks,
+            roles=RoleSwitchSpec(
+                speeds={
+                    BodyType.SCOUT: self.robots.speed_mps_drone,
+                    BodyType.KILLER: self.robots.speed_mps_ground,
+                },
+                duration=self.robots.role_switch_time,
+            ),
         )
         context = self.context()
         brains: list[BrainSpec] = []

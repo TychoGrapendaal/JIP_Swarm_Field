@@ -38,7 +38,10 @@ body type. If no permitted candidate remains, the agent emits `Idle`.
 | `Treat` | No | Yes | No |
 | `ReplaceBattery` | No | No | Yes |
 | `Charge` | Yes, at a dock | Yes, at a dock | Yes, at a dock |
+| `SwitchRole` | Yes, to killer | Yes, to scout | No |
 | `Idle` | Yes | Yes | Yes |
+
+`SwitchRole` is for swarms that rebalance their roles (#64, [`research/rebalancing.md`](research/rebalancing.md)): the world gives the robot the other body and that body's speed. A scout flies and a killer drives, so a real robot cannot change one airframe into the other; the switch stands for a robot whose role is a module, swapped at a dock with `RebalanceConfig.switch_at_dock`. Robots that may switch plan their routes on the ground whatever their body, so a robot that becomes a killer is never planned across the river.
 
 ## Brains for each body
 

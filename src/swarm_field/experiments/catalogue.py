@@ -15,6 +15,7 @@ from dataclasses import replace
 from swarm_field.contracts import BodyType, ScenarioId, Time, TimeUnit
 from swarm_field.experiments.maps import MapConfig
 from swarm_field.experiments.presets import EXPLORER, SEEDED_KILLER
+from swarm_field.experiments.rebalancing import REBALANCING, rebalancing_configurations
 from swarm_field.experiments.scenario import (
     EXPLORE,
     FAST_TREATMENT,
@@ -95,6 +96,18 @@ def _large_pests(seed: int, until: Time | None) -> ExperimentConfig:
     return replace(scenario.into_experiment(label), scenario_name="pests-large")
 
 
+def _rebalancing(arm: str, name: str) -> ScenarioBuilder:
+    """The ``REBALANCING`` swarm of arm ``fixed`` or ``rebalancing`` (#64), called ``name``."""
+
+    def build(seed: int, until: Time | None) -> ExperimentConfig:
+        scenario = replace(rebalancing_configurations(REBALANCING)[arm], seed=seed)
+        if until is not None:
+            scenario = replace(scenario, until=until)
+        return replace(scenario.into_experiment(f"{name}/{seed}"), scenario_name=name)
+
+    return build
+
+
 def _build_catalogue() -> dict[str, ScenarioBuilder]:
     catalogue: dict[str, ScenarioBuilder] = {}
     for preset in ScenarioId:
@@ -102,6 +115,8 @@ def _build_catalogue() -> dict[str, ScenarioBuilder]:
     catalogue["explore"] = _explore
     catalogue["pests"] = _pests
     catalogue["pests-large"] = _large_pests
+    catalogue["rebalancing"] = _rebalancing("rebalancing", "rebalancing")
+    catalogue["rebalancing-fixed"] = _rebalancing("fixed", "rebalancing-fixed")
     return catalogue
 
 

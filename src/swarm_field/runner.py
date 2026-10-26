@@ -57,6 +57,7 @@ from swarm_field.swarm import (
     BeaconLink,
     BeaconView,
     Behavior,
+    BodyGate,
     ComposedAgent,
     DockSeeder,
     ExploreBehaviour,
@@ -68,6 +69,8 @@ from swarm_field.swarm import (
     KnowledgeSnapshot,
     Navigator,
     ObjectiveField,
+    RebalanceConfig,
+    RebalanceRoles,
     RechargeConfig,
     Regroup,
     RegroupSeeder,
@@ -200,6 +203,17 @@ def _build_return_to_dock(params: dict[str, Any], rng: Random) -> ReturnToDock:
     return ReturnToDock(seeder, docks=docks, recharge_config=recharge)
 
 
+@BEHAVIORS.register(RebalanceRoles.name)
+def _build_rebalance_roles(params: dict[str, Any], rng: Random) -> RebalanceRoles:
+    """Build role rebalancing (#64) from the ``RebalanceConfig`` under ``"rebalance"``, if given.
+
+    It switches only at the scenario's docks when the config says so.
+    """
+    config: RebalanceConfig | None = params.get("rebalance")
+    docks: tuple[CellId, ...] = tuple(params.get("docks", ()))
+    return RebalanceRoles(config, docks)
+
+
 @SEEDERS.register("battery-support")
 def _build_battery_request_seeder(params: dict[str, Any], rng: Random) -> BatteryRequestSeeder:
     """Build the peer battery-request field seeder."""
@@ -266,6 +280,9 @@ class BrainSpec:
         keeps_map: Whether the robot's memory stores terrain and infestation facts. A brain of
             the hop method alone needs none; without a map it has no quadtree, so a seeder in
             ``seeders`` is refused.
+        flies: Whether the robot plans its routes over obstacles, or ``None`` to take it from its
+            starting body. A robot that may switch role (#64) plans on the ground, since it may
+            become a killer, which cannot enter an obstacle.
     """
 
     behaviors: tuple[str, ...] = ("treat-infestation",)
@@ -276,6 +293,7 @@ class BrainSpec:
     sharing: SharingConfig = field(default_factory=SharingConfig)
     beacons: BeaconConfig | None = None
     keeps_map: bool = True
+    flies: bool | None = None
 
     def describe(self) -> str:
         """The parts of this brain by name, e.g. ``behaviors=explore seeders=explore``.
@@ -408,7 +426,7 @@ def build_run(
             scenario.field,
             rng,
             known,
-            flies=capabilities_for(spec.body).can_fly,
+            flies=_plans_flying(brain, spec.body),
             docks=scenario.docks,
         )
 
@@ -427,6 +445,13 @@ def build_run(
     )
     seed_initial_events(ctx, config)
     return ctx, collector
+
+
+def _plans_flying(brain: BrainSpec, body: BodyType) -> bool:
+    """Whether a robot plans its routes over obstacles: as its brain says, else as its body can."""
+    if brain.flies is not None:
+        return brain.flies
+    return capabilities_for(body).can_fly
 
 
 def _noise_source(seed: int) -> Random:
@@ -489,7 +514,7 @@ def build_agent(
     if spec.beacons is not None:
         link = BeaconLink(robot_id, spec.beacons, field)
     params = _params_for(spec, link, docks=docks)
-    behaviors: list[Behavior] = [BEHAVIORS.build(name, params, rng) for name in spec.behaviors]
+    behaviors = build_behaviors(spec, params, rng)
     fields = build_field_provider(spec, memory, rng, link, flies=flies, docks=docks)
     heading_sensing: SensedSurroundings | None = None
     if link is not None:
@@ -505,6 +530,25 @@ def build_agent(
         sharing=spec.sharing,
         beacon_link=link,
     )
+
+
+def build_behaviors(spec: BrainSpec, params: dict[str, Any], rng: Random) -> list[Behavior]:
+    """The behaviours ``spec`` names, each gated to its bodies under ``"body_gates"``, if any.
+
+    A robot that may switch role (#64) carries the behaviours of every role it can take, so
+    ``"body_gates"`` maps a behaviour's name to the bodies it bids for, e.g. treating only as a
+    killer. The capability gate cannot do this: it lets a scout follow the TREAT field, since
+    following a field is a move.
+    """
+    gates: dict[str, tuple[BodyType, ...]] = params.get("body_gates", {})
+    behaviors: list[Behavior] = []
+    for name in spec.behaviors:
+        behavior = BEHAVIORS.build(name, params, rng)
+        bodies = gates.get(name)
+        if bodies is not None:
+            behavior = BodyGate(behavior, bodies)
+        behaviors.append(behavior)
+    return behaviors
 
 
 def terrain_knowledge(world: WorldState) -> KnowledgeSnapshot:
