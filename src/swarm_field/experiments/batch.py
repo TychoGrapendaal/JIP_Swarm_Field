@@ -30,7 +30,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import Future, ProcessPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime
 from pathlib import Path
@@ -202,7 +202,8 @@ def run_in_parallel[C, R](
 ) -> list[RunResult[C, R]]:
     """Run every run in parallel processes, costliest first, and return the results in run order.
 
-    ``Experiment.run`` runs a batch with it, and ``record_videos`` the runs it films.
+    ``Experiment.run`` runs a batch with it, and ``record_videos`` the runs it films. Every
+    finished run is logged, so a long batch shows its progress.
 
     Args:
         runs: The runs.
@@ -215,12 +216,25 @@ def run_in_parallel[C, R](
     """
     _refuse_duplicate_names(runs)
     order = sorted(range(len(runs)), key=lambda index: runs[index].cost, reverse=True)
-    costliest_first = [runs[index] for index in order]
-    with ProcessPoolExecutor(max_workers=processes) as pool:
-        outcomes = list(pool.map(_Timed(function), costliest_first))
+    timed = _Timed(function)
+    started = time.perf_counter()
     by_index: dict[int, RunResult[C, R]] = {}
-    for index, run, (result, wall) in zip(order, costliest_first, outcomes, strict=True):
-        by_index[index] = RunResult(run, result, wall)
+    with ProcessPoolExecutor(max_workers=processes) as pool:
+        indices: dict[Future[tuple[R, float]], int] = {}
+        for index in order:
+            indices[pool.submit(timed, runs[index])] = index
+        for future in as_completed(indices):
+            index = indices[future]
+            result, wall = future.result()
+            by_index[index] = RunResult(runs[index], result, wall)
+            logger.info(
+                "Finished %d of %d runs after %.0f s: %s in %.0f s",
+                len(by_index),
+                len(runs),
+                time.perf_counter() - started,
+                runs[index].name,
+                wall,
+            )
     results: list[RunResult[C, R]] = []
     for index in range(len(runs)):
         results.append(by_index[index])
