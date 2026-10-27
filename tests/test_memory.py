@@ -19,6 +19,7 @@ from swarm_field.contracts import (
     Time,
 )
 from swarm_field.swarm import AgentMemory, DecayConfig
+from swarm_field.swarm.memory import MAP_FREE_PEER_CAP
 
 _SELF: RobotId = 1
 
@@ -241,3 +242,25 @@ def test_a_sighting_of_a_peer_keeps_the_goal_of_its_last_status() -> None:
     assert known.cell == (4, 4)
     assert known.target == (5, 5)
     assert known.objective is AgentObjective.TREAT
+
+
+def test_a_memory_without_a_map_keeps_a_capped_number_of_peers_and_no_snapshots() -> None:
+    field = FieldGeometry(
+        width=10, height=10, cell_size=10.0, row_sp=0.0, in_row_sp=0.0, headland=0.0
+    )
+    memory = AgentMemory(_SELF, field, keeps_map=False)
+    peers: list[PeerObservation] = []
+    for peer in range(2, MAP_FREE_PEER_CAP + 3):
+        peers.append(_peer(peer, (peer % 10, 0), at=peer))
+    memory.merge(peers)
+    relayed = AgentMemory(2, field)
+    relayed.merge([_peer(500, (9, 9), at=1_000)])
+
+    memory.merge_snapshot(relayed.knowledge())
+
+    kept: set[RobotId | None] = set()
+    for fact in memory.peers():
+        kept.add(fact.peer)
+    assert len(kept) == MAP_FREE_PEER_CAP
+    assert 2 not in kept
+    assert 500 not in kept

@@ -27,17 +27,22 @@ import math
 from dataclasses import dataclass, field, replace
 from typing import Protocol
 
-from swarm_field.contracts import BodyType, Time
+from swarm_field.contracts import BodyType, Time, TimeUnit
 from swarm_field.runner import BrainSpec
 from swarm_field.swarm import (
+    CLAIM_FRESH_FOR,
     ArbiterConfig,
     BeaconConfig,
+    DockBeacons,
     DockSeeder,
     EscapeConfig,
     ExploreConfig,
     ExploreSeeder,
+    HopDockField,
     HopField,
     KnowledgeSharing,
+    Resupply,
+    ResupplyConfig,
     ReturnToDock,
     SharingConfig,
     TreatByBeacon,
@@ -201,7 +206,7 @@ class RelayPreset:
 @dataclass(frozen=True)
 class SeededKillerPreset:
     """A seeded killer: ``TreatInfestation`` on the TREAT field of its map, returning to a dock
-    of the field when its battery runs low.
+    of the field when its battery runs low (``ReturnToDock``) or its doses do (``Resupply``).
 
     With ``claims`` it leaves a pest to a closer killer that claimed it and waits on a pest a
     lower-id killer already treats, and the swarm passes on the killers' claims with the pests.
@@ -210,11 +215,13 @@ class SeededKillerPreset:
         claims: Whether it claims pests.
         window_blocks: How many blocks of the quadtree around its own its TREAT field is searched
             cell by cell; beyond them, leaf by leaf.
+        claim_fresh_for: How old a peer's claim on a pest may be and still count.
         name: The preset's name.
     """
 
     claims: bool = True
     window_blocks: int = 2
+    claim_fresh_for: Time = CLAIM_FRESH_FOR
     name: str = "seeded-killer"
 
     @property
@@ -226,9 +233,13 @@ class SeededKillerPreset:
 
     def brain(self, swarm: SwarmContext) -> BrainSpec:
         return BrainSpec(
-            behaviors=(TreatInfestation.name, ReturnToDock.name),
+            behaviors=(TreatInfestation.name, ReturnToDock.name, Resupply.name),
             seeders=(TreatSeeder.name, DockSeeder.name),
-            params={"treat_window_blocks": self.window_blocks, "treat_yield": self.claims},
+            params={
+                "treat_window_blocks": self.window_blocks,
+                "treat_yield": self.claims,
+                "treat_claim_fresh_for": self.claim_fresh_for,
+            },
             arbiter=swarm.arbiter,
             sharing=SharingConfig(facts=self._pest_facts()),
             beacons=swarm.relaying.beacons,
@@ -245,15 +256,21 @@ class SeededKillerPreset:
 class HopKillerPreset:
     """A hop killer: ``TreatByBeacon`` on the hop field, with no map and no shared memory.
 
-    It does not return to a dock: the dock field is planned over a map, which it does not keep.
+    When its swarm relays DOCK beacons (``BeaconConfig.dock``), it returns to a dock down them
+    (``HopDockField``) when its battery runs low (``ReturnToDock``) or its tank is empty
+    (``Resupply``), still without a map. It restocks only an empty tank: its treat bid is the
+    strength of a beacon, often below 0.5, so a restock bid above it would send a killer with
+    doses left to the dock and keep it from the pests it hears of.
 
     Attributes:
         beacons: How it and every robot of its swarm keep, relay and weigh beacons, or ``None``
-            for ``hop-tuned`` of ``hop_beacon_variants``.
+            for ``variant`` of ``hop_beacon_variants``, for the swarm's radio range.
+        variant: The configuration of ``hop_beacon_variants`` used without ``beacons``.
         name: The preset's name.
     """
 
     beacons: BeaconConfig | None = None
+    variant: str = "hop-tuned"
     name: str = "hop-killer"
 
     @property
@@ -263,7 +280,7 @@ class HopKillerPreset:
     def needs(self, hop_cells: float) -> Relaying:
         beacons = self.beacons
         if beacons is None:
-            beacons = hop_beacon_variants(hop_cells)["hop-tuned"]
+            beacons = hop_beacon_variants(hop_cells)[self.variant]
         return Relaying(beacons=beacons)
 
     def brain(self, swarm: SwarmContext) -> BrainSpec:
@@ -272,14 +289,23 @@ class HopKillerPreset:
         Raises:
             ValueError: If the swarm relays no beacons, which ``SwarmScenario`` never does.
         """
-        if swarm.relaying.beacons is None:
+        beacons = swarm.relaying.beacons
+        if beacons is None:
             raise ValueError("a hop killer needs a swarm that relays beacons")
+        behaviors = [TreatByBeacon.name]
+        seeders = [HopField.name]
+        params: dict[str, object] = {}
+        if beacons.dock is not None:
+            behaviors.extend([ReturnToDock.name, Resupply.name])
+            seeders.append(HopDockField.name)
+            params["resupply"] = ResupplyConfig(low_doses=0)
         return BrainSpec(
-            behaviors=(TreatByBeacon.name,),
-            seeders=(HopField.name,),
+            behaviors=tuple(behaviors),
+            seeders=tuple(seeders),
+            params=params,
             arbiter=swarm.arbiter,
             sharing=SharingConfig(facts=KnowledgeSharing.NOTHING),
-            beacons=swarm.relaying.beacons,
+            beacons=beacons,
             keeps_map=False,
         )
 
@@ -314,16 +340,28 @@ EXPLORER = ExplorerPreset()
 RELAY = RelayPreset()
 SEEDED_KILLER = SeededKillerPreset()
 HOP_KILLER = HopKillerPreset()
+SEEDED_BEST = SeededKillerPreset(claim_fresh_for=10 * TimeUnit.MINUTE, name="seeded-best")
+"""The seeded killer tuned on the small and the large river field with moving explorers
+(``studies/tune_arms.py``): a claim counts for 10 minutes instead of 2, since claims relayed
+through moving explorers arrive late."""
+HOP_BEST = HopKillerPreset(variant="hop-best", name="hop-best")
+"""The hop killer tuned likewise: ``hop-best`` of ``hop_beacon_variants``."""
 
 
 def hop_beacon_variants(hop_cells: float) -> dict[str, BeaconConfig]:
     """The hop method's configurations, by name, for hops of ``hop_cells`` cells.
 
     ``hop`` counts metric hops of one radio range, capped where a beacon's pull falls below
-    5 %. ``hop-repel`` adds killers repelling each other, and ``hop-tuned`` pulls weighted by
-    the square root of the distance and the escape: the best hop configuration so far.
+    5 %, and relays DOCK beacons, so hop killers find a dock. ``hop-repel`` adds killers
+    repelling each other, and ``hop-tuned`` pulls weighted by the square root of the distance
+    and the escape. ``hop-best`` keeps a pest marked and a heard beacon fresh for 3 minutes
+    instead of 1, the best on both the small and the large river field with moving explorers
+    (``studies/tune_arms.py``).
     """
-    hop = BeaconConfig(hop_cells=hop_cells, max_value=math.log(0.05) / math.log(0.5))
+    hop = BeaconConfig(
+        hop_cells=hop_cells, max_value=math.log(0.05) / math.log(0.5), dock=DockBeacons()
+    )
     repel = replace(hop, killer_repulsion=2.0)
     tuned = replace(repel, distance_power=0.5, escape=EscapeConfig())
-    return {"hop": hop, "hop-repel": repel, "hop-tuned": tuned}
+    best = replace(tuned, source_for=3 * TimeUnit.MINUTE, fresh_for=3 * TimeUnit.MINUTE)
+    return {"hop": hop, "hop-repel": repel, "hop-tuned": tuned, "hop-best": best}

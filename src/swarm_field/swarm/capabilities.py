@@ -41,6 +41,10 @@ class CapabilitySet:
 
 _COMMON_ACTIONS = frozenset({Move, Charge, Idle})
 
+DOCK_SWAP_SECONDS = 5.0 * 60.0
+"""How long a dock takes to fill an empty battery. A dock swaps batteries, which takes a few
+minutes whatever the body, so every body charges from empty to full in this time."""
+
 BODY_CAPABILITIES: dict[BodyType, CapabilitySet] = {
     BodyType.SCOUT: CapabilitySet(
         body=BodyType.SCOUT,
@@ -50,7 +54,7 @@ BODY_CAPABILITIES: dict[BodyType, CapabilitySet] = {
         terrain_sensing_radius=1,
         peer_sensing_radius=1,
         endurance_seconds=30.0 * 60.0,
-        dock_recharge_seconds=45.0 * 60.0,
+        dock_recharge_seconds=DOCK_SWAP_SECONDS,
         can_detect_pests=True,
     ),
     BodyType.KILLER: CapabilitySet(
@@ -61,7 +65,7 @@ BODY_CAPABILITIES: dict[BodyType, CapabilitySet] = {
         terrain_sensing_radius=1,
         peer_sensing_radius=1,
         endurance_seconds=8.0 * 60.0 * 60.0,
-        dock_recharge_seconds=60.0 * 60.0,
+        dock_recharge_seconds=DOCK_SWAP_SECONDS,
         can_detect_pests=True,
         can_treat=True,
     ),
@@ -73,7 +77,7 @@ BODY_CAPABILITIES: dict[BodyType, CapabilitySet] = {
         terrain_sensing_radius=1,
         peer_sensing_radius=1,
         endurance_seconds=8.0 * 60.0 * 60.0,
-        dock_recharge_seconds=60.0 * 60.0,
+        dock_recharge_seconds=DOCK_SWAP_SECONDS,
         spare_battery_capacity=3,
         battery_replacement_seconds=224.0,
         can_supply_batteries=True,

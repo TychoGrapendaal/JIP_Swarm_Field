@@ -3,6 +3,9 @@
 A ``MapConfig`` is one scenario's field. ``river_and_rocks`` is the small field's map, one river
 with a bridge and two rocks, and ``two_rivers_and_rocks`` the large field's, two rivers with
 three bridges and eight rocks. An open field has no blocked cells, ``()``.
+
+The four standard maps, to compose a ``SwarmScenario`` from: ``SMALL_OPEN_MAP``,
+``LARGE_OPEN_MAP``, ``SMALL_RIVER_MAP`` and ``LARGE_RIVERS_MAP``.
 """
 
 from __future__ import annotations
@@ -20,15 +23,18 @@ class MapConfig:
         size: The field's side in cells.
         obstacles: The blocked cells; ``None`` for ``river_and_rocks``, ``()`` for an open field.
         cell_size: The side of a cell in metres.
-        docks: The cells where robots recharge, one robot at a time each. Explorers and seeded
-            killers return to one when their battery runs low; ``()`` for none, so that a robot
-            fails once its battery runs out.
+        docks: The cells where robots recharge and killers restock, any number of robots at
+            once. Explorers and seeded killers return to one when their battery runs low;
+            ``()`` for none, so that a robot fails once its battery runs out.
+        dock_range_m: How far a dock's own beacon reaches, for robots that relay beacons;
+            ``None`` for the robots' radio range. A larger one is a stronger dock antenna.
     """
 
     size: int = 32
     obstacles: tuple[CellId, ...] | None = None
     cell_size: float = 10.0
     docks: tuple[CellId, ...] = ((0, 0),)
+    dock_range_m: float | None = None
 
     def __post_init__(self) -> None:
         """Check that every dock is a free cell of the field.
@@ -36,6 +42,8 @@ class MapConfig:
         Raises:
             ValueError: If a dock is outside the field or blocked.
         """
+        if self.dock_range_m is not None and self.dock_range_m < 0.0:
+            raise ValueError("dock_range_m must not be negative")
         blocked = set(self.blocked_cells())
         for dock in self.docks:
             if not self.is_inside(dock) or dock in blocked:
@@ -117,3 +125,22 @@ def two_rivers_and_rocks(size: int) -> tuple[CellId, ...]:
         for dx in range(3):
             cells.extend((corner_x + dx, corner_y + dy) for dy in range(3))
     return tuple(cells)
+
+
+SMALL_OPEN_MAP = MapConfig(obstacles=())
+"""The small open field: 32 x 32 cells of 10 m without obstacles, and a dock at ``(0, 0)``."""
+
+LARGE_OPEN_MAP = MapConfig(size=64, obstacles=(), docks=((0, 0), (63, 63)))
+"""The large open field: 64 x 64 cells of 10 m, four times the area, without obstacles, and a
+dock in each of two opposite corners."""
+
+SMALL_RIVER_MAP = MapConfig(obstacles=river_and_rocks(32), docks=((0, 0), (31, 31)))
+"""The small river field: 32 x 32 cells of 10 m, one river with a bridge and two rocks
+(``river_and_rocks``), and a dock on each bank of the river, at ``(0, 0)`` and ``(31, 31)``,
+since a hop killer finds a dock across the river only slowly. ``MapConfig()`` is the same field
+with the dock at ``(0, 0)`` only."""
+
+LARGE_RIVERS_MAP = MapConfig(size=64, obstacles=two_rivers_and_rocks(64), docks=((0, 0), (63, 63)))
+"""The large river field: 64 x 64 cells of 10 m, four times the area, with two rivers and three
+bridges and eight rocks (``two_rivers_and_rocks``), and a dock in each of two opposite
+corners."""

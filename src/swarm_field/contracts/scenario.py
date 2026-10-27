@@ -165,6 +165,29 @@ class PestSourceSpec:
 
 
 @dataclass(frozen=True)
+class DockBeaconSpec:
+    """A radio on every dock that broadcasts a DOCK beacon of 0 on the dock's cell.
+
+    Every ``period`` each dock sends the beacon to the robots within ``radio_range_m`` of it, so
+    robots that relay beacons can find a dock without a map.
+
+    Attributes:
+        period: Time between two broadcasts in simulation milliseconds.
+        radio_range_m: How far a dock's broadcast reaches.
+    """
+
+    period: int = 15 * TimeUnit.SECOND
+    radio_range_m: float = 0.0
+
+    def __post_init__(self) -> None:
+        """Validate the supported parameter ranges."""
+        if self.period <= 0:
+            raise ValueError("dock beacon period must be positive")
+        if self.radio_range_m < 0.0:
+            raise ValueError("dock beacon range must not be negative")
+
+
+@dataclass(frozen=True)
 class PositionErrorSpec:
     """Recurring chance that a robot mislocates itself, for testing recovery from drift.
 
@@ -229,10 +252,11 @@ class ScenarioConfig:
         failures: Recurring chance that a robot fails, for robustness runs.
         position_error: Recurring chance that a robot mislocates itself, for robustness runs.
         pest_sources: Mock sources broadcasting every pest, or ``None`` for none.
+        dock_beacons: The docks' own radio broadcasting DOCK beacons, or ``None`` for none.
         treatment_rate: How much infestation severity one treating robot removes per hour; at
             1.0 a pest of full severity takes an hour.
-        treatment_doses: How many treatments a killer's full consumable holds; each treatment
-            uses ``1 / treatment_doses`` of it.
+        treatment_doses: How many treatments a killer's full tank holds; each treatment job
+            uses one dose.
     """
 
     field: FieldGeometry
@@ -247,5 +271,6 @@ class ScenarioConfig:
     failures: FailureSpec = FailureSpec()
     position_error: PositionErrorSpec = PositionErrorSpec()
     pest_sources: PestSourceSpec | None = None
+    dock_beacons: DockBeaconSpec | None = None
     treatment_rate: float = 1.0
     treatment_doses: int = 10

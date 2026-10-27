@@ -31,21 +31,31 @@ class HopPull:
 
 
 def beacon_strength(heard: HeardBeacon, now: Time, config: BeaconConfig) -> float:
-    """How strongly a beacon attracts: ``gamma`` per hop, decaying with the beacon's age."""
-    return config.gamma**heard.beacon.value * exp(-(now - heard.sent_at) / config.decay)
+    """How strongly a beacon attracts: ``gamma`` per hop, decaying with the beacon's age, unless
+    ``decay`` is ``None``."""
+    strength = config.gamma**heard.beacon.value
+    if config.decay is not None:
+        strength *= exp(-(now - heard.sent_at) / config.decay)
+    return strength
 
 
 def downhill_beacons(
-    beacons: BeaconView, position: CellId, now: Time, config: BeaconConfig
+    beacons: BeaconView,
+    position: CellId,
+    now: Time,
+    config: BeaconConfig,
+    kind: BeaconKind = BeaconKind.TREAT,
 ) -> list[HeardBeacon]:
-    """The fresh TREAT beacons that pull the robot: below its own value and off its cell.
+    """The fresh beacons of ``kind`` that pull the robot: below its own value and off its cell.
+
+    ``config`` must be the settings of ``kind`` (``BeaconConfig.for_kind``).
 
     A beacon on the robot's own cell pulls in no direction, so it is left out. A robot standing
     on a beacon's cell is as close to the pest as that beacon, so only beacons below it pull:
     its own value, which adds at least one hop, would let a neighbour just above that beacon
     pull it back, and the robot would shuttle between the two cells.
     """
-    fresh = fresh_beacons(beacons, BeaconKind.TREAT, now, config)
+    fresh = fresh_beacons(beacons, kind, now, config)
     if not fresh:
         return []
     here = own_value(fresh, position, config)
@@ -59,14 +69,23 @@ def downhill_beacons(
     return downhill
 
 
-def hop_pull(beacons: BeaconView, robot: CellId, now: Time, config: BeaconConfig) -> HopPull | None:
-    """The pull of the ``downhill_beacons``, or ``None`` if no beacon attracts the robot.
+def hop_pull(
+    beacons: BeaconView,
+    robot: CellId,
+    now: Time,
+    config: BeaconConfig,
+    kind: BeaconKind = BeaconKind.TREAT,
+) -> HopPull | None:
+    """The pull of the ``downhill_beacons`` of ``kind``, or ``None`` if none attracts the robot.
+
+    Beacons of ``kind`` are weighed with the settings of that kind (``BeaconConfig.for_kind``).
 
     A killer's beacon pushes with ``killer_repulsion`` times its strength instead, so that a
     killer closer to the pest counters the pull towards it, and the ``obstacle_push`` is added.
     With ``distance_power``, every strength is divided by the beacon's distance to that power,
     also when picking the strongest beacon. Pulls that cancel out exactly count as no pull.
     """
+    config = config.for_kind(kind)
     killers: frozenset[RobotId] = frozenset()
     if config.killer_repulsion > 0:
         killers = beacons.killers()
@@ -74,7 +93,7 @@ def hop_pull(beacons: BeaconView, robot: CellId, now: Time, config: BeaconConfig
     pull_y = 0.0
     strongest: HeardBeacon | None = None
     strongest_strength = 0.0
-    for heard in downhill_beacons(beacons, robot, now, config):
+    for heard in downhill_beacons(beacons, robot, now, config, kind):
         dx = heard.beacon.cell[0] - robot[0]
         dy = heard.beacon.cell[1] - robot[1]
         distance = hypot(dx, dy)

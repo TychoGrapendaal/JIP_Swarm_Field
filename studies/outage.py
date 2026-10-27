@@ -58,7 +58,7 @@ from __future__ import annotations
 
 import argparse
 from collections import defaultdict
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from statistics import mean
 from typing import TYPE_CHECKING
 
@@ -69,7 +69,7 @@ from studies.defaults import (
     MAPS,
     default_scenario,
     killer_methods,
-    pest_run_spec,
+    measured_run,
 )
 from studies.plotting import (
     METHOD_COLORS,
@@ -84,8 +84,8 @@ from swarm_field.experiments import (
     Experiment,
     MeasuredPestRun,
     PestResponse,
-    PestRunSpec,
     Run,
+    SwarmScenario,
     arm_name,
     by_arm,
     markdown_table,
@@ -157,7 +157,7 @@ def failure_probability(lost: float, hours: int) -> float:
     return 1.0 - (1.0 - lost) ** (1.0 / checks)
 
 
-def measure_outage(run: Run[PestRunSpec]) -> OutageResult:
+def measure_outage(run: Run[SwarmScenario]) -> OutageResult:
     """Make one run, measured as ``measure_pest_response`` does, with a timeline of its state."""
     measured = MeasuredPestRun(run)
     world = measured.live.context.world
@@ -207,16 +207,16 @@ def main() -> None:
     args = parse_args()
     hours = args.hours or MAPS[args.map].hours
     probability = failure_probability(args.lost, hours)
-    specs: dict[str, PestRunSpec] = {}
+    specs: dict[str, SwarmScenario] = {}
     for method, scenario in killer_methods(default_scenario(args.map)).items():
-        spec = replace(pest_run_spec(scenario, args.map, args.warmup_hours), hours=hours)
+        spec = measured_run(scenario, args.map, args.warmup_hours, hours)
         specs[arm_name(method, failures=NO_FAILURES)] = spec
         for kind in args.kinds:
             failures = FailureSpec(FAILURE_PERIOD, probability, FAILURE_KINDS[kind])
-            specs[arm_name(method, failures=kind)] = replace(spec, failures=failures)
+            specs[arm_name(method, failures=kind)] = spec.with_failures(failures)
 
     experiment = Experiment("outage")
-    runs = runs_for(specs, range(args.seeds), PestRunSpec.cost)
+    runs = runs_for(specs, range(args.seeds), SwarmScenario.run_cost)
     results = by_arm(experiment.run(runs, measure_outage, args.jobs))
 
     headers = pest_table_headers(hours)

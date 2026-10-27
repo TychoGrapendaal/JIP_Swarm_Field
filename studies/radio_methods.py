@@ -9,8 +9,8 @@ in range, so a shorter radio both thins the relay network and shortens every hop
 Setup: the default settings of ``studies/defaults.py`` (10 explorers and 4 killers, static pests
 at the start and every hour) on the small field with a river and rocks and the small open field.
 The two arms of a map and range differ only in the killers' brains: ``killer_methods`` gives
-the seeded killers and the hop killers with their beacons tuned to the range (``hop-tuned``), the
-best parameters of each. Every arm runs with the same seeds, so the same pests appear at the same
+the tuned seeded killers (``SEEDED_BEST``) and the tuned hop killers (``HOP_BEST``), whose
+beacons follow the range. Every arm runs with the same seeds, so the same pests appear at the same
 times in both.
 
 Measured per run with the standard ``measure_pest_response``: the table has its standard columns,
@@ -52,14 +52,14 @@ from studies.defaults import (
     MAPS,
     default_scenario,
     killer_methods,
-    pest_run_spec,
+    measured_run,
     with_radio,
 )
 from studies.plotting import plot_method, save_figure, save_table
 from swarm_field.experiments import (
     Experiment,
     PestResponse,
-    PestRunSpec,
+    SwarmScenario,
     arm_name,
     by_arm,
     markdown_table,
@@ -87,16 +87,16 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    specs: dict[str, PestRunSpec] = {}
+    specs: dict[str, SwarmScenario] = {}
     for map_name in args.maps:
         for radio_range in args.ranges:
             scenario = with_radio(default_scenario(map_name), radio_range)
             for method, configured in killer_methods(scenario).items():
                 arm = arm_name(map_name, method, radio=radio_range)
-                specs[arm] = pest_run_spec(configured, map_name)
+                specs[arm] = measured_run(configured, map_name)
 
     experiment = Experiment("radio_methods")
-    runs = runs_for(specs, range(args.seeds), PestRunSpec.cost)
+    runs = runs_for(specs, range(args.seeds), SwarmScenario.run_cost)
     results = by_arm(experiment.run(runs, measure_pest_response, args.jobs))
 
     tables: list[str] = []

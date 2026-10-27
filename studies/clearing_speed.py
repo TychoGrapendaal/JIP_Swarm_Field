@@ -59,11 +59,10 @@ from studies.defaults import (
 from studies.plotting import plot_method, save_figure, save_table
 from swarm_field.contracts import BodyType
 from swarm_field.experiments import (
-    SEEDED_KILLER,
+    SEEDED_BEST,
     Experiment,
     MeasuredPestRun,
     PestResponse,
-    PestRunSpec,
     Run,
     SwarmScenario,
     arm_name,
@@ -99,13 +98,13 @@ def clearing_scenarios(map_name: str, killers: int, pests: int) -> dict[str, Swa
     standard = MAPS[map_name]
     static = replace(default_pests(standard), pests_per_hour=0.0, initial_pests=pests)
     swarm = replace(default_scenario(map_name), pests=static).without_robots(BodyType.KILLER)
-    methods = killer_methods(swarm.add_robots(SEEDED_KILLER, killers))
+    methods = killer_methods(swarm.add_robots(SEEDED_BEST, killers))
     sweepers = swarm.without_robots(BodyType.SCOUT)
     methods["grid"] = with_grid_sweepers(sweepers, killers, BodyType.KILLER, grid_sweep_brain)
     return methods
 
 
-def measure_clearing(run: Run[PestRunSpec]) -> PestResponse:
+def measure_clearing(run: Run[SwarmScenario]) -> PestResponse:
     """Make one run, measured as ``measure_pest_response`` does, until the field is clear."""
     measured = MeasuredPestRun(run)
     while not measured.finished and measured.tracker.clean_at is None:
@@ -130,16 +129,16 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     pests = initial_pests(args.map, args.infested)
-    specs: dict[str, PestRunSpec] = {}
+    specs: dict[str, SwarmScenario] = {}
     for killers in args.killers:
         for method, scenario in clearing_scenarios(args.map, killers, pests).items():
             if method in args.methods:
-                specs[arm_name(method, killers=killers)] = PestRunSpec(
-                    scenario, args.max_hours, pests_per_hour=0.0, warmup_hours=0
+                specs[arm_name(method, killers=killers)] = scenario.with_hours(
+                    args.max_hours, warmup_hours=0
                 )
 
     experiment = Experiment("clearing_speed")
-    runs = runs_for(specs, range(args.seeds), PestRunSpec.cost)
+    runs = runs_for(specs, range(args.seeds), SwarmScenario.run_cost)
     results = by_arm(experiment.run(runs, measure_clearing, args.jobs))
 
     headers = ["method", "killers", "clear (min)", "treated", "response (min)"]

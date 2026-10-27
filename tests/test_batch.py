@@ -37,7 +37,8 @@ def test_a_batch_runs_in_parallel_and_writes_its_results_in_run_order(tmp_path: 
 
     results = experiment.run(runs, _square_seed_times, processes=2)
 
-    assert re.fullmatch(r"\d{4}-\d\d-\d\d_\d\d-\d\d-\d\d_toy_sweep", experiment.directory.name)
+    folder = r"\d{4}-\d\d-\d\d_\d\d-\d\d-\d\d_toy_sweep_\d{4}"
+    assert re.fullmatch(folder, experiment.directory.name)
     grouped = by_arm(results)
     assert grouped == {
         "toy/factor=1": [_Square(0), _Square(1), _Square(4)],

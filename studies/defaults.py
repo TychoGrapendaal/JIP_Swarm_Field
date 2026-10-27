@@ -1,22 +1,19 @@
 """The default settings of the studies: the standard maps, the swarm, the pests and the robots.
 
 A study starts from ``default_scenario(map_name)`` and changes only what its question is about,
-so that every study measures the same swarm on the same fields:
+so that every study measures the same swarm on the same fields. The settings are those of the
+experiment plan (``docs/experiment-plan.md``), built from its ready parts:
 
-- **Maps** (``MAPS``): the small field with one river, a bridge and rocks (32 x 32, 2 h), the
-  large field with two rivers, three bridges and rocks (64 x 64, 4 h), and both sizes as an
-  open field without obstacles.
-- **Robots**: 10 explorers (drones at 8 m/s that fly over obstacles) and 4 killers (ground
-  robots at 1 m/s), a 100 m radio (10 cells), pests sensed in the robot's own cell and
-  obstacles in its direct neighbours, perfect detection and treatment, no battery drain and
-  doses without end, no rebalancing. The robots start side by side on the bottom row and learn
-  the obstacles by sensing them.
-- **Pests**: ``pests_per_hour`` pests at the start and as many new ones every hour, static: they
-  neither grow nor spread.
-
-A robot moves at most one cell per decision, so robots decide every ``DECISION_INTERVAL``, the
-time an 8 m/s drone takes for a 10 m cell; at the scenarios' usual 15 s every robot would move
-one cell per 15 s whatever its speed.
+- **Maps** (``MAPS``): the small field with one river, a bridge and rocks (``SMALL_RIVER_MAP``,
+  2 h), the large field with two rivers, three bridges and rocks (``LARGE_RIVERS_MAP``, 4 h),
+  and both sizes as an open field without obstacles.
+- **Robots** (``DEFAULT_ROBOTS``): 10 explorers (drones at 8 m/s that fly over obstacles) and 4
+  ``SEEDED_BEST`` killers (ground robots at 1 m/s), a 100 m radio (10 cells), pests sensed in the
+  robot's own cell and obstacles in its direct neighbours, perfect detection and treatment, no
+  battery drain and doses without end, no rebalancing. Every preset starts on a jittered
+  lattice of its own, and the robots learn the obstacles by sensing them.
+- **Pests** (``STATIC_PESTS``): ``pests_per_hour`` pests at the start and as many new ones every
+  hour, static: they neither grow nor spread.
 """
 
 from __future__ import annotations
@@ -24,32 +21,44 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
-from swarm_field.contracts import BodyType, Time, TimeUnit
+from swarm_field.contracts import BodyType
 from swarm_field.experiments import (
+    DEFAULT_EXPLORERS,
+    DEFAULT_KILLERS,
+    DEFAULT_ROBOTS,
     EXPLORER,
-    FAST_TREATMENT,
-    SEEDED_KILLER,
+    HOP_BEST,
+    LARGE_FIELD_HOURS,
+    LARGE_OPEN_MAP,
+    LARGE_RIVERS_MAP,
+    SEEDED_BEST,
+    SMALL_FIELD_HOURS,
+    SMALL_OPEN_MAP,
+    SMALL_RIVER_MAP,
+    STATIC_PESTS,
     CustomPreset,
     MapConfig,
     PestConfig,
-    PestRunSpec,
-    RobotConfig,
     SwarmScenario,
-    pest_response_configurations,
-    river_and_rocks,
-    two_rivers_and_rocks,
 )
 from swarm_field.runner import BrainSpec
-from swarm_field.simulation import MetricsConfig
 
-DECISION_INTERVAL: Time = 1_250
-"""The time between two decisions of a robot: 10 m at 8 m/s, so a drone flies at its speed."""
+__all__ = [
+    "DEFAULT_ROBOTS",
+    "EXPLORERS",
+    "KILLERS",
+    "MAPS",
+    "StandardMap",
+    "default_pests",
+    "default_scenario",
+    "killer_methods",
+    "measured_run",
+    "with_grid_sweepers",
+    "with_radio",
+]
 
-EXPLORERS = 10
-KILLERS = 4
-
-UNLIMITED = 1_000_000
-"""Battery charges and treatment doses without end, for a run without battery drain or resupply."""
+EXPLORERS = DEFAULT_EXPLORERS
+KILLERS = DEFAULT_KILLERS
 
 
 @dataclass(frozen=True)
@@ -76,83 +85,72 @@ MAPS: dict[str, StandardMap] = {
     "rivers-small": StandardMap(
         "rivers-small",
         "32 x 32 cells, one river and rocks",
-        MapConfig(size=32, obstacles=river_and_rocks(32)),
-        hours=2,
+        SMALL_RIVER_MAP,
+        hours=SMALL_FIELD_HOURS,
         pests_per_hour=15.0,
     ),
     "rivers-large": StandardMap(
         "rivers-large",
         "64 x 64 cells, two rivers and rocks",
-        MapConfig(size=64, obstacles=two_rivers_and_rocks(64)),
-        hours=4,
+        LARGE_RIVERS_MAP,
+        hours=LARGE_FIELD_HOURS,
         pests_per_hour=60.0,
     ),
     "open-small": StandardMap(
         "open-small",
         "32 x 32 cells, open field",
-        MapConfig(size=32, obstacles=()),
-        hours=2,
+        SMALL_OPEN_MAP,
+        hours=SMALL_FIELD_HOURS,
         pests_per_hour=15.0,
     ),
     "open-large": StandardMap(
         "open-large",
         "64 x 64 cells, open field",
-        MapConfig(size=64, obstacles=()),
-        hours=4,
+        LARGE_OPEN_MAP,
+        hours=LARGE_FIELD_HOURS,
         pests_per_hour=60.0,
     ),
 }
 """The standard maps by name; the large fields have four times the cells, and the pests."""
 
-DEFAULT_ROBOTS = RobotConfig(
-    speed_mps_drone=8.0,
-    speed_mps_ground=1.0,
-    radio_range_m=100.0,
-    decision_interval=DECISION_INTERVAL,
-    knows_terrain=False,
-    lattice_starts=False,
-    battery_capacity=UNLIMITED,
-)
-
 
 def default_pests(standard: StandardMap) -> PestConfig:
     """Static pests: ``pests_per_hour`` at the start and every hour, perfectly treated."""
-    return PestConfig(
-        pests_per_hour=standard.pests_per_hour,
-        growth_rate=0.0,
-        spread_probability=0.0,
-        treatment_rate=FAST_TREATMENT,
-        treatment_doses=UNLIMITED,
-        source_range_m=None,
-        initial_pests=round(standard.pests_per_hour),
-    )
+    pests_per_hour = standard.pests_per_hour
+    return replace(STATIC_PESTS, pests_per_hour=pests_per_hour, initial_pests=round(pests_per_hour))
 
 
 def default_scenario(map_name: str) -> SwarmScenario:
-    """The default swarm of explorers and seeded killers on the standard map ``map_name``.
+    """The default swarm of explorers and ``SEEDED_BEST`` killers on the standard map
+    ``map_name``, for the map's hours, measured from the start.
 
     Raises:
         KeyError: If there is no standard map of that name.
     """
     standard = MAPS[map_name]
-    scenario = SwarmScenario(
-        map=standard.map,
-        pests=default_pests(standard),
-        robots=DEFAULT_ROBOTS,
-        metrics=MetricsConfig(period=TimeUnit.MINUTE),
-        until=standard.hours * TimeUnit.HOUR,
+    scenario = (
+        SwarmScenario()
+        .with_map(standard.map)
+        .with_pests(default_pests(standard))
+        .with_robot_config(DEFAULT_ROBOTS)
+        .add_robots(EXPLORER, EXPLORERS)
+        .add_robots(SEEDED_BEST, KILLERS)
     )
-    return scenario.add_robots(EXPLORER, EXPLORERS).add_robots(SEEDED_KILLER, KILLERS)
+    return scenario.with_hours(standard.hours, warmup_hours=0)
 
 
-def pest_run_spec(scenario: SwarmScenario, map_name: str, warmup_hours: int = 1) -> PestRunSpec:
-    """``scenario`` as a run of ``measure_pest_response`` for the standard map's hours and pests.
+def measured_run(
+    scenario: SwarmScenario, map_name: str, warmup_hours: int = 1, hours: int | None = None
+) -> SwarmScenario:
+    """``scenario`` as a run of ``measure_pest_response`` for the standard map's hours, or
+    ``hours`` if given.
 
     ``infested`` leaves out the first ``warmup_hours``, while the swarm finds the pests that were
     there at the start.
     """
-    standard = MAPS[map_name]
-    return PestRunSpec(scenario, standard.hours, standard.pests_per_hour, warmup_hours)
+    if hours is None:
+        hours = MAPS[map_name].hours
+    return scenario.with_hours(hours, warmup_hours)
 
 
 def with_radio(scenario: SwarmScenario, radio_range_m: float) -> SwarmScenario:
@@ -161,13 +159,18 @@ def with_radio(scenario: SwarmScenario, radio_range_m: float) -> SwarmScenario:
 
 
 def killer_methods(scenario: SwarmScenario) -> dict[str, SwarmScenario]:
-    """``scenario`` with its killers as the best seeded and the best hop-based killers.
+    """``scenario`` with its killers as the tuned seeded (``SEEDED_BEST``) and the tuned
+    hop-based killers (``HOP_BEST``), as many as it has, after its other robots.
 
-    The hop killers' beacons are tuned to the scenario's radio range (``hop-tuned``), so build
-    the methods after setting the radio.
+    The hop killers' beacons follow the scenario's radio range, so build the methods after
+    setting the radio.
     """
-    configurations = pest_response_configurations(scenario)
-    return {"seeded": configurations["seeded"], "hop": configurations["hop-tuned"]}
+    killers = scenario.killers
+    others = scenario.without_robots(BodyType.KILLER)
+    return {
+        "seeded": others.add_robots(SEEDED_BEST, killers),
+        "hop": others.add_robots(HOP_BEST, killers),
+    }
 
 
 def with_grid_sweepers(
@@ -180,7 +183,7 @@ def with_grid_sweepers(
 
     ``brain`` is ``grid_sweep_brain`` for killers or ``grid_explorer_brain`` for explorers. Every
     sweeper is a preset of its own, so that its strip is set by its number rather than by where
-    it starts: the start row may be interrupted by a river.
+    it starts.
     """
     for strip in range(count):
         preset = CustomPreset(f"grid-{strip}", body, brain(count, strip))

@@ -34,10 +34,15 @@ class MessageKind(Enum):
 class BeaconKind(Enum):
     """What a beacon marks.
 
-    ``TREAT`` beacons guide killers to a pest, and robots relay them.
+    Attributes:
+        TREAT: Guides killers to a pest. A robot that saw the pest is its source, and robots
+            relay it.
+        DOCK: Guides robots to a dock. Every dock broadcasts it from its own cell, and robots
+            relay it.
     """
 
     TREAT = auto()
+    DOCK = auto()
 
 
 @dataclass(frozen=True)

@@ -9,6 +9,7 @@ from swarm_field.contracts import (
     AgentObjective,
     BodyType,
     CellId,
+    Charge,
     CropObservation,
     FieldGeometry,
     Idle,
@@ -43,6 +44,7 @@ from swarm_field.swarm import (
     Navigator,
     Regroup,
     RegroupSeeder,
+    Resupply,
     SharingConfig,
     TreatInfestation,
     TreatSeeder,
@@ -623,3 +625,48 @@ def test_a_yielding_treat_seeder_leaves_a_pest_to_a_closer_fresh_claimant() -> N
     assert near_the_claimant == {(9, 0)}
     assert closer_than_it == {(5, 5), (9, 0)}
     assert after_the_claim_aged == {(5, 5), (9, 0)}
+
+
+def test_an_empty_killer_does_not_bid_to_treat_even_on_a_pest() -> None:
+    memory = AgentMemory(1, _FIELD)
+    memory.merge([_pest((0, 0))])
+    self_state = replace(_perception(body=BodyType.KILLER).self_state, consumable=0.0)
+    ctx = DecisionContext(time=0, self_state=self_state, sensed=[], memory=memory)
+
+    assert TreatInfestation().propose(ctx) == ()
+
+
+def test_resupply_bids_with_two_doses_of_ten_left_and_not_with_three() -> None:
+    behavior = Resupply(docks=((9, 9),))
+    memory = AgentMemory(1, _FIELD)
+    killer = _perception(body=BodyType.KILLER).self_state
+
+    def bids(doses_left: int) -> tuple[ActionCandidate, ...]:
+        self_state = replace(killer, consumable=doses_left / 10, doses_left=doses_left)
+        ctx = DecisionContext(time=0, self_state=self_state, sensed=[], memory=memory)
+        return behavior.propose(ctx)
+
+    assert bids(3) == ()
+    assert len(bids(2)) == 1
+
+
+def test_resupply_bids_more_as_the_doses_run_out_and_restocks_on_a_dock() -> None:
+    behavior = Resupply(docks=((9, 9),))
+    memory = AgentMemory(1, _FIELD)
+    killer = _perception(body=BodyType.KILLER).self_state
+
+    def bids(doses_left: int, position: CellId = (0, 0)) -> list[ActionCandidate]:
+        self_state = replace(
+            killer, consumable=doses_left / 10, doses_left=doses_left, position=position
+        )
+        ctx = DecisionContext(time=0, self_state=self_state, sensed=[], memory=memory)
+        return list(behavior.propose(ctx))
+
+    (one_left,) = bids(1)
+    (empty,) = bids(0)
+    (on_dock,) = bids(1, position=(9, 9))
+
+    assert bids(5) == []
+    assert one_left.score < 0.8 < 0.9 < empty.score
+    assert isinstance(empty.action, FollowField)
+    assert isinstance(on_dock.action, Charge)
