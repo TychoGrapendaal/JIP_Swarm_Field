@@ -14,7 +14,7 @@ follows the stale cells of the robot's block, and the field is rebuilt once per 
 not while the robot travels over fresh ground.
 
 With ``spread_peers`` the robots are made to spread out: a block's values are divided by one
-plus the number of peers in it or heading to it.
+plus the number of exploring peers in it or heading to it.
 """
 
 from collections import Counter
@@ -24,7 +24,7 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
-from swarm_field.contracts import CellId, Time, TimeUnit
+from swarm_field.contracts import AgentObjective, CellId, Time, TimeUnit
 from swarm_field.swarm.field import Seed
 from swarm_field.swarm.memory import MemoryView
 
@@ -95,11 +95,12 @@ class BlockTarget:
 
 @dataclass(frozen=True)
 class PeerDiscount:
-    """Divides a target's worth by one plus the number of peers in, or heading to, its block.
+    """Divides a target's worth by one plus the number of exploring peers in, or heading to, its
+    block.
 
     Attributes:
-        peers: How many peers are in, or heading to, each block, in block coordinates. Empty
-            without ``spread_peers``, so the discount changes nothing.
+        peers: How many exploring peers are in, or heading to, each block, in block coordinates.
+            Empty without ``spread_peers``, so the discount changes nothing.
     """
 
     peers: Mapping[CellId, int]
@@ -108,14 +109,18 @@ class PeerDiscount:
     def from_memory(cls, memory: MemoryView, now: Time, config: ExploreConfig) -> "PeerDiscount":
         """The discount from the peers' recent reports, or none without ``spread_peers``.
 
-        Only reports younger than ``peer_max_age`` count. A peer counts once per block, also when
-        it is heading to a cell of the block it is in.
+        Only reports younger than ``peer_max_age`` count, and only of peers that report the
+        EXPLORE objective: a killer idling in a block senses only its own cell, so counting it
+        would keep the explorers from the cells around it for as long as it waits there. A peer
+        counts once per block, also when it is heading to a cell of the block it is in.
         """
         counts: Counter[CellId] = Counter()
         if not config.spread_peers:
             return cls(counts)
         for peer in memory.peers():
             if now - peer.observed_at > config.peer_max_age:
+                continue
+            if peer.objective is not AgentObjective.EXPLORE:
                 continue
             blocks = {config.block_of(peer.cell)}
             if peer.target is not None:
