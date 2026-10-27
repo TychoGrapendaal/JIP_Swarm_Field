@@ -102,7 +102,7 @@ class SwarmContext:
         arbiter: The overrides and hysteresis of the presets' ``UtilityArbiter``.
         sweep_time: How long the swarm's explorers need to visit every free cell once, if they
             split the field evenly; 0 without explorers. ``ExplorerPreset`` sets its revisit
-            age from it.
+            age from it, and ``HopKillerPreset`` how long a pest's source lasts.
     """
 
     relaying: Relaying
@@ -121,8 +121,9 @@ class RobotPreset(Protocol):
     @property
     def body(self) -> BodyType: ...
 
-    def needs(self, hop_cells: float) -> Relaying:
-        """What the swarm has to relay for this robot, with hops of ``hop_cells`` cells."""
+    def needs(self, hop_cells: float, sweep_time: Time) -> Relaying:
+        """What the swarm has to relay for this robot, with hops of ``hop_cells`` cells, in a
+        swarm whose explorers sweep the field in ``sweep_time`` (``SwarmContext``)."""
         ...
 
     def brain(self, swarm: SwarmContext) -> BrainSpec:
@@ -154,7 +155,7 @@ class ExplorerPreset:
     def body(self) -> BodyType:
         return BodyType.SCOUT
 
-    def needs(self, hop_cells: float) -> Relaying:
+    def needs(self, hop_cells: float, sweep_time: Time) -> Relaying:
         return Relaying()
 
     def brain(self, swarm: SwarmContext) -> BrainSpec:
@@ -189,7 +190,7 @@ class RelayPreset:
     def body(self) -> BodyType:
         return BodyType.SCOUT
 
-    def needs(self, hop_cells: float) -> Relaying:
+    def needs(self, hop_cells: float, sweep_time: Time) -> Relaying:
         return Relaying()
 
     def brain(self, swarm: SwarmContext) -> BrainSpec:
@@ -228,7 +229,7 @@ class SeededKillerPreset:
     def body(self) -> BodyType:
         return BodyType.KILLER
 
-    def needs(self, hop_cells: float) -> Relaying:
+    def needs(self, hop_cells: float, sweep_time: Time) -> Relaying:
         return Relaying(pest_facts=self._pest_facts())
 
     def brain(self, swarm: SwarmContext) -> BrainSpec:
@@ -262,26 +263,41 @@ class HopKillerPreset:
     strength of a beacon, often below 0.5, so a restock bid above it would send a killer with
     doses left to the dock and keep it from the pests it hears of.
 
+    A pest stays a beacon source for ``source_sweeps`` sweep times of its swarm, if given: an
+    explorer comes by a cell about once a sweep, so a shorter source drops a pest before it is
+    seen again, on a field of any size.
+
     Attributes:
         beacons: How it and every robot of its swarm keep, relay and weigh beacons, or ``None``
             for ``variant`` of ``hop_beacon_variants``, for the swarm's radio range.
         variant: The configuration of ``hop_beacon_variants`` used without ``beacons``.
+        source_sweeps: How long a robot stays a pest's source (``BeaconConfig.source_for``), in
+            sweep times of its swarm (``SwarmContext``), or ``None`` to keep the ``source_for``
+            of the beacons. A swarm without explorers keeps it too, since it has no sweep time.
         name: The preset's name.
     """
 
     beacons: BeaconConfig | None = None
     variant: str = "hop-tuned"
+    source_sweeps: float | None = None
     name: str = "hop-killer"
 
     @property
     def body(self) -> BodyType:
         return BodyType.KILLER
 
-    def needs(self, hop_cells: float) -> Relaying:
+    def needs(self, hop_cells: float, sweep_time: Time) -> Relaying:
+        return Relaying(beacons=self.beacon_config(hop_cells, sweep_time))
+
+    def beacon_config(self, hop_cells: float, sweep_time: Time) -> BeaconConfig:
+        """Its beacons with hops of ``hop_cells`` cells, in a swarm that sweeps its field in
+        ``sweep_time``."""
         beacons = self.beacons
         if beacons is None:
             beacons = hop_beacon_variants(hop_cells)[self.variant]
-        return Relaying(beacons=beacons)
+        if self.source_sweeps is None or sweep_time == 0:
+            return beacons
+        return replace(beacons, source_for=round(self.source_sweeps * sweep_time))
 
     def brain(self, swarm: SwarmContext) -> BrainSpec:
         """Its brain, on the beacons the swarm relays, which are the ones it needs.
@@ -329,7 +345,7 @@ class CustomPreset:
     brain_spec: BrainSpec
     pest_facts: KnowledgeSharing = KnowledgeSharing.NOTHING
 
-    def needs(self, hop_cells: float) -> Relaying:
+    def needs(self, hop_cells: float, sweep_time: Time) -> Relaying:
         return Relaying(beacons=self.brain_spec.beacons, pest_facts=self.pest_facts)
 
     def brain(self, swarm: SwarmContext) -> BrainSpec:
@@ -344,8 +360,10 @@ SEEDED_BEST = SeededKillerPreset(claim_fresh_for=10 * TimeUnit.MINUTE, name="see
 """The seeded killer tuned on the small and the large river field with moving explorers
 (``studies/tune_arms.py``): a claim counts for 10 minutes instead of 2, since claims relayed
 through moving explorers arrive late."""
-HOP_BEST = HopKillerPreset(variant="hop-best", name="hop-best")
-"""The hop killer tuned likewise: ``hop-best`` of ``hop_beacon_variants``."""
+HOP_BEST = HopKillerPreset(variant="hop-best", source_sweeps=1.5, name="hop-best")
+"""The hop killer tuned likewise: ``hop-best`` of ``hop_beacon_variants``, with a pest's source
+lasting 1.5 sweep times instead of 3 minutes, the best on the four default scenarios
+(``studies/tune_arms.py``): about 3 minutes on the small fields and 12 on the large ones."""
 
 
 def hop_beacon_variants(hop_cells: float) -> dict[str, BeaconConfig]:
@@ -356,7 +374,7 @@ def hop_beacon_variants(hop_cells: float) -> dict[str, BeaconConfig]:
     repelling each other, and ``hop-tuned`` pulls weighted by the square root of the distance
     and the escape. ``hop-best`` keeps a pest marked and a heard beacon fresh for 3 minutes
     instead of 1, the best on both the small and the large river field with moving explorers
-    (``studies/tune_arms.py``).
+    (``studies/tune_arms.py``); ``HOP_BEST`` sets its source from the sweep time instead.
     """
     hop = BeaconConfig(
         hop_cells=hop_cells, max_value=math.log(0.05) / math.log(0.5), dock=DockBeacons()

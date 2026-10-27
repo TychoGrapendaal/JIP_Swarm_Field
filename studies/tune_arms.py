@@ -22,23 +22,43 @@ killer. Not part of ``pytest``; run it with:
 ``--stage refine`` checks one step beyond the adopted values, on either field, and
 ``--stage verify`` runs the frozen ``SEEDED_BEST`` and ``HOP_BEST`` against the defaults on seeds
 not used for tuning, e.g. ``--first-seed 100``.
+
+``--stage defaults`` tunes them again on the four default scenarios (``RIVER_SMALL``,
+``RIVERS_LARGE``, ``OPEN_SMALL``, ``OPEN_LARGE``) as they are, with their own robots, loads and
+run lengths: the ages of the hop beacons, the cap on a beacon's hops and the seeded claim age, one
+at a time around ``HOP_BEST`` and ``SEEDED_BEST``. It ignores ``--field`` and the robot and hour
+options, and takes about three hours on 24 processes:
+
+    uv run python -m studies.tune_arms --stage defaults --seeds 8
+
+``--stage source-sweeps`` then checks on fresh seeds what it pointed to, a ``source_for`` of
+``HOP_BEST`` that grows with the swarm's sweep time, which ``HOP_BEST`` now has:
+
+    uv run python -m studies.tune_arms --stage source-sweeps --seeds 8 --first-seed 100
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from statistics import mean, stdev
 
-from swarm_field.contracts import TimeUnit
+from swarm_field.contracts import BodyType, TimeUnit
 from swarm_field.experiments import (
+    DEFAULT_EXPLORERS,
+    DEFAULT_KILLERS,
     EXPLORER,
     HOP_BEST,
     HOP_KILLER,
     LARGE_RIVERS_MAP,
     LATTICE_ROBOTS,
+    OPEN_LARGE,
+    OPEN_SMALL,
     PESTS_PER_KILLER_HOUR,
+    RIVER_SMALL,
+    RIVERS_LARGE,
     SEEDED_BEST,
     SEEDED_KILLER,
     SMALL_RIVER_MAP,
@@ -179,6 +199,114 @@ def refine_variants() -> list[Variant]:
     return found
 
 
+def hop_best_beacons(default: SwarmScenario) -> BeaconConfig:
+    """The beacons of ``HOP_BEST`` in the swarm of ``default``."""
+    hop_cells = default.robots.radio_range_m / default.map.cell_size
+    return HOP_BEST.beacon_config(hop_cells, default.sweep_time())
+
+
+def default_field_variants(default: SwarmScenario) -> list[Variant]:
+    """``HOP_BEST`` and ``SEEDED_BEST``, and every one-parameter change of them that the
+    defaults stage tries on ``default``.
+
+    The ages double from 1 to 16 minutes. The large fields take four times as long to sweep as
+    the small ones, so a best age that grows with the field shows up a step or two further
+    along the doubling."""
+    best = hop_best_beacons(default)
+    hop_changes: dict[str, BeaconConfig] = {}
+    for minutes in (1, 2, 4, 8, 16):
+        hop_changes[f"fresh_for={minutes}m"] = replace(best, fresh_for=minutes * MINUTE)
+    for minutes in (1, 2, 4, 8, 16):
+        hop_changes[f"source_for={minutes}m"] = replace(best, source_for=minutes * MINUTE)
+    for value in (2.0, 3.0):
+        hop_changes[f"max_value={value:g}"] = replace(best, max_value=value)
+    found = [Variant("hop-best", None, HOP_BEST), Variant("seeded-best", None, SEEDED_BEST)]
+    for label, beacons in hop_changes.items():
+        killer = replace(HOP_BEST, beacons=beacons, source_sweeps=None)
+        found.append(Variant(f"hop-best/{label}", "hop-best", killer))
+    for minutes in (1, 2, 4, 8, 16):
+        killer = replace(SEEDED_BEST, claim_fresh_for=minutes * MINUTE)
+        found.append(Variant(f"seeded-best/claim_fresh_for={minutes}m", "seeded-best", killer))
+    return found
+
+
+def source_sweep_variants(default: SwarmScenario) -> list[Variant]:
+    """``HOP_BEST``, with a source of 1.5 sweep times, against its earlier fixed source of 3
+    minutes and a source of 1 sweep time, and ``SEEDED_BEST`` next to them: the source-sweeps
+    stage, which checked on fresh seeds the formula the defaults stage pointed to."""
+    fixed = replace(HOP_BEST, source_sweeps=None)
+    return [
+        Variant("hop-best/source_for=3m", None, fixed),
+        Variant(
+            "hop-best/source_for=1sweep",
+            "hop-best/source_for=3m",
+            replace(fixed, source_sweeps=1.0),
+        ),
+        Variant("hop-best", "hop-best/source_for=3m", HOP_BEST),
+        Variant("seeded-best", None, SEEDED_BEST),
+    ]
+
+
+DEFAULT_FIELDS: dict[str, SwarmScenario] = {
+    "river-small": RIVER_SMALL,
+    "rivers-large": RIVERS_LARGE,
+    "open-small": OPEN_SMALL,
+    "open-large": OPEN_LARGE,
+}
+"""The default scenarios the defaults stage tunes on, by name."""
+
+
+def tune_on_default_fields(
+    args: argparse.Namespace, variants_for: Callable[[SwarmScenario], list[Variant]]
+) -> None:
+    """A stage on the default scenarios: every variant of ``variants_for`` on every default
+    scenario, with its killers swapped for the variant's, and one table per field."""
+    scenarios: dict[str, SwarmScenario] = {}
+    variants_by_field: dict[str, list[Variant]] = {}
+    for field, default in DEFAULT_FIELDS.items():
+        variants_by_field[field] = variants_for(default)
+        explorers_only = default.without_robots(BodyType.KILLER)
+        for variant in variants_by_field[field]:
+            scenario = explorers_only.add_robots(variant.killer, DEFAULT_KILLERS)
+            scenarios[f"{field}/{variant.name}"] = scenario
+
+    experiment = Experiment(f"tune_arms_{args.stage}")
+    seeds = range(args.first_seed, args.first_seed + args.seeds)
+    runs = runs_for(scenarios, seeds, SwarmScenario.run_cost)
+    results = by_arm(experiment.run(runs, measure_pest_response, args.jobs))
+
+    sections: list[str] = []
+    for field, default in DEFAULT_FIELDS.items():
+        hours = round(default.until / TimeUnit.HOUR)
+        headers = pest_table_headers(hours)
+        headers.extend(["Δ infested", "adopt"])
+        rows: list[list[str]] = []
+        for variant in variants_by_field[field]:
+            arm_results = results[f"{field}/{variant.name}"]
+            cells = pest_table_cells(variant.name, arm_results, hours)
+            difference = "-"
+            adopted = "-"
+            if variant.base is not None:
+                base = results[f"{field}/{variant.base}"]
+                difference = paired_difference(
+                    [result.infested for result in arm_results],
+                    [result.infested for result in base],
+                )
+                adopted = adopt(arm_results, base)
+            cells.extend([difference, adopted])
+            rows.append(cells)
+        title = (
+            f"{field}: {DEFAULT_EXPLORERS} explorers, {DEFAULT_KILLERS} killers, "
+            f"{default.pests.initial_pests} pests at the start and "
+            f"{default.pests.pests_per_hour:g} per hour, {hours} h, seeds {seeds.start} to "
+            f"{seeds.stop - 1}; Δ infested against the arm's base"
+        )
+        sections.append(f"{title}\n\n{markdown_table(headers, rows)}")
+    text = "\n".join(sections)
+    print(text)
+    experiment.write_text("tables.md", text)
+
+
 def verify_variants() -> list[Variant]:
     """The frozen presets against the defaults they were tuned from, and against each other."""
     return [
@@ -199,7 +327,9 @@ FIELD_MAPS: dict[str, MapConfig] = {"small": SMALL_RIVER_MAP, "large": LARGE_RIV
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
-        "--stage", choices=("sweep", "combine", "refine", "verify"), default="sweep"
+        "--stage",
+        choices=("sweep", "combine", "refine", "verify", "defaults", "source-sweeps"),
+        default="sweep",
     )
     parser.add_argument("--field", choices=tuple(FIELD_ROBOTS), default="small")
     parser.add_argument("--explorers", type=int, help="the field's default if not given")
@@ -228,6 +358,12 @@ def adopt(results: list[PestResponse], base: list[PestResponse]) -> str:
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
     args = parse_args()
+    if args.stage == "defaults":
+        tune_on_default_fields(args, default_field_variants)
+        return
+    if args.stage == "source-sweeps":
+        tune_on_default_fields(args, source_sweep_variants)
+        return
     explorers, killers = FIELD_ROBOTS[args.field]
     if args.explorers is not None:
         explorers = args.explorers

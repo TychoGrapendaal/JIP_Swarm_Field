@@ -263,6 +263,23 @@ The frozen presets, on seeds 100 onwards, which tuning did not use. They were ve
 
 Before the refactoring pass, `HOP_BEST` left 3.05 ± 0.33 infested cells on the small field and 12.92 ± 1.14 on the large one, and the seeded rows were the same as now, so both presets still beat their defaults on the fields where they did. Tuning improves the hop arm by 30 to 45 % and the seeded arm by a quarter on the large field, but the seeded arm still leaves far fewer infested cells, by a factor of 2.3 on the small field and 3.3 on the large one. This is the starting point of the comparison experiments.
 
+### Re-tuning on the default scenarios: a source that lasts 1.5 sweep times
+
+The experiments run on the four default scenarios (`RIVER_SMALL`, `RIVERS_LARGE`, `OPEN_SMALL`, `OPEN_LARGE`), with 10 explorers at 8 m/s, 4 killers, a 100 m radio and pests on the field from the start. `tune_arms --stage defaults` tuned both arms again there, one parameter at a time around `HOP_BEST` and `SEEDED_BEST`, on 8 seeds per field. The ages doubled from 1 to 16 minutes, so that a best value that grows with the field shows up further along on the large fields. Their explorers take four times as long to sweep the field: about 2 minutes on the small fields and 8 on the large ones (`SwarmScenario.sweep_time`).
+
+Only the hop `source_for` moved, and its best value grew with the field. On the small fields 2 and 3 minutes were best, and 8 minutes or more was worse by more than two standard errors. On the large fields 8 and 16 minutes were better than 3, by −2.05 ± 0.71 and −1.96 ± 0.46 infested cells on the river field and by −0.54 ± 0.25 and −0.36 ± 0.13 on the open one. That is about one sweep time on both. An explorer comes by a cell about once a sweep, so a shorter source drops a pest before an explorer sees it again. Nothing else beat its base on all four fields: `fresh_for` stays at 3 minutes and the cap at 4.3 hops. The seeded claim age made no difference from 1 to 16 minutes on any field, so `SEEDED_BEST` stays as it is.
+
+`tune_arms --stage source-sweeps` checked the formula on seeds 100 to 107, against the fixed 3 minutes:
+
+| `source_for` | River small | Rivers large | Open small | Open large |
+| --- | --- | --- | --- | --- |
+| 3 minutes (before) | 5.29 ± 0.61 | 5.77 ± 0.45 | 3.86 ± 0.29 | 3.51 ± 0.22 |
+| 1 sweep time, paired | −0.88 ± 0.51 | −0.49 ± 0.32 | +0.05 ± 0.26 | −0.53 ± 0.21 |
+| 1.5 sweep times, paired | −0.91 ± 0.38 | −1.17 ± 0.51 | +0.07 ± 0.20 | −0.56 ± 0.14 |
+| `SEEDED_BEST` | 2.52 ± 0.21 | 1.73 ± 0.11 | 2.38 ± 0.13 | 1.60 ± 0.10 |
+
+1.5 sweep times is as good as 1 or better everywhere, so `HOP_BEST` now sets its source to 1.5 sweep times of its swarm (`HopKillerPreset.source_sweeps`). That is about 3 minutes on the small fields, as before, and about 12 on the large ones. The gain on river small is chance: there the source changes by 2 seconds, and even that makes the runs diverge, so the paired difference behaves like that of independent runs. The gain on the large fields is real, and it agrees with the first sweep. The seeded arm still leaves 1.5 to 3 times fewer infested cells.
+
 ### Earlier: limiting recruitment
 
 20 seeds per arm, run before the fix for the relay shuttle, which changes every hop arm. "Paired" is the difference in infested cells to the capped hop arm on the same seeds.
