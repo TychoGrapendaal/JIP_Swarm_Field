@@ -287,10 +287,11 @@ class SwarmScenario:
     def relaying(self) -> Relaying:
         """What the swarm's robots relay: what all its presets need, merged."""
         hop_cells = self.robots.radio_range_m / self.map.cell_size
+        sweep_time = self.sweep_time()
         merged = Relaying()
         for group in self.swarm:
             if group.count > 0:
-                merged = merged.merge(group.preset.needs(hop_cells))
+                merged = merged.merge(group.preset.needs(hop_cells, sweep_time))
         return merged
 
     def run_cost(self) -> float:

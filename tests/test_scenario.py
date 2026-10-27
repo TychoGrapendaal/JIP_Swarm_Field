@@ -99,6 +99,17 @@ def test_the_default_scenarios_run_the_default_swarm_on_static_pests() -> None:
         assert hop.into_experiment().scenario.dock_beacons is not None
 
 
+def test_hop_best_keeps_a_source_for_longer_on_a_field_its_swarm_sweeps_slower() -> None:
+    sources: list[int] = []
+    for default in (RIVER_SMALL, RIVERS_LARGE):
+        hop = default.without_robots(BodyType.KILLER).add_robots(HOP_BEST, DEFAULT_KILLERS)
+        beacons = hop.relaying().beacons
+        assert beacons is not None
+        assert beacons.source_for == round(1.5 * hop.sweep_time())
+        sources.append(beacons.source_for)
+    assert sources[1] > 3 * sources[0]
+
+
 def test_the_bridges_join_every_free_cell_of_the_two_rivers_field() -> None:
     size = RIVERS_LARGE.map.size
     blocked = set(RIVERS_LARGE.map.blocked_cells())
@@ -179,14 +190,14 @@ def test_a_hop_killer_restocks_only_an_empty_tank() -> None:
     assert bids(0) == 1
 
 
-def test_the_best_hop_killer_keeps_its_tuned_times_and_scales_its_hops_with_the_radio() -> None:
+def test_the_best_hop_killer_keeps_its_tuned_freshness_and_scales_its_hops_with_the_radio() -> None:
     near = _OPEN.add_robots(EXPLORER, 2).add_robots(HOP_BEST, 1)
     far = near.with_robot_config(replace(near.robots, radio_range_m=100.0))
 
     beacons = near.relaying().beacons
     wider = far.relaying().beacons
     assert beacons is not None and wider is not None
-    assert beacons.fresh_for == beacons.source_for == 3 * TimeUnit.MINUTE
+    assert beacons.fresh_for == 3 * TimeUnit.MINUTE
     assert beacons.hop_cells == near.robots.radio_range_m / near.map.cell_size
     assert wider.hop_cells == 100.0 / near.map.cell_size
 

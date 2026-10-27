@@ -73,7 +73,7 @@ A preset is a kind of robot: its name, its body, and its brain (`src/swarm_field
 | --- | --- | --- |
 | `EXPLORER` | scout | Explores the field and shares everything it knows. A scout flies, so it plans over the rivers and the rocks. |
 | `SEEDED_BEST` | killer | The seeded method: plans a route over its map to a pest it knows of, and treats it. The swarm gossips the pests it knows and the killers' claims, so a killer leaves a pest to a closer killer that claimed it. |
-| `HOP_BEST` | killer | The hop method: walks down the hop beacons to a pest, without a map. A pest's source beacons 0 and every robot broadcasts its distance in hops; killers repel each other, and a killer stuck in place pushes itself out. It finds a dock down the DOCK beacons the docks broadcast. See [`research/hop-field.md`](research/hop-field.md). |
+| `HOP_BEST` | killer | The hop method: walks down the hop beacons to a pest, without a map. A pest's source beacons 0 and every robot broadcasts its distance in hops; a pest's source lasts 1.5 sweep times of the swarm; killers repel each other, and a killer stuck in place pushes itself out. It finds a dock down the DOCK beacons the docks broadcast. See [`research/hop-field.md`](research/hop-field.md). |
 
 `SEEDED_BEST` and `HOP_BEST` are each method's best configuration, tuned one parameter at a time (`studies/tune_arms.py`). Compare the methods with these two, never with an untuned one. Their classes, `SeededKillerPreset` and `HopKillerPreset`, make variants with other parameters, as `ExplorerPreset` does for explorers; give a variant a `name` of its own to keep it apart in tables. `CustomPreset(name, body, brain_spec)` adds a robot with any `BrainSpec`, e.g. one with a new behaviour under test.
 
