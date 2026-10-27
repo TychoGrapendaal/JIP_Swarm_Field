@@ -15,7 +15,7 @@ class TreatByBeacon:
     remembered pest cells: it reads ``DecisionContext.sensed``, not ``DecisionContext.memory``.
     Its bid is the strength of the strongest attracting beacon of the ``hop_pull`` the hop field
     follows, so it never commits to a field with nothing to guide to, also when killers'
-    beacons push.
+    beacons push. A killer whose consumable is used up proposes nothing.
     """
 
     name: str = "treat-hop"
@@ -28,6 +28,9 @@ class TreatByBeacon:
         self._field: str = field
 
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
+        # An empty killer cannot treat, and standing on a pest its beacon would repel others.
+        if ctx.self_state.consumable <= 0.0:
+            return ()
         position = ctx.self_state.position
         for fact in ctx.sensed:
             if not isinstance(fact, InfestationObservation):

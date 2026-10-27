@@ -6,9 +6,9 @@ when the brain is assembled. The brain asks the provider for the winning seeder'
 name, and only the provider calls the seeder, whenever its cached field no longer answers.
 """
 
-import math
 from collections.abc import Hashable
 from dataclasses import dataclass
+from math import hypot
 from typing import Protocol
 
 import numpy as np
@@ -18,6 +18,7 @@ from swarm_field.contracts import (
     AgentObjective,
     BodyType,
     CellId,
+    InfestationObservation,
     PeerObservation,
     Time,
     TimeUnit,
@@ -74,22 +75,24 @@ class SeededField:
     field: GridPotentialField
 
 
+CLAIM_FRESH_FOR: Time = 2 * TimeUnit.MINUTE
+"""How long a peer's report that it is heading for a pest keeps the pest claimed.
+
+A killer reports its target with every status message, so a recent report means it is still on
+its way; an older one may come from a killer that has since left radio range or failed.
+"""
+
+
 class TreatSeeder:
     """Seeds the TREAT field: draws the robot to remembered infestations.
 
     Each infested cell attracts by its severity times the memory's confidence in it, and
-    clustered infestations attract more than isolated ones. A cell that a peer is already
-    heading for, to treat it, attracts less. Rebuilt once a minute, and whenever the infested
-    cells or the peers' targets change.
-
-    With ``yield_to_closer``, a cell is left out altogether when a peer heading for it is closer
-    to it than the robot, by straight-line distance from the peer's reported cell: the closer
-    claimant keeps the pest and the others look elsewhere. Only claims reported within
-    ``claim_fresh_for`` count, so a peer that left or failed does not hold a pest for good. If
-    every known pest is claimed by a closer peer, none is left out, so the robot still helps.
+    clustered infestations attract more than isolated ones. With ``yield_to_closer``, only the
+    pests left to this robot attract (``pests_left_to_robot``): a pest a closer killer freshly
+    claimed is left out, so two killers do not drive to the same pest. Rebuilt once a minute,
+    and whenever the infested cells or the pests left change.
 
     Attributes:
-        reduction_rate: What is left of a cell's attraction when a peer is heading for it, 0..1.
         value_amplifier: The attraction of a cell of severity 1 at full confidence, in cells.
         sigma: The width, in cells, of the Gaussian by which nearby infestations reinforce
             each other.
@@ -98,7 +101,7 @@ class TreatSeeder:
             left out is negligible.
         window_blocks: How many blocks around the robot's own the field is searched cell by
             cell, as in ``FieldSeeder``.
-        yield_to_closer: Whether to leave out the cells a closer peer is heading for.
+        yield_to_closer: Whether to leave out the pests a closer killer has claimed.
         claim_fresh_for: How old a peer's report of its target may be to count as a claim.
     """
 
@@ -106,16 +109,13 @@ class TreatSeeder:
 
     def __init__(
         self,
-        reduction_rate: float = 0.2,
         value_amplifier: float = 1.0,
         sigma: float = 1.0,
         cutoff_sigmas: float = 3.0,
         window_blocks: int = 2,
         yield_to_closer: bool = False,
-        claim_fresh_for: Time = 2 * TimeUnit.MINUTE,
+        claim_fresh_for: Time = CLAIM_FRESH_FOR,
     ) -> None:
-        if not 0.0 <= reduction_rate <= 1.0:
-            raise ValueError("reduction_rate must be between 0 and 1")
         if value_amplifier < 0.0:
             raise ValueError("value_amplifier must be non-negative")
         if sigma <= 0.0:
@@ -125,7 +125,6 @@ class TreatSeeder:
         self.window_blocks: int = window_blocks
         self.yield_to_closer: bool = yield_to_closer
         self.claim_fresh_for: Time = claim_fresh_for
-        self._reduction_rate: float = reduction_rate
         self._value_amplifier: float = value_amplifier
         self._sigma: float = sigma
         self._cutoff_sigmas: float = cutoff_sigmas
@@ -136,19 +135,15 @@ class TreatSeeder:
             for fact in memory.infestations()
             if fact.severity > 0.0
         )
-        yielded = self._yielded_cells(memory, robot, now)
-        return now // TimeUnit.MINUTE, facts, _cells_targeted_by_peers(memory), yielded
+        left: set[CellId] = set()
+        for pest in self._pests(memory, robot, now):
+            left.add(pest.cell)
+        return now // TimeUnit.MINUTE, facts, frozenset(left)
 
     def seeds(self, memory: MemoryView, robot: CellId, now: Time) -> tuple[Seed, ...]:
         seeds: list[Seed] = []
-        targeted = _cells_targeted_by_peers(memory)
-        yielded = self._yielded_cells(memory, robot, now)
-        for pest in memory.infestations():
-            if pest.severity <= 0.0 or pest.cell in yielded:
-                continue
+        for pest in self._pests(memory, robot, now):
             attractiveness = pest.severity * memory.confidence(pest, now)
-            if pest.cell in targeted:
-                attractiveness *= self._reduction_rate
             if attractiveness > 0.0:
                 seeds.append(Seed(pest.cell, -self._value_amplifier * attractiveness))
 
@@ -157,34 +152,11 @@ class TreatSeeder:
         updated_seeds = self.reinforce_clustered_seeds(seeds)
         return tuple(updated_seeds)
 
-    def _yielded_cells(self, memory: MemoryView, robot: CellId, now: Time) -> frozenset[CellId]:
-        """The infested cells a closer peer has freshly claimed, if ``yield_to_closer``.
-
-        Empty when the robot does not yield, and when every infested cell would be yielded.
-        The set depends on the robot's own cell, so ``field_key`` includes it.
-        """
-        if not self.yield_to_closer:
-            return frozenset()
-        closest_claim: dict[CellId, float] = {}
-        for peer in memory.peers():
-            if peer.target is None or peer.objective is not AgentObjective.TREAT:
-                continue
-            if now - peer.observed_at > self.claim_fresh_for:
-                continue
-            distance = math.dist(peer.cell, peer.target)
-            closest_claim[peer.target] = min(distance, closest_claim.get(peer.target, math.inf))
-        yielded: set[CellId] = set()
-        infested = 0
-        for pest in memory.infestations():
-            if pest.severity <= 0.0:
-                continue
-            infested += 1
-            claim = closest_claim.get(pest.cell)
-            if claim is not None and claim < math.dist(robot, pest.cell):
-                yielded.add(pest.cell)
-        if len(yielded) == infested:
-            return frozenset()
-        return frozenset(yielded)
+    def _pests(self, memory: MemoryView, robot: CellId, now: Time) -> list[InfestationObservation]:
+        """The pests this field draws to: those left to the robot, or every known one."""
+        if self.yield_to_closer:
+            return pests_left_to_robot(memory, robot, now, self.claim_fresh_for)
+        return infested(memory)
 
     def reinforce_clustered_seeds(self, seeds: list[Seed]) -> list[Seed]:
         """Update each value by the values of its neighbours, so clusters attract more.
@@ -335,10 +307,44 @@ class DockSeeder:
         return tuple(Seed(dock, 0.0) for dock in self._docks)
 
 
-def _cells_targeted_by_peers(memory: MemoryView) -> frozenset[CellId]:
-    """The cells the remembered peers say they are heading for, to treat them."""
-    targeted: set[CellId] = set()
+def pests_left_to_robot(
+    memory: MemoryView, robot: CellId, now: Time, claim_fresh_for: Time = CLAIM_FRESH_FOR
+) -> list[InfestationObservation]:
+    """The known pests that no closer killer is heading for, to treat them.
+
+    A peer that recently reported a pest as its TREAT target claims it when it is closer to the
+    pest than ``robot``, or as close with a lower robot id, so of two killers heading for the
+    same pest exactly one keeps it and the other looks elsewhere; killers that travel together
+    are as close as each other, so without the tie-break none would give way. Both the TREAT
+    field and ``TreatInfestation``'s bid read the pests through this, so the bid and the field
+    agree on which pests are left.
+    """
+    claimed: set[CellId] = set()
     for peer in memory.peers():
-        if peer.target is not None and peer.objective is AgentObjective.TREAT:
-            targeted.add(peer.target)
-    return frozenset(targeted)
+        if peer.target is None or peer.objective is not AgentObjective.TREAT:
+            continue
+        if now - peer.observed_at > claim_fresh_for:
+            continue
+        peer_distance = hypot(peer.target[0] - peer.cell[0], peer.target[1] - peer.cell[1])
+        own_distance = hypot(peer.target[0] - robot[0], peer.target[1] - robot[1])
+        closer = peer_distance < own_distance
+        as_close_with_lower_id = (
+            peer_distance == own_distance and peer.peer is not None and peer.peer < memory.robot_id
+        )
+        if closer or as_close_with_lower_id:
+            claimed.add(peer.target)
+
+    left: list[InfestationObservation] = []
+    for pest in infested(memory):
+        if pest.cell not in claimed:
+            left.append(pest)
+    return left
+
+
+def infested(memory: MemoryView) -> list[InfestationObservation]:
+    """Every pest memory knows of: the infestation facts with a severity above 0."""
+    pests: list[InfestationObservation] = []
+    for pest in memory.infestations():
+        if pest.severity > 0.0:
+            pests.append(pest)
+    return pests

@@ -1,0 +1,54 @@
+{
+  "name": "scalability",
+  "scenario": "pests",
+  "seeds": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "hours": 3,
+  "warmup_hours": 1,
+  "jobs": 6,
+  "parameters": {
+    "map": {
+      "size": 30
+    },
+    "swarm": {
+      "explorer": 6,
+      "seeded-killer": 4
+    },
+    "pests": {
+      "pests_per_hour": 13,
+      "spread_probability": 0.01,
+      "treatment_doses": 100
+    },
+    "robots": {
+      "battery_capacity": 10.0
+    },
+    "metrics": {
+      "period": 60000
+    }
+  },
+  "conditions": {
+    "robots-10": {},
+    "robots-15": {
+      "swarm": {
+        "explorer": 9,
+        "seeded-killer": 6
+      }
+    },
+    "robots-20": {
+      "swarm": {
+        "explorer": 12,
+        "seeded-killer": 8
+      }
+    },
+    "robots-25": {
+      "swarm": {
+        "explorer": 15,
+        "seeded-killer": 10
+      }
+    }
+  }
+}

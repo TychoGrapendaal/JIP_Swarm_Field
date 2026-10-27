@@ -78,6 +78,20 @@ class SharingConfig:
         return f"{when}/{self.facts.name.lower()}"
 
 
+def message_items(message: Message) -> int:
+    """How many items a message carries, a measure of its size.
+
+    A status is one item, and every fact of a knowledge snapshot or of a tuple of facts and
+    every beacon of a beacon message is one.
+    """
+    payload = message.payload
+    if isinstance(payload, KnowledgeSnapshot):
+        return len(payload)
+    if isinstance(payload, tuple):
+        return len(cast(tuple[object, ...], payload))
+    return 1
+
+
 class KnowledgeExchange:
     """One robot's side of knowledge sharing: merges what it hears, and picks when it shares.
 
@@ -103,7 +117,7 @@ class KnowledgeExchange:
         """Merge the status reports and memory snapshots in the inbox, in the order received.
 
         A knowledge message may also carry a tuple of facts, as a mock source sends; those are
-        merged as they are.
+        merged as they are. A robot whose memory keeps no map skips snapshots altogether.
         """
         for message in inbox:
             if message.kind is MessageKind.STATUS:
@@ -128,6 +142,9 @@ class KnowledgeExchange:
                         message.sender,
                         message.payload,
                     )
+                    continue
+                if not self._memory.keeps_map:
+                    # A robot without a map takes in no peer's snapshot, and keeps none.
                     continue
                 self._memory.merge_snapshot(message.payload, self._merged.get(message.sender))
                 self._merged[message.sender] = message.payload

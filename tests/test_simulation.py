@@ -15,6 +15,7 @@ from swarm_field.contracts import (
     BodyType,
     CellId,
     Decision,
+    DockBeaconSpec,
     FieldGeometry,
     Idle,
     InfestationObservation,
@@ -28,8 +29,10 @@ from swarm_field.contracts import (
     SetTimeScale,
     StepOnce,
     Time,
+    Treat,
 )
 from swarm_field.simulation import (
+    DockBroadcast,
     PestDynamicsConfig,
     PestSourceBroadcast,
     RobotDecision,
@@ -179,6 +182,20 @@ def test_world_tick_grows_infestation() -> None:
     assert next_event.time == 60_000
 
 
+def test_world_tick_does_not_grow_a_pest_a_killer_is_treating() -> None:
+    ctx = _context()
+    ctx.world.cell((2, 2)).infestation = 0.2
+    ctx.world.cell((3, 3)).infestation = 0.2
+    ctx.world.add_robot(RobotState(1, (2, 2), BodyType.KILLER, speed_mps=1.0))
+    ctx.world.apply_action(1, Treat((2, 2)), time=0)
+    config = PestDynamicsConfig(growth_rate=0.1, spread_probability=0.0, spawn_probability=0.0)
+
+    WorldTick(time=0, config=config).handle(ctx)
+
+    assert ctx.world.cell((2, 2)).infestation == pytest.approx(0.2)
+    assert ctx.world.cell((3, 3)).infestation == pytest.approx(0.3)
+
+
 def test_world_tick_spreads_without_cascading() -> None:
     ctx = _context()
     ctx.world.cell((2, 2)).infestation = 1.0
@@ -239,7 +256,7 @@ def test_world_tick_is_deterministic_for_same_seed() -> None:
     assert run(seed=42) == run(seed=42)
 
 
-def test_robot_decision_perceives_acts_and_requeues_at_fixed_interval() -> None:
+def test_robot_decision_decides_on_arrival_and_at_the_interval_when_still() -> None:
     robot = RobotState(
         robot_id=1,
         position=(1, 1),
@@ -263,16 +280,18 @@ def test_robot_decision_perceives_acts_and_requeues_at_fixed_interval() -> None:
 
     SimulationLoop().run(ctx, until=5_000)
 
+    # The 1 m move at 1 m/s arrives after 1 s, when the robot decides again; it then idles,
+    # so its next decision comes a full interval later.
     assert len(agent.perceptions) == 2
     assert agent.perceptions[0].time == 0
     assert agent.perceptions[0].self_state.position == (1, 1)
-    assert agent.perceptions[1].time == 5_000
+    assert agent.perceptions[1].time == 1_000
     assert agent.perceptions[1].self_state.position == (2, 1)
     assert world.positions()[1] == (2, 1)
 
     next_event = ctx.queue.peek()
     assert isinstance(next_event, RobotDecision)
-    assert next_event.time == 10_000
+    assert next_event.time == 6_000
     assert next_event.robot == 1
 
 
@@ -471,3 +490,27 @@ def test_a_cleared_pest_is_reported_clean_once_then_falls_silent() -> None:
 
     assert severities == [[0.0], []]
     assert kinds == [{MessageKind.KNOWLEDGE}, set()]
+
+
+def test_a_dock_broadcasts_a_dock_beacon_to_the_robots_in_range_under_its_own_id() -> None:
+    near = RobotState(robot_id=1, position=(1, 1), body=BodyType.KILLER, speed_mps=0.1)
+    far = RobotState(robot_id=2, position=(8, 8), body=BodyType.KILLER, speed_mps=0.1)
+    field = FieldGeometry(
+        width=10, height=10, cell_size=10.0, row_sp=0.0, in_row_sp=0.0, headland=0.0
+    )
+    world = WorldState(field, robots=[near, far], docks=[(0, 0)])
+    ctx = SimulationContext(now=0, rng=Random(0), agents={}, world=world)
+    world.cells[(0, 0)].infestation = 0.5
+
+    DockBroadcast(time=0, spec=DockBeaconSpec(radio_range_m=15.0)).handle(ctx)
+    PestSourceBroadcast(time=0, spec=PestSourceSpec(radio_range_m=15.0)).handle(ctx)
+
+    inbox = ctx.channel.take_inbox(1)
+    beacons = [message.payload for message in inbox if message.kind is MessageKind.BEACON]
+    assert beacons == [
+        (Beacon(BeaconKind.DOCK, 0.0, (0, 0)),),
+        (Beacon(BeaconKind.TREAT, 0.0, (0, 0)),),
+    ]
+    senders = {message.sender for message in inbox}
+    assert len(senders) == 2 and max(senders) < 0
+    assert ctx.channel.take_inbox(2) == []

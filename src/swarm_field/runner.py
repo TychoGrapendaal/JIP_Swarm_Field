@@ -34,6 +34,8 @@ from swarm_field.contracts import (
     TimeUnit,
 )
 from swarm_field.simulation import (
+    Channel,
+    DockBroadcast,
     FailureCheck,
     FailureConfig,
     MetricSample,
@@ -50,6 +52,7 @@ from swarm_field.simulation import (
     build_world,
 )
 from swarm_field.swarm import (
+    CLAIM_FRESH_FOR,
     AgentMemory,
     ArbiterConfig,
     BatteryRequestSeeder,
@@ -65,6 +68,7 @@ from swarm_field.swarm import (
     ExploreSeeder,
     FieldProvider,
     FieldSeeder,
+    HopDockField,
     HopField,
     KnowledgeSnapshot,
     Navigator,
@@ -74,6 +78,8 @@ from swarm_field.swarm import (
     RechargeConfig,
     Regroup,
     RegroupSeeder,
+    Resupply,
+    ResupplyConfig,
     ReturnToDock,
     SensedSurroundings,
     SharingConfig,
@@ -83,6 +89,7 @@ from swarm_field.swarm import (
     TreatSeeder,
     UtilityArbiter,
     capabilities_for,
+    message_items,
 )
 
 T = TypeVar("T")
@@ -132,7 +139,8 @@ _NOISE_SEED_OFFSET = 0x5EED
 def _build_treat_infestation(params: dict[str, Any], rng: Random) -> TreatInfestation:
     """Build the pest-response behaviour, following the TREAT seeder the spec names first.
 
-    It leaves a pest to a peer already treating it with ``"treat_yield"``.
+    It leaves a pest to a peer already treating it with ``"treat_yield"``, and counts claims as
+    old as ``"treat_claim_fresh_for"``, as the TREAT seeder does.
 
     Raises:
         ValueError: If the spec names no seeder, so there is no field to follow.
@@ -141,7 +149,10 @@ def _build_treat_infestation(params: dict[str, Any], rng: Random) -> TreatInfest
     if not seeders:
         raise ValueError("treat-infestation needs a seeder to follow")
     yield_to_treating_peer: bool = params.get("treat_yield", False)
-    return TreatInfestation(seeders[0], yield_to_treating_peer=yield_to_treating_peer)
+    claim_fresh_for: Time = params.get("treat_claim_fresh_for", CLAIM_FRESH_FOR)
+    return TreatInfestation(
+        seeders[0], yield_to_treating_peer=yield_to_treating_peer, claim_fresh_for=claim_fresh_for
+    )
 
 
 @BEHAVIORS.register(TreatByBeacon.name)
@@ -161,6 +172,21 @@ def _build_hop_field(params: dict[str, Any], rng: Random) -> HopField:
     return HopField(config, beacons)
 
 
+@FIELDS.register(HopDockField.name)
+def _build_hop_dock_field(params: dict[str, Any], rng: Random) -> HopDockField:
+    """Build the hop field of the DOCK beacons, over the robot's own beacons, heading for the
+    nearest of the scenario's docks when no DOCK beacon pulls.
+
+    Raises:
+        ValueError: If the spec's ``BeaconConfig`` relays no DOCK beacons.
+    """
+    config, beacons = _beacon_parts(params, f"the {HopDockField.name} field")
+    if config.dock is None:
+        raise ValueError(f"the {HopDockField.name} field needs BeaconConfig.dock")
+    docks: tuple[CellId, ...] = tuple(params.get("docks", ()))
+    return HopDockField(config, beacons, docks)
+
+
 def _beacon_parts(params: dict[str, Any], part: str) -> tuple[BeaconConfig, BeaconView]:
     """The spec's ``BeaconConfig``, and the robot's beacons from its ``BeaconLink``.
 
@@ -177,10 +203,16 @@ def _beacon_parts(params: dict[str, Any], part: str) -> tuple[BeaconConfig, Beac
 
 @SEEDERS.register("treat")
 def _build_treat_seeder(params: dict[str, Any], rng: Random) -> TreatSeeder:
-    """Build the TREAT seeder, with ``"treat_window_blocks"`` and ``"treat_yield"`` if given."""
+    """Build the TREAT seeder, with ``"treat_window_blocks"``, ``"treat_yield"`` and
+    ``"treat_claim_fresh_for"`` if given."""
     window_blocks: int = params.get("treat_window_blocks", 2)
     yield_to_closer: bool = params.get("treat_yield", False)
-    return TreatSeeder(window_blocks=window_blocks, yield_to_closer=yield_to_closer)
+    claim_fresh_for: Time = params.get("treat_claim_fresh_for", CLAIM_FRESH_FOR)
+    return TreatSeeder(
+        window_blocks=window_blocks,
+        yield_to_closer=yield_to_closer,
+        claim_fresh_for=claim_fresh_for,
+    )
 
 
 @BEHAVIORS.register("supply-battery")
@@ -198,20 +230,40 @@ def _build_return_to_dock(params: dict[str, Any], rng: Random) -> ReturnToDock:
     """Build recharge behaviour with the scenario's docks and optional policy."""
     docks: tuple[CellId, ...] = tuple(params.get("docks", ()))
     recharge: RechargeConfig | None = params.get("recharge")
-    seeders: tuple[str, ...] = tuple(params.get("seeders", ("dock",)))
-    seeder = next((name for name in seeders if name == "dock"), "dock")
-    return ReturnToDock(seeder, docks=docks, recharge_config=recharge)
+    return ReturnToDock(_dock_field_of(params), docks=docks, recharge_config=recharge)
+
+
+@BEHAVIORS.register(Resupply.name)
+def _build_resupply(params: dict[str, Any], rng: Random) -> Resupply:
+    """Build the restock behaviour with the scenario's docks and an optional ``"resupply"``
+    config, following the dock field."""
+    docks: tuple[CellId, ...] = tuple(params.get("docks", ()))
+    config: ResupplyConfig | None = params.get("resupply")
+    return Resupply(_dock_field_of(params), docks=docks, config=config)
+
+
+_DOCK_FIELDS = (DockSeeder.name, HopDockField.name)
+"""The fields that lead a robot to a dock: over its map, or down the DOCK beacons."""
+
+
+def _dock_field_of(params: dict[str, Any]) -> str:
+    """The dock field the spec names, the ``DockSeeder`` if it names none."""
+    for name in params.get("seeders", ()):
+        if name in _DOCK_FIELDS:
+            return name
+    return DockSeeder.name
 
 
 @BEHAVIORS.register(RebalanceRoles.name)
 def _build_rebalance_roles(params: dict[str, Any], rng: Random) -> RebalanceRoles:
     """Build role rebalancing (#64) from the ``RebalanceConfig`` under ``"rebalance"``, if given.
 
-    It switches only at the scenario's docks when the config says so.
+    It switches only at the scenario's docks when the config says so, and gets there on the
+    spec's dock field.
     """
     config: RebalanceConfig | None = params.get("rebalance")
     docks: tuple[CellId, ...] = tuple(params.get("docks", ()))
-    return RebalanceRoles(config, docks)
+    return RebalanceRoles(config, docks, _dock_field_of(params))
 
 
 @SEEDERS.register("battery-support")
@@ -438,6 +490,7 @@ def build_run(
         rng=rng,
         agents=agents,
         world=world,
+        channel=Channel(items_of=message_items),
         metrics=collector,
         renderer=renderer,
         position_error=scenario.position_error,
@@ -482,6 +535,8 @@ def seed_initial_events(ctx: SimulationContext, config: ExperimentConfig) -> Non
     )
     if config.scenario.pest_sources is not None:
         ctx.schedule(PestSourceBroadcast(time=0, spec=config.scenario.pest_sources))
+    if config.scenario.dock_beacons is not None:
+        ctx.schedule(DockBroadcast(time=0, spec=config.scenario.dock_beacons))
     if config.scenario.failures.probability > 0.0:
         ctx.schedule(FailureCheck(time=0, config=FailureConfig.from_spec(config.scenario.failures)))
     ctx.schedule(MetricSample(time=0, config=config.metrics))

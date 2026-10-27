@@ -7,6 +7,7 @@ order over a shared ``SimulationContext``.
 from swarm_field.simulation.channel import Channel, robots_in_range_of
 from swarm_field.simulation.context import SimulationContext
 from swarm_field.simulation.event import (
+    DockBroadcast,
     Event,
     EventQueue,
     FailureCheck,
@@ -31,6 +32,7 @@ from swarm_field.simulation.world import EnergyConfig, RobotState, WorldState
 __all__ = [
     "Channel",
     "CommandReplay",
+    "DockBroadcast",
     "EnergyConfig",
     "Event",
     "EventQueue",

@@ -9,17 +9,27 @@ from functools import cache
 
 from studies.baselines import RANDOM_WAYPOINT_BRAIN
 from swarm_field.contracts import MetricsSample, TimeUnit
-from swarm_field.experiments import EXPLORE, EXPLORER, ExplorerPreset, MapConfig
+from swarm_field.experiments import (
+    EXPLORE_ROBOTS,
+    EXPLORER,
+    NO_PESTS,
+    ExplorerPreset,
+    MapConfig,
+    SwarmScenario,
+)
 from swarm_field.runner import run_experiment
+from swarm_field.simulation import MetricsConfig
 from swarm_field.swarm import ExploreConfig
 
 _FIELD = replace(
-    EXPLORE.without_robots()
+    SwarmScenario()
     .with_map(MapConfig(size=24, obstacles=()))
-    .with_metrics(replace(EXPLORE.metrics, measure_from=45 * TimeUnit.MINUTE)),
+    .with_pests(NO_PESTS)
+    .with_robot_config(EXPLORE_ROBOTS)
+    .with_metrics(MetricsConfig(period=TimeUnit.MINUTE, measure_from=45 * TimeUnit.MINUTE)),
     until=90 * TimeUnit.MINUTE,
 )
-"""Idleness is measured once the field has been covered, which takes about 40 minutes."""
+"""Idleness is measured over the second half of the run, after the first exploration."""
 _SPREAD = ExploreConfig()
 _PLAIN = ExploreConfig(spread_peers=False)
 
@@ -35,17 +45,18 @@ def _final(explore: ExploreConfig | None) -> MetricsSample:
     return run_experiment(experiment)[-1]
 
 
-def test_explorers_cover_the_field_and_keep_it_fresher_than_random_waypoints() -> None:
+def test_explorers_cover_more_of_the_field_and_keep_it_fresher_than_random_waypoints() -> None:
+    # A scout senses only the cell it is in, so three scouts do not cover the whole field in the
+    # run; following the EXPLORE field they cover clearly more of it than random waypoints.
     explore = _final(_SPREAD)
     baseline = _final(None)
 
-    assert explore.coverage == 1.0
+    assert explore.coverage > baseline.coverage
     assert explore.mean_idleness_ms < baseline.mean_idleness_ms
 
 
 def test_the_peer_discount_cuts_idleness() -> None:
-    # Redundancy is left out: a scout senses a 3 x 3 square, so nearly every cell it moves to
-    # was sensed a step before, and redundancy is close to 1 with or without the discount.
+    # Redundancy is left out: idleness is what the discount is meant to improve.
     plain = _final(_PLAIN)
     spread = _final(_SPREAD)
 

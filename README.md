@@ -47,13 +47,13 @@ uv run ruff check . && uv run ruff format --check . && uv run pyrefly check && u
 
 ## Studies
 
-`examples/` shows what the simulation and its tools can do; [`studies/`](studies/README.md) holds the experiments behind the report, one script per research question. A study runs fixed configurations with fixed seeds through `swarm_field.experiments.Experiment` (a tutorial is [`docs/experiments.md`](docs/experiments.md)), which runs them in parallel and writes their results and tables to a new folder `output/<date>_<time>_<name>/`, which git ignores:
+`examples/` shows what the simulation and its tools can do; [`studies/`](studies/README.md) holds the experiments behind the report, one script per research question. A study runs fixed configurations with fixed seeds through `swarm_field.experiments.Experiment` (a tutorial is [`docs/experiments.md`](docs/experiments.md)), which runs them in parallel and writes their results and tables to a new folder `output/<date>_<time>_<name>_<NNNN>/`, with four random digits at the end, which git ignores:
 
 ```bash
 uv run python -m studies.radio_range --ranges 50 150 300 --seeds 3 --hours 1
 ```
 
-Compare the four pest responses on the two fields with obstacles:
+Compare the pest responses on the two fields with obstacles:
 
 ```bash
 uv run python -m studies.benchmark_obstacles --seeds 12
@@ -104,19 +104,16 @@ uv run python -m swarm_field.experiments.from_json configs/radio_range.json
 }
 ```
 
-- `scenario` is a ready scenario: `pests`, `explore`, `river-small`, `rivers-large` or `relayed-killers`. Every run starts from it.
+- `scenario` is a ready scenario: the default scenarios `river-small`, `rivers-large`, `open-small` and `open-large`, or `pests`, `explore`, `smoke`, `relayed-river-small`, `relayed-rivers-large` and `relayed-killers`. Every run starts from it.
 - `parameters` changes it for every run, and each entry of `conditions` (optional) changes it further for one condition. Every condition runs with every seed.
-- Parameters come in groups: `map`, `pests`, `robots` and `metrics` take the fields of `MapConfig`, `PestConfig`, `RobotConfig` and `MetricsConfig` (see [`docs/experiments.md`](docs/experiments.md)), with their names and units, so times are in milliseconds. `explore` takes the explorers' `ExploreConfig` fields, and `swarm` the number of robots of each preset by name (`explorer`, `relay`, `seeded-killer`, `hop-killer`); a count of 0 leaves a preset out, which is how a condition switches the killers' navigation, as in `seeded_vs_hop.json`. Hop killers cannot find a dock yet, so give them a large `robots.battery_capacity` and `pests.treatment_doses` for a fair comparison. List them all with their values with `uv run python -m swarm_field.experiments.from_json --list pests`. An unknown name is an error rather than silently ignored.
+- Parameters come in groups: `map`, `pests`, `robots` and `metrics` take the fields of `MapConfig`, `PestConfig`, `RobotConfig` and `MetricsConfig` (see [`docs/experiments.md`](docs/experiments.md)), with their names and units, so times are in milliseconds. `explore` takes the explorers' `ExploreConfig` fields, and `swarm` the number of robots of each preset by name (`explorer`, `relay`, `seeded-killer`, `hop-killer`, and the tuned `seeded-best` and `hop-best`, which a comparison of the two methods should use); a count of 0 leaves a preset out, which is how a condition switches the killers' navigation, as in `seeded_vs_hop.json`. Hop killers find a dock down the DOCK beacons the docks broadcast; a large `robots.battery_capacity` and `pests.treatment_doses` still keep a run about the pest response alone. List them all with their values with `uv run python -m swarm_field.experiments.from_json --list pests`. An unknown name is an error rather than silently ignored.
 - `hours` sets every run's length in whole hours, `warmup_hours` how much of it is left out of the infested cells (0 by default), and `jobs` how many runs go at once (one per CPU by default).
 
 Every run is measured with `measure_pest_response`. The run prints one row per condition, and writes every run's result, the table and a copy of the JSON file to a new folder in `output/`.
 
 ## Integrated battery and live-field demonstrations
 
-The Issue #77 battery lifecycle adds simulated-time energy depletion, exclusive dock charging with
-FIFO queues, and explicit off-dock `DEAD_BATTERY` failures while preserving the current behaviour,
-arbitration, potential-field and discrete-event architecture. See
-[`docs/battery-lifecycle.md`](docs/battery-lifecycle.md) for policy and test details.
+The Issue #77 battery lifecycle adds simulated-time energy depletion, dock charging, and explicit off-dock `DEAD_BATTERY` failures while preserving the current behaviour, arbitration, potential-field and discrete-event architecture. A dock serves every robot at once, in a 5-minute battery swap, and restocks killers' doses. See [`docs/battery-lifecycle.md`](docs/battery-lifecycle.md) for policy and test details.
 
 The styled live simulation shows the actual runner-built swarm, selected robot's potential field,
 infestation, docks, radio links and battery telemetry in one interactive window. It does not save
@@ -153,6 +150,12 @@ Both demos take the console's `--seed`, `--hours`, `--speed` (default 40, twenty
 uv run python examples/pest_demo.py
 ```
 
+The base demo and smoke test of the project (#67), `SMOKE`: five explorers that only explore and five seeded killers that only treat, so every robot has one objective and the arbiter never has to choose. Any other option changes that setup:
+
+```bash
+uv run python examples/pest_demo.py --smoke
+```
+
 Five explorers explore and three killers treat a field with a river and two rocks, while pests appear at random free cells over time. Every robot is a real `ComposedAgent` with a `UtilityArbiter`: explorers follow the EXPLORE field, and seeded killers treat the pests they know of with `TreatInfestation` on the TREAT field. `--hop` makes the killers hop killers, which follow the hop beacons every robot relays from the explorer that sees a pest. Robots share their memory and status only within radio range. The panel shows what each killer is doing and how many pests it knows of. The panel also shows the measures of `MetricsCollector`: infested cells, detection latency, coverage, idleness and redundancy. `--radio`, `--pests-per-hour`, `--spread`, `--explorers` and `--killers` change the setup, and `--save videos/pests.mp4` records a video. The killers' time per goal is weighted by simulated time, so pausing or changing the speed does not change it. `SwarmScenario` in `swarm_field.experiments` describes the run, and `swarm_field.runner` assembles and runs it.
 
 ### Role rebalancing (#64)
@@ -161,10 +164,10 @@ Five explorers explore and three killers treat a field with a river and two rock
 uv run python examples/scenario_viewer.py --scenario rebalancing
 uv run python examples/scenario_viewer.py --scenario rebalancing-fixed
 uv run python examples/scenario_viewer.py --scenario rebalancing-hop
-uv run python -m studies.rebalancing --seeds 8
+uv run python -m studies.rebalancing --seeds 5
 ```
 
-Robots switch between explorer and killer as the pests need. `rebalancing` is the `REBALANCING` swarm (eight explorers and six seeded killers on the river field, a dock in every corner, 20 pests an hour) with every robot a `RebalancingPreset`; `rebalancing-fixed` is the same swarm with fixed roles. A rebalancing robot carries both roles' behaviours, each wrapped in a `BodyGate` (`"body_gates"` in its `BrainSpec`) so it explores only as a scout and treats only as a killer, plus `RebalanceRoles`. From its own memory it counts the explorers, killers and pests it knows of; the swarm needs `min_killers` plus one killer per `pests_per_killer` known pests, but always keeps the `min_monitors` explorers the field needs (`monitors_needed`). When the split stays off for `persistence`, only the robots best placed to switch bid `SwitchRole` (the explorers nearest a known pest, or the killers furthest from any), so the swarm does not switch all at once; a robot then keeps its new role for `role_dwell`. The world gives it the other body and that body's speed and keeps it busy for `RobotConfig.role_switch_time`. The viewer colours robots by body, so every switch shows. `rebalancing-hop` and `rebalancing-hop-fixed` are the same with hop killers, whose switching robots treat by hop beacons (`RebalancingPreset(response="hop")`). `studies.rebalancing` runs every arm on the same seeds; with hop killers rebalancing does not help yet, see [`docs/research/rebalancing.md`](docs/research/rebalancing.md).
+Robots switch between explorer and killer as the pests need, a role being a module swapped at the home base. `rebalancing` is the default small river field (`RIVER_SMALL`: 10 explorers, 4 `SEEDED_BEST` killers) with every robot a `RebalancingPreset`, which carries the brain of an explorer and of the swarm's killer, each gated to its body. From its own memory a robot counts the explorers, killers and pests it knows of; when the split stays off for `persistence`, the robots nearest a dock drive to it, reporting `AgentObjective.SWITCH_ROLE` so that their peers count them in their new role already, and switch there (`SwitchRole`). The world gives the robot the other body, that body's speed and a full tank, and keeps it busy for `RobotConfig.role_switch_time`; it then keeps its role for `role_dwell`. `rebalancing-fixed` is the same swarm with fixed roles, and `rebalancing-hop` and `rebalancing-hop-fixed` the same with `HOP_BEST` killers. The viewer colours robots by body, so every switch shows. `studies.rebalancing` is the REBALANCE experiment of [`docs/experiment-plan.md`](docs/experiment-plan.md); see [`docs/research/rebalancing.md`](docs/research/rebalancing.md).
 
 ### Wall-following steering demonstration
 
@@ -256,7 +259,7 @@ Drawing a frame takes roughly a tenth of a second, so a long run at a low speed 
 
 ### Scenario catalogue
 
-Every scenario has a name, and every script that runs scenarios takes them by that name: the presets `S1` to `S5` of the scenario builder, and the hand-built experiments `explore` (`EXPLORE`, explorers monitoring a field) and `pests` (`PESTS`, explorers and seeded killers while pests keep appearing), both a `SwarmScenario`. `swarm_field.experiments.build_named_experiment(name, seed, until)` turns a name and a seed into the `ExperimentConfig` the runner runs, labelled `NAME/SEED`. Each scenario keeps its own horizon unless one is given: an hour for the presets, three hours for `explore` and `pests`. `scenario_names()` lists them, and `tests/test_catalogue.py` checks that every one of them reproduces its run exactly from the same seed.
+Every scenario has a name, and every script that runs scenarios takes them by that name: the presets `S1` to `S5` of the scenario builder, and the hand-built experiments `explore` (`EXPLORE`, explorers monitoring a field), `pests` (`PESTS`, explorers and seeded killers while pests keep appearing) and `smoke` (`SMOKE`, the base demo: five explorers that only explore and five seeded killers that only treat), each a `SwarmScenario`. `swarm_field.experiments.build_named_experiment(name, seed, until)` turns a name and a seed into the `ExperimentConfig` the runner runs, labelled `NAME/SEED`. Each scenario keeps its own horizon unless one is given: an hour for the presets, three hours for `explore`, `pests` and `smoke`. `scenario_names()` lists them, and `tests/test_catalogue.py` checks that every one of them reproduces its run exactly from the same seed.
 
 ### Running many configurations
 

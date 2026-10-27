@@ -19,7 +19,7 @@ from dataclasses import replace
 from swarm_field.experiments import (
     PESTS,
     Experiment,
-    PestRunSpec,
+    SwarmScenario,
     arm_name,
     by_arm,
     markdown_table,
@@ -43,21 +43,21 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def radio_range_spec(radio_range_m: float, hours: int, warmup_hours: int) -> PestRunSpec:
+def radio_range_scenario(radio_range_m: float, hours: int, warmup_hours: int) -> SwarmScenario:
     """The pest experiment with every robot's radio reaching ``radio_range_m``."""
     scenario = PESTS.with_robot_config(replace(PESTS.robots, radio_range_m=radio_range_m))
-    return PestRunSpec(scenario, hours, PESTS.pests.pests_per_hour, warmup_hours)
+    return scenario.with_hours(hours, warmup_hours)
 
 
 def main() -> None:
     args = parse_args()
-    specs: dict[str, PestRunSpec] = {}
+    scenarios: dict[str, SwarmScenario] = {}
     for radio_range in args.ranges:
-        specs[arm_name("radio", m=radio_range)] = radio_range_spec(
+        scenarios[arm_name("radio", m=radio_range)] = radio_range_scenario(
             radio_range, args.hours, args.warmup_hours
         )
     experiment = Experiment("radio_range")
-    runs = runs_for(specs, range(args.seeds), PestRunSpec.cost)
+    runs = runs_for(scenarios, range(args.seeds), SwarmScenario.run_cost)
     results = by_arm(experiment.run(runs, measure_pest_response, args.jobs))
 
     headers = ["radio", "response (min)", "infested", "coverage", "idle (min)", "msgs"]

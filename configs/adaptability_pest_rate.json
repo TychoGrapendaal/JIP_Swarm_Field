@@ -1,0 +1,46 @@
+{
+  "name": "adaptability-pest-rate",
+  "scenario": "pests",
+  "seeds": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "hours": 3,
+  "warmup_hours": 1,
+  "jobs": 6,
+  "parameters": {
+    "map": {
+      "size": 30
+    },
+    "swarm": {
+      "explorer": 6,
+      "seeded-killer": 4
+    },
+    "pests": {
+      "pests_per_hour": 13,
+      "spread_probability": 0.01,
+      "treatment_doses": 100
+    },
+    "robots": {
+      "battery_capacity": 10.0
+    },
+    "metrics": {
+      "period": 60000
+    }
+  },
+  "conditions": {
+    "pests-6.5": {
+      "pests": {
+        "pests_per_hour": 6.5
+      }
+    },
+    "pests-13": {},
+    "pests-26": {
+      "pests": {
+        "pests_per_hour": 26
+      }
+    }
+  }
+}

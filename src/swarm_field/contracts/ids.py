@@ -91,6 +91,8 @@ class AgentObjective(Enum):
     EXPLORE = auto()
     VERIFY = auto()
     RECHARGE = auto()
+    SWITCH_ROLE = auto()
+    """On its way to a dock to switch role (#64); peers count it in its new role already."""
 
 
 class Terrain(Enum):

@@ -14,19 +14,18 @@ import argparse
 import math
 from dataclasses import replace
 
+from studies.benchmark_obstacles import pest_response_configurations
 from swarm_field.contracts import BodyType
 from swarm_field.experiments import (
     RELAY,
     RELAYED_KILLERS,
     Experiment,
     HopKillerPreset,
-    PestRunSpec,
     SeededKillerPreset,
     SwarmScenario,
     by_arm,
     markdown_table,
     measure_pest_response,
-    pest_response_configurations,
     pest_table_cells,
     pest_table_headers,
     runs_for,
@@ -75,11 +74,12 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    specs: dict[str, PestRunSpec] = {}
+    measured: dict[str, SwarmScenario] = {}
     for name, scenario in arms(args.seeded_no_yield).items():
-        specs[name] = PestRunSpec(scenario, args.hours, args.pests_per_hour, args.warmup_hours)
+        scenario = scenario.with_pests_per_hour(args.pests_per_hour)
+        measured[name] = scenario.with_hours(args.hours, args.warmup_hours)
     experiment = Experiment("pest_benchmark")
-    runs = runs_for(specs, range(args.seeds), PestRunSpec.cost)
+    runs = runs_for(measured, range(args.seeds), SwarmScenario.run_cost)
     results = experiment.run(runs, measure_pest_response, args.jobs)
 
     scenario = RELAYED_KILLERS

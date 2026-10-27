@@ -3,11 +3,14 @@
 A robot that saw a pest itself is the TREAT source: it beacons 0 on the pest's cell. Every
 other robot relays its ``own_value`` on its own cell: the lowest fresh beacon it heard plus the
 hop to it, which costs 1 or, with metric hops, the distance in radio ranges. The values form a
-hop gradient that falls towards the pest. How the gradient pulls a robot is in
+hop gradient that falls towards the pest. DOCK beacons work the same way, with every dock as
+their source (``DockBeacons``). How the gradient pulls a robot is in
 ``swarm_field.swarm.hop.pull``.
 """
 
-from dataclasses import dataclass
+from __future__ import annotations
+
+from dataclasses import dataclass, replace
 from math import hypot
 
 from swarm_field.contracts import Beacon, BeaconKind, CellId, Time, TimeUnit
@@ -16,15 +19,41 @@ from swarm_field.swarm.hop.memory import BeaconView, HeardBeacon
 
 
 @dataclass(frozen=True)
+class DockBeacons:
+    """How DOCK beacons differ from TREAT beacons: a dock never moves or vanishes.
+
+    A DOCK beacon heard on a cell stays a true upper bound on the hops from that cell to a dock
+    for the whole run, so by default it never expires and its pull never fades: the memory's
+    cap per kind (``MEMORY_CAP``, the oldest forgotten first) is the only bound it needs. Its
+    value is never capped either, and killers do not repel each other on the way to a dock.
+
+    Attributes:
+        fresh_for: How long a heard DOCK beacon counts after it was sent; ``None`` for as long
+            as the memory keeps it.
+        decay: The decay time of its pull with its age; ``None`` for a pull that never fades.
+        gamma: The hop discount of DOCK beacons. Nearer 1 than TREAT's, since a dock may lie
+            many hops away, where a discount of 0.5 per hop would leave no pull worth following.
+        max_value: DOCK beacons above this are ignored and not relayed; ``None`` for no limit.
+    """
+
+    fresh_for: Time | None = None
+    decay: Time | None = None
+    gamma: float = 0.8
+    max_value: float | None = None
+
+
+@dataclass(frozen=True)
 class BeaconConfig:
     """How beacons are kept, relayed and weighed.
 
     Attributes:
-        fresh_for: How long a heard beacon counts after it was sent.
+        fresh_for: How long a heard beacon counts after it was sent; ``None`` for as long as the
+            memory keeps it, which only DOCK beacons do by default (``DockBeacons``).
         source_for: How long a robot stays a pest's source after it saw the pest itself.
         gamma: The hop discount, between 0 and 1: a beacon attracts ``gamma`` to the power of
             its value.
-        decay: The decay time of a beacon's attraction with its age.
+        decay: The decay time of a beacon's attraction with its age; ``None`` for an attraction
+            that never fades, as for DOCK beacons by default.
         hop_cells: With a length, a hop costs the distance to the beacon's cell in units of
             this many cells (metric hops); without one, every hop costs 1.
         min_hop_cells: With metric hops, the distance a hop costs at least. Without it, two
@@ -41,12 +70,14 @@ class BeaconConfig:
         obstacle_range_cells: How far a beacon the robot placed to escape pushes; its push falls
             linearly to nothing at this distance.
         escape: When a robot counts as stuck and how it escapes, or ``None`` for no escape.
+        dock: How DOCK beacons are kept and weighed, or ``None`` for a swarm that relays none.
+            The other fields hold for TREAT beacons; ``for_kind`` gives the settings of a kind.
     """
 
-    fresh_for: Time = TimeUnit.MINUTE
+    fresh_for: Time | None = TimeUnit.MINUTE
     source_for: Time = TimeUnit.MINUTE
     gamma: float = 0.5
-    decay: Time = TimeUnit.MINUTE
+    decay: Time | None = TimeUnit.MINUTE
     hop_cells: float | None = None
     min_hop_cells: float = 1.0
     max_value: float | None = None
@@ -54,15 +85,37 @@ class BeaconConfig:
     distance_power: float = 0.0
     obstacle_range_cells: float = 3.0
     escape: EscapeConfig | None = None
+    dock: DockBeacons | None = None
+
+    def for_kind(self, kind: BeaconKind) -> BeaconConfig:
+        """These settings as they hold for beacons of ``kind``: themselves for TREAT, and for
+        DOCK with the freshness, decay, discount and limit of ``dock`` and no killer repulsion.
+
+        Raises:
+            ValueError: For DOCK, if the configuration relays no DOCK beacons.
+        """
+        if kind is BeaconKind.TREAT:
+            return self
+        if self.dock is None:
+            raise ValueError("this beacon configuration relays no DOCK beacons")
+        return replace(
+            self,
+            fresh_for=self.dock.fresh_for,
+            decay=self.dock.decay,
+            gamma=self.dock.gamma,
+            max_value=self.dock.max_value,
+            killer_repulsion=0.0,
+        )
 
 
 def fresh_beacons(
     beacons: BeaconView, kind: BeaconKind, now: Time, config: BeaconConfig
 ) -> list[HeardBeacon]:
-    """The beacons of ``kind`` heard within ``fresh_for``, up to ``max_value``."""
+    """The beacons of ``kind`` heard within ``fresh_for``, or all if it is ``None``, up to
+    ``max_value``."""
     fresh: list[HeardBeacon] = []
     for heard in beacons.beacons(kind):
-        if now - heard.sent_at > config.fresh_for:
+        if config.fresh_for is not None and now - heard.sent_at > config.fresh_for:
             continue
         if config.max_value is not None and heard.beacon.value > config.max_value:
             continue
@@ -98,11 +151,33 @@ def treat_beacon(
     sighting = beacons.latest_sighting(now - config.source_for)
     if sighting is not None:
         return Beacon(BeaconKind.TREAT, 0.0, sighting)
+    return relayed_beacon(beacons, BeaconKind.TREAT, position, now, config)
 
-    fresh = fresh_beacons(beacons, BeaconKind.TREAT, now, config)
+
+def dock_beacon(
+    beacons: BeaconView, position: CellId, now: Time, config: BeaconConfig
+) -> Beacon | None:
+    """The robot's DOCK beacon, or ``None`` if the swarm relays none or it heard none fresh.
+
+    A robot is never a dock's source; the docks broadcast their own beacons.
+    """
+    if config.dock is None:
+        return None
+    return relayed_beacon(beacons, BeaconKind.DOCK, position, now, config.for_kind(BeaconKind.DOCK))
+
+
+def relayed_beacon(
+    beacons: BeaconView, kind: BeaconKind, position: CellId, now: Time, config: BeaconConfig
+) -> Beacon | None:
+    """The robot's own value of ``kind`` on its own cell, as a relay.
+
+    ``None`` without a fresh beacon of ``kind``, and for a value above ``max_value``. ``config``
+    must be the settings of ``kind`` (``BeaconConfig.for_kind``).
+    """
+    fresh = fresh_beacons(beacons, kind, now, config)
     if not fresh:
         return None
     value = own_value(fresh, position, config)
     if config.max_value is not None and value > config.max_value:
         return None
-    return Beacon(BeaconKind.TREAT, value, position)
+    return Beacon(kind, value, position)

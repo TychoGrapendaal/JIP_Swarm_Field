@@ -178,21 +178,20 @@ A revisit age that suits one swarm does not suit another. With 20 explorers on t
 
 The revisit age should therefore follow the time the swarm needs to sweep its field once, if every explorer visits new cells:
 
-$$S = \frac{C \cdot t_\text{step}}{n}, \qquad t_\text{step} = \left\lceil \frac{d / v}{\Delta t} \right\rceil \Delta t, \qquad A = k \cdot S$$
+$$S = \frac{C \cdot t_\text{step}}{n}, \qquad t_\text{step} = \frac{d}{v}, \qquad A = k \cdot S$$
 
 | Symbol | Meaning |
 | --- | --- |
 | $S$ | The sweep time: how long the explorers need to visit every free cell once (`SwarmScenario.sweep_time`). |
 | $C$ | The free cells of the field. |
 | $n$ | The explorers: the robots of an `ExplorerPreset`. |
-| $t_\text{step}$ | The time an explorer needs per cell. A robot moves one cell per decision at most, so a move is rounded up to whole decision intervals. |
+| $t_\text{step}$ | The time an explorer needs per cell. A robot decides again as soon as a move arrives, so this is one straight move. |
 | $d$ | The side of a cell. |
 | $v$ | The explorers' speed. |
-| $\Delta t$ | The decision interval. |
 | $A$ | The revisit age. |
 | $k$ | The revisit age in sweep times (`ExplorerPreset.revisit_sweeps`, `REVISIT_SWEEPS` = 0.5 by default). |
 
-The default fits this rule: five explorers on 32 × 32 cells, with 10 s per cell, sweep the field in 34 minutes, and 28 minutes is 0.8 sweeps. To choose $k$, explorers ran alone on the river field of `river_and_rocks` with flying explorers, for 4 h, two seeds each, idleness measured over the last 2 h. The mean idleness in minutes, by $k$:
+The values below were measured when a robot started at most one move per decision, so a step took a whole decision interval; they should be checked again now that a robot decides on arrival. The default fits this rule: five explorers on 32 × 32 cells, with 10 s per cell, sweep the field in 34 minutes, and 28 minutes is 0.8 sweeps. To choose $k$, explorers ran alone on the river field of `river_and_rocks` with flying explorers, for 4 h, two seeds each, idleness measured over the last 2 h. The mean idleness in minutes, by $k$:
 
 | Setup | $S$ (min) | $k$ = 0.25 | 0.5 | 0.8 | 1.2 | 2 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -214,5 +213,5 @@ In the pest study of `studies/explorer_hop_killers.py` (20 explorers, 4 killers)
 - **The behaviour's bid.** `ExploreBehaviour` (see [`explore-behaviour.md`](./explore-behaviour.md)) scores EXPLORE from memory, but an explorer has no other behaviour, so the bid never competes with anything yet. The random-waypoint baseline of `studies/baselines.py` follows its seeder with `FollowSeederField`, a fixed bid of 0.5.
 - **Results recorded before the move to the runner.** The tables above were measured with `CoverageTracker`, which no longer exists, and with a perfect pool that shared every sensed fact instantly. The experiments now share over the channel, and the "no sharing" variants are a radio range of 0, which also turns off the peer discount. The tables need a re-run with `studies/explore_variants.py`.
 - **Holes on large fields.** On 64 × 64 cells the worst idleness stays above 300 minutes. Uncapped linear growth fixed most of it (see "Earlier value rules") but was left out to keep the rule simple.
-- **Redundancy with a 3 × 3 footprint.** A scout senses the 3 × 3 cells around it, and `MetricsCollector` counts every sensed cell other than the robot's last one as a visit. Nearly every such cell was sensed a step before, so the redundancy is close to 1 for any swarm, and the redundancy figures above, measured when a robot sensed only its own cell, cannot be compared with new runs. The measure needs a new definition for a footprint.
+- **Redundancy and the sensing footprint.** A scout senses crops and pests in its own cell only, as when the figures above were measured. For a while it sensed the 3 × 3 cells around it, which drove the redundancy close to 1; results from that period cannot be compared with these.
 - **Decisions while moving.** Robots decide every 2.5 s while a move takes 10 to 14 s. The navigator then sees no progress for three ticks and hands over to the steerer, whose moves the simulation ignores while the robot is moving. This is harmless but wasted work.

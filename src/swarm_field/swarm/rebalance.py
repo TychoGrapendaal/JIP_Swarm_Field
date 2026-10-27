@@ -10,6 +10,11 @@ them switching at once, robots rank themselves: with two killers missing, only t
 nearest a known pest switch. A minimum time in a role, and an imbalance that has to persist,
 keep robots from flipping back and forth on a single burst of news.
 
+With ``RebalanceConfig.switch_at_dock`` a role is a module swapped at a dock: a robot picked to
+switch drives to the nearest dock first, reporting ``AgentObjective.SWITCH_ROLE``, and switches
+there. Its peers count it in its new role from then on, so that nobody else sets off for the
+same gap, and the robots nearest a dock are picked first.
+
 ``BodyGate`` lets one brain carry the behaviours of both roles: a gated behaviour bids only
 while the robot has one of its bodies, which the robot reads from its perception. The brain's
 capability gate cannot do this alone: it lets a scout follow the TREAT field, since following a
@@ -21,8 +26,16 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from math import hypot
 
-from swarm_field.contracts import BodyType, CellId, RobotId, SwitchRole, Time, TimeUnit
-from swarm_field.swarm.behavior import ActionCandidate, Behavior, DecisionContext
+from swarm_field.contracts import (
+    AgentObjective,
+    BodyType,
+    CellId,
+    RobotId,
+    SwitchRole,
+    Time,
+    TimeUnit,
+)
+from swarm_field.swarm.behavior import ActionCandidate, Behavior, DecisionContext, FollowField
 from swarm_field.swarm.memory import MemoryView
 
 MONITOR = BodyType.SCOUT
@@ -43,7 +56,8 @@ class RebalanceConfig:
         peer_horizon: Peers last heard of longer ago than this are not counted.
         switch_score: The bid to switch; at or above the arbiter's override threshold, so a
             switch is not held back by a long-running commitment.
-        switch_at_dock: Whether a robot only switches while it stands on a dock.
+        switch_at_dock: Whether a robot switches only on a dock: once it is picked to switch, it
+            drives to the nearest dock and switches there.
     """
 
     min_killers: int = 1
@@ -98,14 +112,18 @@ def count_roles(
     """Count the roles and pests known to ``me``, and the number of killers needed.
 
     The killers needed are ``min_killers`` plus one per ``pests_per_killer`` known pests, but
-    never so many that fewer than ``min_monitors`` monitors are left.
+    never so many that fewer than ``min_monitors`` monitors are left. A peer on its way to a dock
+    to switch role counts in its new role already, and is no longer a candidate to switch.
     """
     robots = [me]
     oldest = now - config.peer_horizon
     for peer in memory.peers():
         if peer.peer is None or peer.peer == me.robot_id or peer.observed_at < oldest:
             continue
-        robots.append(KnownRobot(peer.peer, peer.cell, peer.body))
+        body = peer.body
+        if peer.objective is AgentObjective.SWITCH_ROLE:
+            body = _other_role(body)
+        robots.append(KnownRobot(peer.peer, peer.cell, body))
     monitors: list[KnownRobot] = []
     killers: list[KnownRobot] = []
     for robot in robots:
@@ -124,14 +142,31 @@ def count_roles(
     return RoleCount(tuple(monitors), tuple(killers), tuple(pests), needed)
 
 
+def _other_role(body: BodyType) -> BodyType:
+    """The role a robot of ``body`` switches to: a killer for a monitor, else a monitor."""
+    if body is MONITOR:
+        return KILLER
+    return MONITOR
+
+
 def ranked_for_switch(
-    candidates: Sequence[KnownRobot], pests: Sequence[CellId], to_killer: bool
+    candidates: Sequence[KnownRobot],
+    pests: Sequence[CellId],
+    to_killer: bool,
+    docks: Sequence[CellId] = (),
 ) -> list[KnownRobot]:
     """The candidates in the order they should switch role, first one first.
 
     Monitors become killers nearest a known pest first; killers become monitors furthest from
-    any known pest first. Ties, and the case with no known pest, go to the lowest robot id.
+    any known pest first. With ``docks``, where a switch has to happen, both go nearest a dock
+    first. Ties, and the case with no known pest, go to the lowest robot id.
     """
+    if docks:
+
+        def to_dock(robot: KnownRobot) -> float:
+            return min(hypot(robot.cell[0] - d[0], robot.cell[1] - d[1]) for d in docks)
+
+        return sorted(candidates, key=lambda robot: (to_dock(robot), robot.robot_id))
 
     def distance(robot: KnownRobot) -> float:
         if not pests:
@@ -147,22 +182,32 @@ class RebalanceRoles:
     """Switches this robot between monitor and killer when the swarm's split is off.
 
     It bids only when all of these hold: the robot is a monitor or a killer, it has kept its
-    role for ``role_dwell``, the imbalance in its own count has lasted ``persistence``, the
-    robot ranks among the ones that should switch, and, with ``switch_at_dock``, it stands on a
-    dock.
+    role for ``role_dwell``, the imbalance in its own count has lasted ``persistence``, and the
+    robot ranks among the ones that should switch. With ``switch_at_dock`` it then bids to
+    follow the dock field until it stands on a dock, and to switch there; once it has set off,
+    it keeps going without waiting for ``persistence`` again, for as long as it still ranks
+    among the robots the gap needs.
 
     Attributes:
         config: When and how much to rebalance.
         docks: The dock cells, used when switching happens only at a dock.
+        dock_field: The field that leads to a dock.
     """
 
     name: str = "rebalance-roles"
 
-    def __init__(self, config: RebalanceConfig | None = None, docks: Sequence[CellId] = ()) -> None:
+    def __init__(
+        self,
+        config: RebalanceConfig | None = None,
+        docks: Sequence[CellId] = (),
+        dock_field: str = "dock",
+    ) -> None:
         self.config: RebalanceConfig = RebalanceConfig()
         if config is not None:
             self.config = config
         self.docks: tuple[CellId, ...] = tuple(docks)
+        self.dock_field: str = dock_field
+        self._heading_to_dock: bool = False
         self._body: BodyType | None = None
         self._role_since: Time | None = None
         self._gap_sign: int = 0
@@ -177,14 +222,20 @@ class RebalanceRoles:
         me = KnownRobot(state.robot_id, state.position, state.body)
         count = count_roles(me, ctx.memory, now, self.config)
         gap = count.killer_gap()
-        if not self._imbalance_has_lasted(gap, now):
+        lasted = self._imbalance_has_lasted(gap, now)
+        on_the_way = self._heading_to_dock
+        self._heading_to_dock = False
+        if not lasted and not on_the_way:
             return ()
         if self._role_since is not None and now - self._role_since < self.config.role_dwell:
             return ()
-        if self.config.switch_at_dock and state.position not in self.docks:
+        at_dock = self.config.switch_at_dock and bool(self.docks)
+        if self.config.switch_at_dock and not self.docks:
             return ()
 
         to_killer = gap > 0
+        if gap == 0:
+            return ()
         if to_killer and state.body is not MONITOR:
             return ()
         if not to_killer and state.body is not KILLER:
@@ -194,12 +245,21 @@ class RebalanceRoles:
         if not to_killer:
             candidates = count.killers
             target = MONITOR
-        ranked = ranked_for_switch(candidates, count.pests, to_killer)
+        docks: tuple[CellId, ...] = ()
+        if at_dock:
+            docks = self.docks
+        ranked = ranked_for_switch(candidates, count.pests, to_killer, docks)
         chosen = [robot.robot_id for robot in ranked[: abs(gap)]]
         if state.robot_id not in chosen:
             return ()
+        score = self.config.switch_score
+        objective = AgentObjective.SWITCH_ROLE
+        if at_dock and state.position not in self.docks:
+            self._heading_to_dock = True
+            to_dock = FollowField(self.dock_field)
+            return (ActionCandidate(to_dock, score, self.name, None, objective),)
         switch = SwitchRole(target)
-        return (ActionCandidate(switch, self.config.switch_score, self.name, state.position),)
+        return (ActionCandidate(switch, score, self.name, state.position, objective),)
 
     def _note_role(self, body: BodyType, now: Time) -> None:
         """Remember when the robot last changed role, read off its perceived body."""

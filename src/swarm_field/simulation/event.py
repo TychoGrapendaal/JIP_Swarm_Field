@@ -15,7 +15,9 @@ from typing import TYPE_CHECKING, Protocol
 from swarm_field.contracts import (
     Beacon,
     BeaconKind,
+    BodyType,
     CellId,
+    DockBeaconSpec,
     FailureMode,
     FailureSpec,
     InfestationObservation,
@@ -27,6 +29,7 @@ from swarm_field.contracts import (
     RobotId,
     Time,
     TimeUnit,
+    Treat,
 )
 from swarm_field.simulation.metrics import MetricsConfig
 
@@ -81,16 +84,17 @@ class EventQueue:
 
 @dataclass
 class RobotDecision:
-    """Run one robot decision point and schedule the next one at a fixed interval.
+    """Run one robot decision point and schedule the next one.
 
-    Every robot has its own decision cadence. The cadence is independent of how long the
-    previously requested movement takes, so finishing an action does not determine when the
-    robot gets its next perception.
+    A robot decides again as soon as the move it is making arrives, so it moves at its full
+    speed, and every ``decision_interval`` while it stands still. A move cannot be changed
+    once started, so a robot that is moving has nothing to decide before it arrives.
 
     Attributes:
         time: When the robot receives its next perception and decides.
         robot: Which robot acts.
-        decision_interval: Time between this decision and the robot's next decision.
+        decision_interval: Time between this decision and the robot's next one while the robot
+            stands still.
     """
 
     time: Time
@@ -120,12 +124,21 @@ class RobotDecision:
             # Coverage and detection latency are per-sensing events, so they are recorded
             # here rather than at the next sample, which would only see the latest sensing.
             ctx.metrics.observe(perception.sensed, self.time)
-        decision = ctx.agents[self.robot].decide(perception)
-        ctx.world.apply_action(self.robot, decision.action, self.time)
+        agent = ctx.agents[self.robot]
+        decision = agent.decide(perception)
+        arrival = ctx.world.apply_action(self.robot, decision.action, self.time)
+        if ctx.metrics is not None:
+            if isinstance(decision.action, Treat):
+                ctx.metrics.track_infestation(ctx.world, self.time)
+            if ctx.world.robots[self.robot].body is BodyType.KILLER:
+                ctx.metrics.observe_killer(self.robot, decision.action, agent.inspect(), self.time)
         ctx.channel.broadcast(ctx.world, self.time, decision.outbox)
+        next_time = self.time + self.decision_interval
+        if arrival is not None and arrival > self.time:
+            next_time = arrival
         ctx.schedule(
             RobotDecision(
-                time=self.time + self.decision_interval,
+                time=next_time,
                 robot=self.robot,
                 decision_interval=self.decision_interval,
             )
@@ -273,6 +286,42 @@ def _pest_source_id(cell: CellId, width: int) -> RobotId:
 
 
 @dataclass
+class DockBroadcast:
+    """Broadcast a DOCK beacon of 0 from every dock, as the dock's own radio does.
+
+    Each dock, in sorted order, sends a ``BEACON`` message with ``Beacon(DOCK, 0.0, dock)`` from
+    a synthetic sender of its own to the robots within the spec's range. Draws nothing from
+    ``ctx.rng``.
+
+    Attributes:
+        time: Simulation time of this broadcast.
+        spec: How often to broadcast and how far.
+    """
+
+    time: Time
+    spec: DockBeaconSpec
+
+    def handle(self, ctx: SimulationContext) -> None:
+        """Broadcast from every dock, then schedule the next round."""
+        field = ctx.world.field
+        for dock in sorted(ctx.world.docks):
+            sender = _dock_source_id(dock, field.width, field.height)
+            beacon = Beacon(BeaconKind.DOCK, 0.0, dock)
+            message = Message(
+                sender=sender, sent_at=self.time, kind=MessageKind.BEACON, payload=(beacon,)
+            )
+            ctx.channel.broadcast_from_cell(
+                ctx.world, self.time, dock, self.spec.radio_range_m, message
+            )
+        ctx.schedule(DockBroadcast(time=self.time + self.spec.period, spec=self.spec))
+
+
+def _dock_source_id(cell: CellId, width: int, height: int) -> RobotId:
+    """A sender id for the dock on ``cell``: negative and below every pest source's id."""
+    return -(1 + width * height + cell[0] + cell[1] * width)
+
+
+@dataclass
 class MetricSample:
     """Record one row of the run's metrics series, render the world, then reschedule itself.
 
@@ -380,12 +429,21 @@ class WorldTick:
         )
 
     def _grow(self, ctx: SimulationContext) -> None:
-        """Increase every existing infestation without exceeding full severity."""
+        """Increase every existing infestation without exceeding full severity.
+
+        A cell a killer is treating does not grow: treatment removes a unit of severity per
+        hour, which would otherwise lose to any growth faster than that, so no pest could be
+        cleared.
+        """
         if self.config.growth_rate == 0.0:
             return
 
-        for state in ctx.world.cells.values():
-            if state.infestation <= 0.0:
+        treated: set[CellId] = set()
+        for robot in ctx.world.robots.values():
+            if robot.treating_cell is not None:
+                treated.add(robot.treating_cell)
+        for cell, state in ctx.world.cells.items():
+            if state.infestation <= 0.0 or cell in treated:
                 continue
             state.infestation = min(1.0, state.infestation + self.config.growth_rate)
 

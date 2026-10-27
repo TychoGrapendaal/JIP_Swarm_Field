@@ -37,8 +37,10 @@ from swarm_field.swarm.hop import (
     BeaconLink,
     BeaconMemory,
     BeaconView,
+    DockBeacons,
     EscapeConfig,
     HeardBeacon,
+    HopDockField,
     HopField,
     PlacedBeacon,
     TreatByBeacon,
@@ -48,8 +50,10 @@ from swarm_field.swarm.memory import AgentMemory, DecayConfig, KnowledgeSnapshot
 from swarm_field.swarm.navigator import Navigator
 from swarm_field.swarm.provider import FieldProvider
 from swarm_field.swarm.rebalance import BodyGate, RebalanceConfig, RebalanceRoles
-from swarm_field.swarm.recharge import RechargeConfig
+from swarm_field.swarm.recharge import RechargeConfig, ResupplyConfig
+from swarm_field.swarm.resupply import Resupply
 from swarm_field.swarm.seeder import (
+    CLAIM_FRESH_FOR,
     BatteryRequestSeeder,
     DockSeeder,
     FieldSeeder,
@@ -62,6 +66,7 @@ from swarm_field.swarm.sharing import (
     KnowledgeSharing,
     SharingConfig,
     SharingStrategy,
+    message_items,
 )
 from swarm_field.swarm.steering import (
     QuadtreeSensing,
@@ -73,6 +78,7 @@ from swarm_field.swarm.steering import (
 
 __all__ = [
     "BODY_CAPABILITIES",
+    "CLAIM_FRESH_FOR",
     "ActionCandidate",
     "AgentMemory",
     "Arbiter",
@@ -90,6 +96,7 @@ __all__ = [
     "ComposedAgent",
     "DecayConfig",
     "DecisionContext",
+    "DockBeacons",
     "DockSeeder",
     "EscapeConfig",
     "ExploreBehaviour",
@@ -101,6 +108,7 @@ __all__ = [
     "Guidance",
     "Heading",
     "HeardBeacon",
+    "HopDockField",
     "HopField",
     "Intent",
     "KnowledgeExchange",
@@ -116,6 +124,8 @@ __all__ = [
     "RechargeConfig",
     "Regroup",
     "RegroupSeeder",
+    "Resupply",
+    "ResupplyConfig",
     "ReturnToDock",
     "SeededField",
     "SensedSurroundings",
@@ -131,5 +141,6 @@ __all__ = [
     "UtilityArbiter",
     "Vector2",
     "capabilities_for",
+    "message_items",
     "treat_beacon",
 ]

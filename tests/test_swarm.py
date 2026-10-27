@@ -9,6 +9,7 @@ from swarm_field.contracts import (
     AgentObjective,
     BodyType,
     CellId,
+    Charge,
     CropObservation,
     FieldGeometry,
     Idle,
@@ -43,6 +44,7 @@ from swarm_field.swarm import (
     Navigator,
     Regroup,
     RegroupSeeder,
+    Resupply,
     SharingConfig,
     TreatInfestation,
     TreatSeeder,
@@ -524,28 +526,72 @@ def test_a_peers_status_is_stored_as_a_peer_fact() -> None:
     assert list(agent.memory.peers()) == [status]
 
 
-def test_treat_seeder_discounts_only_a_pest_a_peer_is_heading_for_to_treat() -> None:
-    def pest_seed_value(peer_objective: AgentObjective) -> float:
-        memory = AgentMemory(1, _FIELD)
+def _memory_with_a_pest_and_a_killer_heading_for_it(
+    killer_cell: CellId, objective: AgentObjective
+) -> AgentMemory:
+    memory = AgentMemory(1, _FIELD)
+    pest = InfestationObservation(
+        cell=(5, 5), confidence=1.0, observed_at=0, source=1, severity=1.0, pest=None
+    )
+    peer = PeerObservation(
+        cell=killer_cell,
+        confidence=1.0,
+        observed_at=0,
+        source=2,
+        peer=2,
+        body=BodyType.KILLER,
+        target=(5, 5),
+        objective=objective,
+    )
+    memory.merge([pest, peer])
+    return memory
+
+
+def test_the_treat_field_leaves_a_pest_to_a_closer_killer_heading_for_it() -> None:
+    def seeds_from_next_to_it(killer_cell: CellId, objective: AgentObjective) -> int:
+        memory = _memory_with_a_pest_and_a_killer_heading_for_it(killer_cell, objective)
+        return len(TreatSeeder(yield_to_closer=True).seeds(memory, (6, 6), 0))
+
+    assert seeds_from_next_to_it((5, 4), AgentObjective.TREAT) == 0
+    assert seeds_from_next_to_it((0, 0), AgentObjective.TREAT) == 1
+    assert seeds_from_next_to_it((5, 4), AgentObjective.EXPLORE) == 1
+
+
+def test_of_two_killers_on_one_cell_only_the_lower_id_keeps_their_pest() -> None:
+    def seeds_of(robot: int, peer: int) -> int:
+        memory = AgentMemory(robot, _FIELD)
         pest = InfestationObservation(
-            cell=(5, 5), confidence=1.0, observed_at=0, source=1, severity=1.0, pest=None
+            cell=(5, 5), confidence=1.0, observed_at=0, source=robot, severity=1.0, pest=None
         )
-        peer = PeerObservation(
-            cell=(0, 9),
+        heading = PeerObservation(
+            cell=(6, 6),
             confidence=1.0,
             observed_at=0,
-            source=2,
-            peer=2,
+            source=peer,
+            peer=peer,
             body=BodyType.KILLER,
             target=(5, 5),
-            objective=peer_objective,
+            objective=AgentObjective.TREAT,
         )
-        memory.merge([pest, peer])
-        (seed,) = TreatSeeder().seeds(memory, (0, 0), 0)
-        return seed.value
+        memory.merge([pest, heading])
+        return len(TreatSeeder(yield_to_closer=True).seeds(memory, (6, 6), 0))
 
-    assert pest_seed_value(AgentObjective.TREAT) == pytest.approx(-0.2)
-    assert pest_seed_value(AgentObjective.EXPLORE) == pytest.approx(-1.0)
+    assert seeds_of(robot=1, peer=2) == 1
+    assert seeds_of(robot=2, peer=1) == 0
+
+
+def test_treat_infestation_bids_above_exploring_for_a_pest_left_to_it_and_not_otherwise() -> None:
+    behavior = TreatInfestation(yield_to_treating_peer=True)
+
+    def bids_from_next_to_it(killer_cell: CellId) -> list[float]:
+        memory = _memory_with_a_pest_and_a_killer_heading_for_it(killer_cell, AgentObjective.TREAT)
+        self_state = replace(_perception().self_state, position=(6, 6))
+        ctx = DecisionContext(time=0, self_state=self_state, sensed=[], memory=memory)
+        return [candidate.score for candidate in behavior.propose(ctx)]
+
+    assert bids_from_next_to_it((5, 4)) == []
+    (bid,) = bids_from_next_to_it((0, 0))
+    assert 0.8 <= bid < 0.9
 
 
 def _pest(cell: CellId) -> InfestationObservation:
@@ -581,10 +627,46 @@ def test_a_yielding_treat_seeder_leaves_a_pest_to_a_closer_fresh_claimant() -> N
     assert after_the_claim_aged == {(5, 5), (9, 0)}
 
 
-def test_a_yielding_treat_seeder_keeps_every_pest_when_all_are_claimed() -> None:
+def test_an_empty_killer_does_not_bid_to_treat_even_on_a_pest() -> None:
     memory = AgentMemory(1, _FIELD)
-    memory.merge([_pest((5, 5)), _treating_peer(2, (6, 6), (5, 5), observed_at=0)])
+    memory.merge([_pest((0, 0))])
+    self_state = replace(_perception(body=BodyType.KILLER).self_state, consumable=0.0)
+    ctx = DecisionContext(time=0, self_state=self_state, sensed=[], memory=memory)
 
-    (seed,) = TreatSeeder(yield_to_closer=True).seeds(memory, (0, 0), 0)
+    assert TreatInfestation().propose(ctx) == ()
 
-    assert seed.cell == (5, 5)
+
+def test_resupply_bids_with_two_doses_of_ten_left_and_not_with_three() -> None:
+    behavior = Resupply(docks=((9, 9),))
+    memory = AgentMemory(1, _FIELD)
+    killer = _perception(body=BodyType.KILLER).self_state
+
+    def bids(doses_left: int) -> tuple[ActionCandidate, ...]:
+        self_state = replace(killer, consumable=doses_left / 10, doses_left=doses_left)
+        ctx = DecisionContext(time=0, self_state=self_state, sensed=[], memory=memory)
+        return behavior.propose(ctx)
+
+    assert bids(3) == ()
+    assert len(bids(2)) == 1
+
+
+def test_resupply_bids_more_as_the_doses_run_out_and_restocks_on_a_dock() -> None:
+    behavior = Resupply(docks=((9, 9),))
+    memory = AgentMemory(1, _FIELD)
+    killer = _perception(body=BodyType.KILLER).self_state
+
+    def bids(doses_left: int, position: CellId = (0, 0)) -> list[ActionCandidate]:
+        self_state = replace(
+            killer, consumable=doses_left / 10, doses_left=doses_left, position=position
+        )
+        ctx = DecisionContext(time=0, self_state=self_state, sensed=[], memory=memory)
+        return list(behavior.propose(ctx))
+
+    (one_left,) = bids(1)
+    (empty,) = bids(0)
+    (on_dock,) = bids(1, position=(9, 9))
+
+    assert bids(5) == []
+    assert one_left.score < 0.8 < 0.9 < empty.score
+    assert isinstance(empty.action, FollowField)
+    assert isinstance(on_dock.action, Charge)

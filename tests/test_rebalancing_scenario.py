@@ -1,4 +1,4 @@
-"""Tests for running role rebalancing (#64) in swarm scenarios: presets, assembly and a run."""
+"""Tests for running role rebalancing (#64) in swarm scenarios: presets, assembly and runs."""
 
 from dataclasses import replace
 from random import Random
@@ -14,9 +14,11 @@ from swarm_field.contracts import (
 )
 from swarm_field.experiments import (
     EXPLORER,
-    HOP_KILLER,
+    HOP_BEST,
     REBALANCING,
+    REBALANCING_ARMS,
     REBALANCING_HOP,
+    SEEDED_BEST,
     SEEDED_KILLER,
     LiveRun,
     RebalancingPreset,
@@ -47,24 +49,33 @@ def test_the_world_does_not_turn_a_battery_robot_into_a_killer() -> None:
 
 
 def test_a_switching_robot_carries_both_roles_and_plans_on_the_ground() -> None:
-    brain = REBALANCING.brain(RebalancingPreset(BodyType.SCOUT))
+    brain = REBALANCING.brain(RebalancingPreset(BodyType.SCOUT, killer=SEEDED_BEST))
 
     assert brain.flies is False
-    assert set(brain.behaviors) == {
-        "treat-infestation",
-        "explore",
-        "return-to-dock",
-        "rebalance-roles",
-    }
+    assert brain.keeps_map
+    assert {"treat-infestation", "explore", "return-to-dock", "rebalance-roles"} <= set(
+        brain.behaviors
+    )
     assert brain.params["body_gates"] == {
         "treat-infestation": (BodyType.KILLER,),
         "explore": (BodyType.SCOUT,),
     }
 
 
+def test_a_switching_robot_treats_with_its_killer_presets_parameters() -> None:
+    brain = REBALANCING.brain(RebalancingPreset(BodyType.KILLER, killer=SEEDED_BEST))
+
+    assert brain.params["treat_claim_fresh_for"] == SEEDED_BEST.claim_fresh_for
+
+
 def test_a_rebalancing_robot_starts_as_a_scout_or_a_killer() -> None:
     with pytest.raises(ValueError):
         RebalancingPreset(BodyType.BATTERY)
+
+
+def test_its_killer_preset_sets_how_it_treats() -> None:
+    assert RebalancingPreset(killer=SEEDED_BEST).response == "seeded"
+    assert RebalancingPreset(killer=HOP_BEST).response == "hop"
 
 
 def test_the_body_gates_wrap_only_the_behaviours_they_name() -> None:
@@ -78,62 +89,41 @@ def test_the_body_gates_wrap_only_the_behaviours_they_name() -> None:
     assert not isinstance(explore, BodyGate)
 
 
-def test_rebalancing_keeps_the_robots_and_their_starting_roles() -> None:
+def test_the_arms_keep_the_robots_and_their_starting_roles() -> None:
     arms = rebalancing_configurations(REBALANCING)
     fixed = arms["fixed"].into_experiment().scenario.robots
-    switching = arms["rebalancing"].into_experiment().scenario.robots
 
+    assert tuple(arms) == REBALANCING_ARMS
+    assert arms["fixed"] is REBALANCING
+    switching = arms["rebalancing"].into_experiment().scenario.robots
     assert [robot.body for robot in switching] == [robot.body for robot in fixed]
     assert [robot.start for robot in switching] == [robot.start for robot in fixed]
-    assert arms["fixed"] is REBALANCING
     for group in arms["rebalancing"].swarm:
         assert isinstance(group.preset, RebalancingPreset)
+        assert group.preset.killer == SEEDED_BEST
 
 
-def test_a_given_rebalance_config_reaches_every_switching_robot() -> None:
-    config = RebalanceConfig(min_monitors=3, switch_at_dock=True)
-    switching = rebalancing_configurations(REBALANCING, config)["rebalancing"]
+def test_the_rebalancing_arm_switches_at_a_dock() -> None:
+    arms = rebalancing_configurations(REBALANCING, RebalanceConfig(min_monitors=3))
 
-    for group in switching.swarm:
+    for group in arms["rebalancing"].swarm:
         assert isinstance(group.preset, RebalancingPreset)
-        assert group.preset.rebalance == config
+        assert group.preset.rebalance == RebalanceConfig(min_monitors=3, switch_at_dock=True)
 
 
 def test_the_explorers_needed_grow_with_the_field_and_shrink_with_the_revisit_age() -> None:
     small = REBALANCING.without_robots().add_robots(EXPLORER, 1).add_robots(SEEDED_KILLER, 1)
-    needed = monitors_needed(small)
+    needed = monitors_needed(small, revisit_age=5 * TimeUnit.MINUTE)
 
     assert needed >= 1
-    assert monitors_needed(small, revisit_age=2 * 30 * TimeUnit.MINUTE) < needed
+    assert monitors_needed(small, revisit_age=20 * TimeUnit.MINUTE) < needed
 
 
-def test_the_rebalancing_swarm_lets_go_of_the_killers_a_clean_field_does_not_need() -> None:
-    until = 20 * TimeUnit.MINUTE
-    fixed = LiveRun.from_config(build_named_experiment("rebalancing-fixed", 0, until))
-    switching = LiveRun.from_config(build_named_experiment("rebalancing", 0, until))
-    fixed.advance_to(until)
-    switching.advance_to(until)
+def test_a_swarm_with_two_kinds_of_killer_is_refused() -> None:
+    mixed = REBALANCING.add_robots(HOP_BEST, 1)
 
-    def killers(run: LiveRun) -> int:
-        robots = run.context.world.robots.values()
-        return sum(1 for robot in robots if robot.body is BodyType.KILLER)
-
-    switches = sum(robot.role_switches for robot in switching.context.world.robots.values())
-    assert killers(fixed) == REBALANCING.killers
-    assert killers(switching) < REBALANCING.killers
-    assert switches > 0
-
-
-def test_a_switch_takes_the_scenarios_role_switch_time() -> None:
-    scenario = replace(
-        REBALANCING, robots=replace(REBALANCING.robots, role_switch_time=2 * TimeUnit.MINUTE)
-    )
-
-    roles = scenario.into_experiment().scenario.roles
-
-    assert roles.duration == 2 * TimeUnit.MINUTE
-    assert roles.speeds[BodyType.SCOUT] == scenario.robots.speed_mps_drone
-    assert roles.speeds[BodyType.KILLER] == scenario.robots.speed_mps_ground
+    with pytest.raises(ValueError):
+        rebalancing_configurations(mixed)
 
 
 def test_a_hop_swarm_rebalances_into_robots_that_treat_by_beacon() -> None:
@@ -147,24 +137,48 @@ def test_a_hop_swarm_rebalances_into_robots_that_treat_by_beacon() -> None:
     assert brain.keeps_map
 
 
-def test_a_swarm_with_seeded_and_hop_killers_is_refused() -> None:
-    mixed = REBALANCING.add_robots(HOP_KILLER, 1)
+def _switches(name: str, minutes: int) -> list[tuple[tuple[int, int], BodyType]]:
+    """Every role switch of a run of the catalogue's ``name``: where it happened, and into what.
 
-    with pytest.raises(ValueError):
-        rebalancing_configurations(mixed)
+    Sampled every 15 s; a switch keeps the robot busy for a minute, so it is still where it
+    switched.
+    """
+    until = minutes * TimeUnit.MINUTE
+    run = LiveRun.from_config(build_named_experiment(name, 0, until))
+    robots = run.context.world.robots
+    bodies = {robot_id: robot.body for robot_id, robot in robots.items()}
+    switches: list[tuple[tuple[int, int], BodyType]] = []
+    for time in range(0, until + 1, 15 * TimeUnit.SECOND):
+        run.advance_to(time)
+        for robot_id, robot in robots.items():
+            if robot.body is not bodies[robot_id]:
+                switches.append((robot.position, robot.body))
+                bodies[robot_id] = robot.body
+    return switches
 
 
-def test_an_unknown_pest_response_is_refused() -> None:
-    with pytest.raises(ValueError):
-        RebalancingPreset(BodyType.SCOUT, response="teleport")
+def test_the_default_swarm_turns_explorers_into_killers_on_a_dock() -> None:
+    switches = _switches("rebalancing", 20)
+
+    assert switches
+    assert all(cell in REBALANCING.map.docks for cell, _ in switches)
+    assert switches[0][1] is BodyType.KILLER
 
 
-def test_the_hop_rebalancing_swarm_also_lets_go_of_killers_a_clean_field_does_not_need() -> None:
-    until = 20 * TimeUnit.MINUTE
-    switching = LiveRun.from_config(build_named_experiment("rebalancing-hop", 0, until))
-    switching.advance_to(until)
+def test_the_hop_rebalancing_swarm_switches_on_a_dock_too() -> None:
+    switches = _switches("rebalancing-hop", 20)
 
-    robots = switching.context.world.robots.values()
-    killers = sum(1 for robot in robots if robot.body is BodyType.KILLER)
-    assert killers < REBALANCING_HOP.killers
-    assert sum(robot.role_switches for robot in robots) > 0
+    assert switches
+    assert all(cell in REBALANCING_HOP.map.docks for cell, _ in switches)
+
+
+def test_a_switch_takes_the_scenarios_role_switch_time() -> None:
+    scenario = replace(
+        REBALANCING, robots=replace(REBALANCING.robots, role_switch_time=2 * TimeUnit.MINUTE)
+    )
+
+    roles = scenario.into_experiment().scenario.roles
+
+    assert roles.duration == 2 * TimeUnit.MINUTE
+    assert roles.speeds[BodyType.SCOUT] == scenario.robots.speed_mps_drone
+    assert roles.speeds[BodyType.KILLER] == scenario.robots.speed_mps_ground

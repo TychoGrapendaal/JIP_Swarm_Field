@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from swarm_field.contracts import TimeUnit
-from swarm_field.experiments import EXPLORER, PESTS, SEEDED_KILLER
+from swarm_field.experiments import EXPLORER, HOP_BEST, PESTS, SEEDED_BEST, SEEDED_KILLER
 from swarm_field.experiments.from_json import ExperimentFile, run_file
 
 _CONFIGS = sorted(Path(__file__).parent.parent.joinpath("configs").glob("*.json"))
@@ -26,15 +26,35 @@ def test_every_condition_changes_the_shared_parameters_group_by_group() -> None:
         }
     )
 
-    specs = experiment.into_specs()
+    scenarios = experiment.into_scenarios()
 
-    assert list(specs) == ["short", "long"]
-    for spec in specs.values():
-        assert spec.scenario.count(EXPLORER.name) == 7
-        assert spec.scenario.count(SEEDED_KILLER.name) == PESTS.count(SEEDED_KILLER.name)
-        assert spec.scenario.robots.speed_mps_drone == 4.0
-    assert specs["short"].scenario.robots.radio_range_m == 50
-    assert specs["long"].scenario.robots.radio_range_m == 300
+    assert list(scenarios) == ["short", "long"]
+    for scenario in scenarios.values():
+        assert scenario.count(EXPLORER.name) == 7
+        assert scenario.count(SEEDED_KILLER.name) == PESTS.count(SEEDED_KILLER.name)
+        assert scenario.robots.speed_mps_drone == 4.0
+    assert scenarios["short"].robots.radio_range_m == 50
+    assert scenarios["long"].robots.radio_range_m == 300
+
+
+def test_a_file_can_compare_the_frozen_presets() -> None:
+    experiment = ExperimentFile.from_dict(
+        {
+            "name": "best",
+            "scenario": "pests",
+            "parameters": {"swarm": {"seeded-killer": 0}},
+            "conditions": {
+                "seeded": {"swarm": {"seeded-best": 3}},
+                "hop": {"swarm": {"hop-best": 3}},
+            },
+        }
+    )
+
+    scenarios = experiment.into_scenarios()
+
+    assert scenarios["seeded"].count(SEEDED_BEST.name) == 3
+    assert scenarios["hop"].count(HOP_BEST.name) == 3
+    assert scenarios["hop"].killers == 3
 
 
 def test_cells_given_as_json_lists_become_the_scenarios_cells() -> None:
@@ -46,10 +66,10 @@ def test_cells_given_as_json_lists_become_the_scenarios_cells() -> None:
         }
     )
 
-    (spec,) = experiment.into_specs().values()
+    (scenario,) = experiment.into_scenarios().values()
 
-    assert spec.scenario.map.docks == ((0, 0), (31, 31))
-    assert spec.scenario.map.obstacles == ((5, 5),)
+    assert scenario.map.docks == ((0, 0), (31, 31))
+    assert scenario.map.obstacles == ((5, 5),)
 
 
 def test_a_revisit_age_from_the_file_replaces_the_one_from_the_sweep_time() -> None:
@@ -57,9 +77,9 @@ def test_a_revisit_age_from_the_file_replaces_the_one_from_the_sweep_time() -> N
         {"name": "x", "scenario": "explore", "parameters": {"explore": {"revisit_age": 600_000}}}
     )
 
-    (spec,) = experiment.into_specs().values()
+    (scenario,) = experiment.into_scenarios().values()
 
-    explore = spec.scenario.brain(spec.scenario.swarm[0].preset).params["explore"]
+    explore = scenario.brain(scenario.swarm[0].preset).params["explore"]
     assert explore.revisit_age == 10 * TimeUnit.MINUTE
 
 
@@ -87,7 +107,7 @@ def test_a_run_must_last_whole_hours(hours: float) -> None:
 
 @pytest.mark.parametrize("path", _CONFIGS, ids=[path.name for path in _CONFIGS])
 def test_every_example_file_is_a_valid_experiment(path: Path) -> None:
-    assert ExperimentFile.from_path(path).into_specs()
+    assert ExperimentFile.from_path(path).into_scenarios()
 
 
 def test_a_run_writes_every_result_and_the_table(tmp_path: Path) -> None:

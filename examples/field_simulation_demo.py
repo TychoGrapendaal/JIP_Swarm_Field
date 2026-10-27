@@ -266,7 +266,6 @@ class RobotTelemetry:
     battery: float
     failed: bool
     charging: bool
-    queued: bool
     spare_batteries: int
     status: str
     goal: str | None
@@ -768,8 +767,6 @@ class FieldSimulationConsole(InteractiveConsole):
             return f"REPLACING->{self._robot_labels.get(state.replacing_battery_for, '?')}"
         if state.charging_updated_at is not None:
             return "CHARGING"
-        if state.charging_requested_at is not None:
-            return "DOCK QUEUE"
         if state.treating_cell is not None:
             return f"TREAT@{_cell_text(state.treating_cell)}"
         if state.move_target is not None:
@@ -791,10 +788,6 @@ class FieldSimulationConsole(InteractiveConsole):
         low = sum(not r.failed and r.battery <= LOW_BATTERY_THRESHOLD for r in snapshot.robots)
         failed = total - active
         charging = sum(robot.charging_updated_at is not None for robot in world.robots.values())
-        queued = sum(
-            robot.charging_requested_at is not None and robot.charging_updated_at is None
-            for robot in world.robots.values()
-        )
         active_infestations = [
             (cell, state.infestation)
             for cell, state in world.cells.items()
@@ -849,7 +842,7 @@ class FieldSimulationConsole(InteractiveConsole):
             f"links      {getattr(self, '_current_link_count', 0):3d} visible pairs",
             "",
             "BATTERY LIFECYCLE",
-            f"low peers  {low:2d} | charging {charging:2d} | queued {queued:2d}",
+            f"low peers  {low:2d} | charging {charging:2d}",
             f"failures   {world.battery_failure_count():2d} | "
             f"spares {total_spares}/{spare_capacity}",
             f"support    {battery_states}",
@@ -908,9 +901,6 @@ class FieldSimulationConsole(InteractiveConsole):
                 battery=robot.battery,
                 failed=robot.failed,
                 charging=state.charging_updated_at is not None,
-                queued=(
-                    state.charging_requested_at is not None and state.charging_updated_at is None
-                ),
                 spare_batteries=state.spare_batteries,
                 status=self._status_for(robot.robot_id),
                 goal=goal,
@@ -952,8 +942,6 @@ class FieldSimulationConsole(InteractiveConsole):
                         self._events.appendleft(
                             f"{_clock(self.time)} {label} started dock charging"
                         )
-                    if not old_state.queued and now_state.queued:
-                        self._events.appendleft(f"{_clock(self.time)} {label} joined dock queue")
                     if now_state.spare_batteries < old_state.spare_batteries:
                         recipients = [
                             other

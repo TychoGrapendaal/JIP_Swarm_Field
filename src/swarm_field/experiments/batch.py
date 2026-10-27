@@ -25,11 +25,12 @@ import json
 import logging
 import math
 import re
+import secrets
 import subprocess
 import sys
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import Future, ProcessPoolExecutor, as_completed
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime
 from pathlib import Path
@@ -49,7 +50,7 @@ class Run[C]:
     Attributes:
         arm: The configuration's name, e.g. ``river-small/hop-tuned``; the runs of one arm differ
             only in their seed.
-        config: Whatever the run function needs, e.g. a ``PestRunSpec``. It must pickle.
+        config: Whatever the run function needs, e.g. a ``SwarmScenario``. It must pickle.
         seed: The seed of this run.
         cost: A rough relative cost; the costliest runs start first, so that no process is left
             with a long run at the end. Optional.
@@ -121,8 +122,9 @@ def arm_name(*parts: str, **params: object) -> str:
 class Experiment:
     """One experiment's folder in ``output/``, and the batch of runs that fills it.
 
-    The folder is ``<root>/<YYYY-MM-DD_HH-MM-SS>_<name>``, so a listing sorts by time. It is made
-    when the experiment is created, and holds ``experiment.json`` (when, what and from which
+    The folder is ``<root>/<YYYY-MM-DD_HH-MM-SS>_<name>_<NNNN>``, so a listing sorts by time; the
+    random four digits keep apart two experiments of one name started in the same second. It is
+    made when the experiment is created, and holds ``experiment.json`` (when, what and from which
     commit), ``results.json`` (one record per run) and any file the caller adds.
 
     Attributes:
@@ -134,7 +136,8 @@ class Experiment:
     def __init__(self, name: str, root: Path = OUTPUT) -> None:
         started = datetime.now()
         self.name: str = re.sub(r"[^A-Za-z0-9_-]+", "_", name).strip("_")
-        self.directory: Path = root / f"{started:%Y-%m-%d_%H-%M-%S}_{self.name}"
+        suffix = secrets.randbelow(10_000)
+        self.directory: Path = root / f"{started:%Y-%m-%d_%H-%M-%S}_{self.name}_{suffix:04d}"
         self.directory.mkdir(parents=True, exist_ok=False)
         self._started: datetime = started
 
@@ -199,7 +202,8 @@ def run_in_parallel[C, R](
 ) -> list[RunResult[C, R]]:
     """Run every run in parallel processes, costliest first, and return the results in run order.
 
-    ``Experiment.run`` runs a batch with it, and ``record_videos`` the runs it films.
+    ``Experiment.run`` runs a batch with it, and ``record_videos`` the runs it films. Every
+    finished run is logged, so a long batch shows its progress.
 
     Args:
         runs: The runs.
@@ -212,12 +216,25 @@ def run_in_parallel[C, R](
     """
     _refuse_duplicate_names(runs)
     order = sorted(range(len(runs)), key=lambda index: runs[index].cost, reverse=True)
-    costliest_first = [runs[index] for index in order]
-    with ProcessPoolExecutor(max_workers=processes) as pool:
-        outcomes = list(pool.map(_Timed(function), costliest_first))
+    timed = _Timed(function)
+    started = time.perf_counter()
     by_index: dict[int, RunResult[C, R]] = {}
-    for index, run, (result, wall) in zip(order, costliest_first, outcomes, strict=True):
-        by_index[index] = RunResult(run, result, wall)
+    with ProcessPoolExecutor(max_workers=processes) as pool:
+        indices: dict[Future[tuple[R, float]], int] = {}
+        for index in order:
+            indices[pool.submit(timed, runs[index])] = index
+        for future in as_completed(indices):
+            index = indices[future]
+            result, wall = future.result()
+            by_index[index] = RunResult(runs[index], result, wall)
+            logger.info(
+                "Finished %d of %d runs after %.0f s: %s in %.0f s",
+                len(by_index),
+                len(runs),
+                time.perf_counter() - started,
+                runs[index].name,
+                wall,
+            )
     results: list[RunResult[C, R]] = []
     for index in range(len(runs)):
         results.append(by_index[index])
