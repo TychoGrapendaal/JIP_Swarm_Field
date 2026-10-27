@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from swarm_field.contracts import (
+    AgentObjective,
     BodyType,
     CellId,
     FieldGeometry,
@@ -27,7 +28,13 @@ def _seen(cell: CellId, at: Time) -> InfestationObservation:
     )
 
 
-def _peer(peer: int, cell: CellId, target: CellId | None, at: Time) -> PeerObservation:
+def _peer(
+    peer: int,
+    cell: CellId,
+    target: CellId | None,
+    at: Time,
+    objective: AgentObjective | None = AgentObjective.EXPLORE,
+) -> PeerObservation:
     return PeerObservation(
         cell=cell,
         confidence=1.0,
@@ -36,6 +43,7 @@ def _peer(peer: int, cell: CellId, target: CellId | None, at: Time) -> PeerObser
         peer=peer,
         body=BodyType.SCOUT,
         target=target,
+        objective=objective,
     )
 
 
@@ -137,6 +145,15 @@ def test_peers_discount_the_blocks_they_are_in_or_heading_to() -> None:
 
     assert spread[(3, 4)] == pytest.approx(plain[(3, 4)] / 2)
     assert spread[(16, 0)] == pytest.approx(plain[(16, 0)] / 2)
+
+
+def test_peers_that_do_not_explore_are_left_out_of_the_discount() -> None:
+    memory = _memory_with_left_block_seen(at=100, except_cells=((3, 4),))
+    memory.merge([_peer(2, cell=(20, 5), target=None, at=100, objective=None)])
+
+    seeds = {seed.cell: seed.value for seed in _seeder(True).seeds(memory, (0, 0), now=100)}
+
+    assert seeds[(16, 0)] == pytest.approx(-10.0)
 
 
 def test_old_peer_reports_are_left_out_of_the_discount() -> None:

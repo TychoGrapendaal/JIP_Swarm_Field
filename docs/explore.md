@@ -53,10 +53,10 @@ $$v'(c) = \frac{v(c)}{1 + n_{b(c)}}, \qquad w'_b = \frac{w_b}{1 + n_b}$$
 
 | Symbol | Meaning |
 | --- | --- |
-| $n_b$ | The number of peers whose reported cell or reported target lies in block $b$. |
+| $n_b$ | The number of exploring peers whose reported cell or reported target lies in block $b$. |
 | $b(c)$ | The block containing cell $c$. |
 
-Every robot broadcasts its cell and its target at every decision point (`MessageKind.STATUS`), and memory keeps the newest report per peer; a newer sighting of the peer by another robot updates its cell but keeps its reported target. With `ExploreConfig.spread_peers`, a block's worths are divided by one plus the number of peers in it or heading to it (`PeerDiscount`), counting only reports younger than `peer_max_age`. The discount applies to the robot's own block too, so a robot sharing its block with a peer is drawn to a block nobody covers. There is no kernel and no further parameter. Robots are thus made to spread explicitly, not only through shared observations making each other's ground look fresh.
+Every robot broadcasts its cell and its target at every decision point (`MessageKind.STATUS`), and memory keeps the newest report per peer; a newer sighting of the peer by another robot updates its cell but keeps its reported target. With `ExploreConfig.spread_peers`, a block's worths are divided by one plus the number of peers in it or heading to it (`PeerDiscount`), counting only reports younger than `peer_max_age` and only peers that report the EXPLORE objective. A killer idling in a block senses only its own cell, so counting it kept the explorers away from the cells around it for as long as it waited there: with 20 or 40 seeded killers on the large field, some cells were never sensed and the last pests were found only hours later, or never. The discount applies to the robot's own block too, so a robot sharing its block with a peer is drawn to a block nobody covers. There is no kernel and no further parameter. Robots are thus made to spread explicitly, not only through shared observations making each other's ground look fresh.
 
 ## Parameters
 
