@@ -75,7 +75,6 @@ class RobotFrame:
     battery: float
     failed: bool
     charging: bool
-    queued: bool
     action: str
     spare_batteries: int
 
@@ -115,10 +114,6 @@ class BatteryDemoCapture:
                     battery=public.battery,
                     failed=public.failed,
                     charging=state.charging_updated_at is not None,
-                    queued=(
-                        state.charging_requested_at is not None
-                        and state.charging_updated_at is None
-                    ),
                     action=type(public.current_action).__name__
                     if public.current_action is not None
                     else "Idle",
@@ -224,8 +219,6 @@ def _status(robot: RobotFrame) -> str:
         return "DEAD_BATTERY"
     if robot.charging:
         return "CHARGING"
-    if robot.queued:
-        return "WAITING FOR DOCK"
     return robot.action.upper()
 
 
@@ -295,17 +288,6 @@ def _draw_map(
         if robot.charging:
             ax.add_patch(
                 Circle((draw_x, draw_y), 0.36, fill=False, edgecolor="#f4a261", linewidth=2.5)
-            )
-        elif robot.queued:
-            ax.add_patch(
-                Circle(
-                    (draw_x, draw_y),
-                    0.36,
-                    fill=False,
-                    edgecolor="#f4a261",
-                    linewidth=2.0,
-                    linestyle="--",
-                )
             )
         ax.annotate(
             f"R{robot.robot_id}",

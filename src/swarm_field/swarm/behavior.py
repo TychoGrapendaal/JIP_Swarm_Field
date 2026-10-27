@@ -25,6 +25,7 @@ from swarm_field.swarm.explore import ExploreConfig, ExploreSeeder, revisit_wort
 from swarm_field.swarm.memory import MemoryView
 from swarm_field.swarm.recharge import RechargeConfig
 from swarm_field.swarm.seeder import (
+    CLAIM_FRESH_FOR,
     BatteryRequestSeeder,
     RegroupSeeder,
     TreatSeeder,
@@ -154,13 +155,18 @@ class TreatInfestation:
 
     With ``yield_to_treating_peer`` the killer claims pests: it may go only for the pests left to
     it (``pests_left_to_robot``), and standing on a pest that a peer with a lower id reports,
-    within ``claim_fresh_for``, to be treating on that same cell, it proposes nothing until the
+    within ``treating_fresh_for``, to be treating on that same cell, it proposes nothing until the
     pest is cleared, so two killers do not spend two doses on one pest. Without it, every known
     pest counts.
 
+    A killer whose consumable is used up proposes nothing, so it neither stands on a pest it
+    cannot treat nor holds it as a claim.
+
     Attributes:
         yield_to_treating_peer: Whether the killer claims pests and leaves them to its peers.
-        claim_fresh_for: How old a peer's report of treating a cell may be to count.
+        treating_fresh_for: How old a peer's report of treating a cell may be to count.
+        claim_fresh_for: How old a peer's report of heading for a pest may be to keep the pest
+            claimed, as for the TREAT field (``TreatSeeder.claim_fresh_for``).
     """
 
     name: str = "treat-infestation"
@@ -169,13 +175,18 @@ class TreatInfestation:
         self,
         seeder: str = TreatSeeder.name,
         yield_to_treating_peer: bool = False,
-        claim_fresh_for: Time = 30 * TimeUnit.SECOND,
+        treating_fresh_for: Time = 30 * TimeUnit.SECOND,
+        claim_fresh_for: Time = CLAIM_FRESH_FOR,
     ) -> None:
         self._seeder: str = seeder
         self.yield_to_treating_peer: bool = yield_to_treating_peer
+        self.treating_fresh_for: Time = treating_fresh_for
         self.claim_fresh_for: Time = claim_fresh_for
 
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
+        # An empty killer cannot treat, and a bid would claim a pest it can never clear.
+        if ctx.self_state.consumable <= 0.0:
+            return ()
         position = ctx.self_state.position
         here = ctx.memory.infestation_at(position)
         if here is not None and here.severity > 0:
@@ -189,7 +200,7 @@ class TreatInfestation:
         # to explore.
         pests = infested(ctx.memory)
         if self.yield_to_treating_peer:
-            pests = pests_left_to_robot(ctx.memory, position, ctx.time)
+            pests = pests_left_to_robot(ctx.memory, position, ctx.time, self.claim_fresh_for)
         worst = 0.0
         for pest in pests:
             worst = max(worst, pest.severity * ctx.memory.confidence(pest, ctx.time))
@@ -203,7 +214,7 @@ class TreatInfestation:
         for peer in ctx.memory.peers():
             if peer.peer is None or peer.peer >= ctx.self_state.robot_id:
                 continue
-            if ctx.time - peer.observed_at > self.claim_fresh_for:
+            if ctx.time - peer.observed_at > self.treating_fresh_for:
                 continue
             if peer.cell == cell and peer.target == cell and peer.objective is _TREAT:
                 return True
@@ -390,6 +401,11 @@ class SupplyBattery:
 class ReturnToDock:
     """Return to a known dock when energy is low or a battery robot is out of spares.
 
+    A robot charges on a dock only when it came to charge: it bids ``Charge`` there at or below
+    ``RechargeConfig.low_battery_threshold``, and once it has started it keeps bidding until its
+    battery is full. A robot that only passes a dock does not stop. A battery robot short of
+    spares also bids ``Charge`` on a dock, which refills them.
+
     Dock membership is checked from the configured dock cells. The dock field is not queried by
     this behaviour; it is built only when the follow-field intent wins arbitration.
     """
@@ -406,6 +422,7 @@ class ReturnToDock:
         self._seeder = seeder
         self._docks = frozenset(docks)
         self._recharge_config = recharge_config or RechargeConfig()
+        self._charging: bool = False
 
     def propose(self, ctx: DecisionContext) -> tuple[ActionCandidate, ...]:
         profile = ctx.capabilities
@@ -413,12 +430,17 @@ class ReturnToDock:
             profile = capabilities_for(ctx.self_state.body)
 
         position = ctx.self_state.position
+        battery = ctx.self_state.battery
         at_dock = position in self._docks
+        if not at_dock or battery >= 1.0:
+            self._charging = False
         needs_spares = (
             ctx.self_state.body is BodyType.BATTERY
             and ctx.self_state.spare_batteries < profile.spare_battery_capacity
         )
-        if at_dock and (ctx.self_state.battery < 1.0 or needs_spares):
+        low = battery <= self._recharge_config.low_battery_threshold
+        if at_dock and (low or self._charging or needs_spares):
+            self._charging = True
             return (
                 ActionCandidate(
                     action=Charge(),
@@ -432,7 +454,6 @@ class ReturnToDock:
         if not self._docks:
             return ()
 
-        battery = ctx.self_state.battery
         if battery <= self._recharge_config.critical_battery_threshold:
             priority = self._recharge_config.critical_priority
         elif battery <= self._recharge_config.low_battery_threshold:

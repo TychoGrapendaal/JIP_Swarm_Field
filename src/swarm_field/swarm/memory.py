@@ -45,6 +45,10 @@ logger = logging.getLogger(__name__)
 _TERRAINS: tuple[Terrain, ...] = tuple(Terrain)
 """Every terrain, indexed by the code ``AgentMemory`` stores it as."""
 
+MAP_FREE_PEER_CAP = 100
+"""The most peers a memory without a map keeps; beyond it the one observed longest ago is
+forgotten. A robot without a map may keep no list that grows with the swarm."""
+
 _UNKNOWN_TERRAIN = -1
 """The terrain code of a cell whose terrain is not known."""
 
@@ -260,7 +264,8 @@ class AgentMemory:
 
     Crop, terrain, infestation and named peer facts are stored. Anonymous peer sightings and
     sightings of the robot itself are ignored. A memory that keeps no map stores only peer
-    facts, for a robot that steers by beacons and its own sensing alone.
+    facts, for a robot that steers by beacons and its own sensing alone: the peers it heard or
+    sensed itself, at most ``MAP_FREE_PEER_CAP``, and nothing of a peer's snapshot.
 
     Attributes:
         keeps_map: Whether crop, terrain and infestation facts are stored.
@@ -350,8 +355,6 @@ class AgentMemory:
                 since is only newer, so it would store nothing.
         """
         if not self.keeps_map:
-            if merged_before is None or snapshot.peers is not merged_before.peers:
-                self._merge_peers(snapshot.peers)
             return
         if merged_before is None or snapshot.terrain is not merged_before.terrain:
             self._merge_terrain_columns(snapshot.terrain)
@@ -399,8 +402,11 @@ class AgentMemory:
         return snapshot
 
     def terrain_stored_after(self, version: int) -> list[CellId]:
-        """The cells whose terrain memory learned or changed after ``version``."""
+        """The cells whose terrain memory learned or changed after ``version``; none without a
+        map, which spares a scan of the whole field."""
         changed: list[CellId] = []
+        if not self.keeps_map:
+            return changed
         for flat in np.flatnonzero(self._terrain.stored_at > version).tolist():
             changed.append(divmod(flat, self._field.height))
         return changed
@@ -535,6 +541,14 @@ class AgentMemory:
             if stored is not None and stored != known:
                 self._peers[peer] = stored
                 self._peers_last_stored = self._next_version()
+                if not self.keeps_map and len(self._peers) > MAP_FREE_PEER_CAP:
+                    self._forget_oldest_peer()
+
+    def _forget_oldest_peer(self) -> None:
+        """Forget the peer observed longest ago, and what it reported."""
+        oldest = min(self._peers, key=lambda peer: self._peers[peer].observed_at)
+        del self._peers[oldest]
+        self._peer_reported_at.pop(oldest, None)
 
     def _merge_crops(self, facts: Iterable[CropObservation]) -> None:
         """Merge crop facts, keeping per cell the one with the newest ``observed_at``."""

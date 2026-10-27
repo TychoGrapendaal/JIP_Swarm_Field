@@ -2,9 +2,17 @@
 
 A ``SwarmScenario`` is built rather than spelled out. It holds a ``MapConfig`` (the field), a
 ``PestConfig`` (the pests and their treatment), a ``RobotConfig`` (speeds, radio, decisions) and
-the swarm: robots added preset by preset, each preset with a count::
+the swarm: robots added preset by preset, each preset with a count. A scenario is composed from
+ready parts, a map (``swarm_field.experiments.maps``), pests and robot settings::
 
-    scenario = RIVER_SMALL.without_robots().add_robots(EXPLORER, 10).add_robots(HOP_KILLER, 4)
+    scenario = (
+        SwarmScenario()
+        .with_map(SMALL_RIVER_MAP)
+        .with_pests(SMALL_FIELD_PESTS)
+        .with_robot_config(DEFAULT_ROBOTS)
+        .add_robots(EXPLORER, 10)
+        .add_robots(HOP_BEST, 4)
+    )
 
 ``into_experiment`` describes the run as an ``ExperimentConfig`` for ``swarm_field.runner``,
 which assembles and runs it. Every robot is a ``ComposedAgent`` with a ``UtilityArbiter`` and the
@@ -17,10 +25,15 @@ spreads them. Robots share what they know only through the channel, within the r
 mock source on every pest (``PestConfig.source_range_m``) can stand in for the explorer that
 found it.
 
-The ready scenarios are ``RIVER_SMALL``, ``RIVERS_LARGE`` and ``RELAYED_KILLERS``, the fields of
-the pest-response benchmarks, ``EXPLORE``, explorers alone on an open field, and ``PESTS``,
-explorers and seeded killers on the river field. ``pest_response_configurations`` turns a
-scenario into the compared pest responses.
+The experiments' defaults are the pests ``STATIC_PESTS``, ``SMALL_FIELD_PESTS`` and
+``LARGE_FIELD_PESTS``, and the robot settings ``DEFAULT_ROBOTS``; the default scenarios
+``RIVER_SMALL``, ``RIVERS_LARGE``, ``OPEN_SMALL`` and ``OPEN_LARGE`` put the default swarm on
+each standard field. The earlier parts are the pests ``FAST_PESTS`` and ``NO_PESTS``, and the
+robot settings ``LATTICE_ROBOTS`` and ``EXPLORE_ROBOTS``. The earlier scenarios are composed
+from them: ``RELAYED_RIVER_SMALL``, ``RELAYED_RIVERS_LARGE`` and ``RELAYED_KILLERS``, the swarms
+of the relay benchmarks, ``EXPLORE``, explorers alone on an open field, and ``PESTS``, explorers
+and seeded killers on the river field. ``moving_explorer_scenario`` builds the scenario of the
+earlier comparison experiments, moving explorers and killers without relays or mock sources.
 """
 
 from __future__ import annotations
@@ -32,6 +45,7 @@ from random import Random
 from swarm_field.contracts import (
     BodyType,
     CellId,
+    DockBeaconSpec,
     EnergySpec,
     MessageKind,
     PestDynamicsSpec,
@@ -43,22 +57,22 @@ from swarm_field.contracts import (
     TimeUnit,
 )
 from swarm_field.experiments.maps import (
+    LARGE_OPEN_MAP,
+    LARGE_RIVERS_MAP,
+    SMALL_OPEN_MAP,
+    SMALL_RIVER_MAP,
     MapConfig,
     cropped_cells,
-    river_and_rocks,
-    two_rivers_and_rocks,
 )
 from swarm_field.experiments.presets import (
     EXPLORER,
     RELAY,
+    SEEDED_BEST,
     SEEDED_KILLER,
     ExplorerPreset,
-    HopKillerPreset,
     Relaying,
     RobotPreset,
-    SeededKillerPreset,
     SwarmContext,
-    hop_beacon_variants,
 )
 from swarm_field.runner import BrainSpec, ExperimentConfig
 from swarm_field.simulation import MetricsConfig
@@ -79,6 +93,8 @@ class PestConfig:
         treatment_rate: How much infestation severity a treating killer removes per hour. It
             must beat the growth, ``growth_rate`` per ``period``, or no pest ever clears.
         treatment_doses: How many treatments a killer carries.
+        initial_pests: How many pests are on the field when the run starts, each on a free cell
+            of its own drawn from the run's seed, with ``spawn_severity``.
         source_range_m: How far the mock source on every pest broadcasts it, once per decision
             interval, or ``None`` for no sources. ``math.inf`` tells every robot at once. A
             source sends what the swarm's killers read: the pest's fact for seeded killers, a
@@ -92,6 +108,7 @@ class PestConfig:
     spawn_severity: float = 0.1
     treatment_rate: float = 1.0
     treatment_doses: int = 10
+    initial_pests: int = 0
     source_range_m: float | None = None
 
     def dynamics(self, free_cells: int) -> PestDynamicsSpec:
@@ -114,7 +131,8 @@ class RobotConfig:
         speed_mps_drone: The scouts' speed; a straight move takes ``cell_size / speed`` seconds.
         speed_mps_ground: The killers' speed.
         radio_range_m: How far a robot's broadcasts reach.
-        decision_interval: The time between two decisions of a robot.
+        decision_interval: The time between two decisions of a robot that stands still; a
+            moving robot decides again when its move arrives.
         knows_terrain: Whether every robot starts with the field's terrain map; a robot that
             keeps no map drops it.
         lattice_starts: Whether the robots of every preset start on a jittered lattice of their
@@ -123,8 +141,7 @@ class RobotConfig:
             of the lattice pitch.
         battery_capacity: How many standard charges every robot's battery holds; a standard
             charge lasts a body's endurance in travel, 30 minutes for a scout. A large capacity,
-            e.g. ``1000``, keeps robots working without trips to a dock, and keeps hop killers,
-            which cannot return to one yet, from running empty.
+            e.g. ``1000``, keeps robots working without trips to a dock.
     """
 
     speed_mps_drone: float = 2.0
@@ -163,16 +180,13 @@ class RobotGroup:
     count: int
 
 
-def _metrics_every_second() -> MetricsConfig:
-    return MetricsConfig(period=TimeUnit.SECOND)
-
-
 @dataclass(frozen=True)
 class SwarmScenario:
     """The field, the pests and the swarm of one run.
 
-    Build one from a ready scenario or from ``SwarmScenario()``, an empty swarm on the river
-    field, with ``add_robots`` and the ``with_`` methods.
+    Compose one from ``SwarmScenario()``, an empty swarm on ``MapConfig()``, the river field,
+    with every setting at its default, with the ``with_`` methods and the ready parts, and
+    ``add_robots``; or change a ready scenario the same way.
 
     Attributes:
         map: The field.
@@ -190,7 +204,7 @@ class SwarmScenario:
     robots: RobotConfig = field(default_factory=RobotConfig)
     swarm: tuple[RobotGroup, ...] = ()
     arbiter: ArbiterConfig = field(default_factory=ArbiterConfig)
-    metrics: MetricsConfig = field(default_factory=_metrics_every_second)
+    metrics: MetricsConfig = field(default_factory=lambda: MetricsConfig(period=TimeUnit.SECOND))
     until: Time = 3 * TimeUnit.HOUR
     seed: int = 0
 
@@ -224,6 +238,28 @@ class SwarmScenario:
     def with_metrics(self, metrics: MetricsConfig) -> SwarmScenario:
         return replace(self, metrics=metrics)
 
+    def with_pests_per_hour(self, pests_per_hour: float) -> SwarmScenario:
+        return replace(self, pests=replace(self.pests, pests_per_hour=pests_per_hour))
+
+    def with_hours(self, hours: int, warmup_hours: int) -> SwarmScenario:
+        """This scenario run for ``hours`` and measured after ``warmup_hours``.
+
+        Its metrics are sampled once a minute and averaged from the end of the warm-up on, which
+        ``measure_pest_response`` also leaves out of ``infested``.
+
+        Raises:
+            ValueError: If the warm-up lasts as long as the run, or longer.
+        """
+        if warmup_hours >= hours:
+            raise ValueError(f"a warm-up of {warmup_hours} h leaves nothing of a {hours} h run")
+        metrics = replace(
+            self.metrics, period=TimeUnit.MINUTE, measure_from=warmup_hours * TimeUnit.HOUR
+        )
+        return replace(self, until=hours * TimeUnit.HOUR, metrics=metrics)
+
+    def with_seed(self, seed: int) -> SwarmScenario:
+        return replace(self, seed=seed)
+
     def count(self, name: str | None = None) -> int:
         """How many robots of the preset called ``name`` there are, or how many in all."""
         found = 0
@@ -251,18 +287,26 @@ class SwarmScenario:
     def relaying(self) -> Relaying:
         """What the swarm's robots relay: what all its presets need, merged."""
         hop_cells = self.robots.radio_range_m / self.map.cell_size
+        sweep_time = self.sweep_time()
         merged = Relaying()
         for group in self.swarm:
             if group.count > 0:
-                merged = merged.merge(group.preset.needs(hop_cells))
+                merged = merged.merge(group.preset.needs(hop_cells, sweep_time))
         return merged
+
+    def run_cost(self) -> float:
+        """A rough relative cost of a run: the field's cells times the hours, five times when
+        relays gossip pests; to start the costliest runs of a batch first."""
+        cost = self.map.size**2 * self.until / TimeUnit.HOUR
+        if self.relaying().pest_facts is not KnowledgeSharing.NOTHING:
+            cost *= 5
+        return cost
 
     def sweep_time(self) -> Time:
         """How long the explorers need to visit every free cell once, if they split it evenly.
 
-        A robot moves one cell per decision at most, so a step takes the move rounded up to
-        whole decision intervals. The explorers are the robots of an ``ExplorerPreset``; without
-        any, the sweep time is 0.
+        A robot decides again as soon as a move arrives, so a step takes one straight move. The
+        explorers are the robots of an ``ExplorerPreset``; without any, the sweep time is 0.
         """
         explorers = 0
         for group in self.swarm:
@@ -270,9 +314,7 @@ class SwarmScenario:
                 explorers += group.count
         if explorers == 0:
             return 0
-        interval = self.robots.decision_interval
-        move = math.ceil(self.map.cell_size / self.robots.speed_mps_drone * TimeUnit.SECOND)
-        step = math.ceil(move / interval) * interval
+        step = math.ceil(self.map.cell_size / self.robots.speed_mps_drone * TimeUnit.SECOND)
         return self.map.free_cells() * step // explorers
 
     def context(self) -> SwarmContext:
@@ -323,6 +365,31 @@ class SwarmScenario:
             starts.append(self._nearest_free_cell(cell, blocked))
         return starts
 
+    def initial_infestation(self) -> dict[CellId, float]:
+        """The pests on the field at the start: ``PestConfig.initial_pests`` free cells.
+
+        The cells are drawn from a ``Random`` of their own, seeded by the run's seed, so the
+        run's random streams and the lattice starts are untouched.
+
+        Raises:
+            ValueError: If the field has fewer free cells than initial pests.
+        """
+        if self.pests.initial_pests == 0:
+            return {}
+        blocked = set(self.map.blocked_cells())
+        free: list[CellId] = []
+        for x in range(self.map.size):
+            for y in range(self.map.size):
+                if (x, y) not in blocked:
+                    free.append((x, y))
+        if self.pests.initial_pests > len(free):
+            raise ValueError(f"{self.pests.initial_pests} initial pests, {len(free)} free cells")
+        cells = Random(f"initial-pests/{self.seed}").sample(free, self.pests.initial_pests)
+        infestation: dict[CellId, float] = {}
+        for cell in cells:
+            infestation[cell] = self.pests.spawn_severity
+        return infestation
+
     def _nearest_free_cell(self, cell: CellId, blocked: set[CellId]) -> CellId:
         """``cell`` if it is free, else the nearest free cell, searched ring by ring."""
         for radius in range(self.map.size):
@@ -352,6 +419,20 @@ class SwarmScenario:
             y = (row + 0.5 + jitter.uniform(-spread, spread)) * pitch_y
             cells.append((min(int(x), size - 1), min(int(y), size - 1)))
         return cells
+
+    def dock_beacons(self) -> DockBeaconSpec | None:
+        """The docks' own radio: only when the swarm relays DOCK beacons and the field has docks.
+
+        A dock broadcasts once per decision interval, as far as ``MapConfig.dock_range_m``, or
+        the robots' radio range without one.
+        """
+        beacons = self.relaying().beacons
+        if beacons is None or beacons.dock is None or not self.map.docks:
+            return None
+        reach = self.map.dock_range_m
+        if reach is None:
+            reach = self.robots.radio_range_m
+        return DockBeaconSpec(period=self.robots.decision_interval, radio_range_m=reach)
 
     def pest_sources(self) -> PestSourceSpec | None:
         """The mock pest sources: what the swarm's killers read, or ``None`` if none is used.
@@ -400,9 +481,11 @@ class SwarmScenario:
             crops=cropped_cells(geometry, obstacles),
             robots=robots,
             seed=self.seed,
+            initial_infestation=self.initial_infestation(),
             obstacles=obstacles,
             pest_dynamics=self.pests.dynamics(self.map.free_cells()),
             pest_sources=self.pest_sources(),
+            dock_beacons=self.dock_beacons(),
             treatment_rate=self.pests.treatment_rate,
             treatment_doses=self.pests.treatment_doses,
             energy=EnergySpec(capacity=self.robots.battery_capacity),
@@ -444,12 +527,107 @@ The ready pest scenarios treat this fast, so that a pest's time to clear is the 
 rather than the treatment itself.
 """
 
-RELAYED_KILLERS = (
-    SwarmScenario(
-        map=MapConfig(obstacles=()),
-        pests=PestConfig(treatment_rate=FAST_TREATMENT, source_range_m=20.0),
-        robots=RobotConfig(radio_range_m=20.0, knows_terrain=False, lattice_starts=True),
+UNLIMITED_BATTERY_CAPACITY = 1000.0
+"""Charges in every robot's battery: enough that no robot runs empty during a run."""
+
+UNLIMITED_DOSES = 1000
+"""Doses every killer carries: enough that no killer runs out during a run."""
+
+DEFAULT_ROBOTS = RobotConfig(
+    speed_mps_drone=8.0,
+    speed_mps_ground=1.0,
+    radio_range_m=100.0,
+    knows_terrain=False,
+    lattice_starts=True,
+    battery_capacity=UNLIMITED_BATTERY_CAPACITY,
+)
+"""The robots of the experiments by default: explorers fly at 8 m/s, killers drive at 1 m/s,
+the radio reaches 100 m, ten cells of 10 m, every preset starts on a jittered lattice of its own,
+no robot knows the terrain, so robots learn obstacles by sensing, and no battery runs empty."""
+
+STATIC_PESTS = PestConfig(
+    growth_rate=0.0,
+    spread_probability=0.0,
+    treatment_rate=FAST_TREATMENT,
+    treatment_doses=UNLIMITED_DOSES,
+)
+"""The pests of the experiments by default: static, they neither grow nor spread, a killer
+treats one in a few seconds (``FAST_TREATMENT``) and never runs out of doses. The field's pest
+parts (``SMALL_FIELD_PESTS``, ``LARGE_FIELD_PESTS``) set how many there are."""
+
+SMALL_FIELD_PESTS = replace(STATIC_PESTS, pests_per_hour=20.0, initial_pests=20)
+"""``STATIC_PESTS`` for a small field and the default swarm: 20 pests at the start and 20 per
+hour. A starting point; an experiment sets the load its question needs."""
+
+LARGE_FIELD_PESTS = replace(STATIC_PESTS, pests_per_hour=8.0, initial_pests=8)
+"""``STATIC_PESTS`` for a large field and the default swarm: 8 pests at the start and 8 per
+hour. A starting point; an experiment sets the load its question needs."""
+
+DEFAULT_EXPLORERS = 10
+"""Explorers in a swarm of the experiments, by default."""
+
+DEFAULT_KILLERS = 4
+"""Killers in a swarm of the experiments, by default."""
+
+SMALL_FIELD_HOURS = 2
+"""How long a run on a small field lasts, by default."""
+
+LARGE_FIELD_HOURS = 4
+"""How long a run on a large field lasts, by default."""
+
+FAST_PESTS = PestConfig(treatment_rate=FAST_TREATMENT)
+"""The pests of the earlier pest experiments: 15 per hour, growing and treated with
+``FAST_TREATMENT``, 10 doses per killer, and no mock sources. At the default rate of one
+severity per hour a pest grows faster than it is treated and never clears. A scenario with mock
+sources sets ``source_range_m`` to its radio range."""
+
+NO_PESTS = PestConfig(pests_per_hour=0.0)
+"""No pests at all, for explorers measured by coverage and idleness alone."""
+
+LATTICE_ROBOTS = RobotConfig(radio_range_m=50.0, knows_terrain=False, lattice_starts=True)
+"""Robots of the earlier pest-response experiments: as ``DEFAULT_ROBOTS``, but scouts fly at
+2 m/s and killers drive at 0.5 m/s, the radio reaches 50 m, and batteries hold one charge."""
+
+EXPLORE_ROBOTS = RobotConfig(speed_mps_drone=1.0, decision_interval=2_500, radio_range_m=math.inf)
+"""Robots of the earlier exploration experiments: scouts at 1 m/s that decide every 2.5 s while
+they stand still, and hear each other across the whole field."""
+
+
+def _default_scenario(field: MapConfig, pests: PestConfig, hours: int) -> SwarmScenario:
+    """The experiments' default swarm on ``field``: ``DEFAULT_EXPLORERS`` explorers and
+    ``DEFAULT_KILLERS`` killers of ``SEEDED_BEST``, with ``DEFAULT_ROBOTS``, for ``hours`` and
+    measured from the start: the initial pests load the killers at once."""
+    scenario = (
+        SwarmScenario()
+        .with_map(field)
+        .with_pests(pests)
+        .with_robot_config(DEFAULT_ROBOTS)
+        .add_robots(EXPLORER, DEFAULT_EXPLORERS)
+        .add_robots(SEEDED_BEST, DEFAULT_KILLERS)
     )
+    return scenario.with_hours(hours, warmup_hours=0)
+
+
+RIVER_SMALL = _default_scenario(SMALL_RIVER_MAP, SMALL_FIELD_PESTS, SMALL_FIELD_HOURS)
+"""The default experiment on the small river field (``SMALL_RIVER_MAP``): 10 explorers and 4
+seeded killers (``SEEDED_BEST``), ``DEFAULT_ROBOTS`` and ``SMALL_FIELD_PESTS``, for 2 hours.
+The hop arm is the same scenario with its killers swapped for ``HOP_BEST``."""
+
+RIVERS_LARGE = _default_scenario(LARGE_RIVERS_MAP, LARGE_FIELD_PESTS, LARGE_FIELD_HOURS)
+"""The default experiment on the large river field (``LARGE_RIVERS_MAP``), as ``RIVER_SMALL``,
+with ``LARGE_FIELD_PESTS``, for 4 hours."""
+
+OPEN_SMALL = _default_scenario(SMALL_OPEN_MAP, SMALL_FIELD_PESTS, SMALL_FIELD_HOURS)
+"""The default experiment on the small open field (``SMALL_OPEN_MAP``), as ``RIVER_SMALL``."""
+
+OPEN_LARGE = _default_scenario(LARGE_OPEN_MAP, LARGE_FIELD_PESTS, LARGE_FIELD_HOURS)
+"""The default experiment on the large open field (``LARGE_OPEN_MAP``), as ``RIVERS_LARGE``."""
+
+RELAYED_KILLERS = (
+    SwarmScenario()
+    .with_map(SMALL_OPEN_MAP)
+    .with_pests(replace(FAST_PESTS, source_range_m=20.0))
+    .with_robot_config(replace(LATTICE_ROBOTS, radio_range_m=20.0))
     .add_robots(RELAY, 400)
     .add_robots(SEEDED_KILLER, 8)
 )
@@ -457,52 +635,53 @@ RELAYED_KILLERS = (
 
 A mock source on every pest stands in for the explorer that found it. The radio reaches 1.25
 relay pitches, so a pest reaches the nearest killer through several relays.
-``pest_response_configurations`` turns it into the compared pest responses.
 """
 
-RIVER_SMALL = (
-    SwarmScenario(
-        map=MapConfig(obstacles=river_and_rocks(32)),
-        pests=PestConfig(pests_per_hour=18.0, treatment_rate=FAST_TREATMENT, source_range_m=50.0),
-        robots=RobotConfig(radio_range_m=50.0, knows_terrain=False, lattice_starts=True),
-    )
+RELAYED_RIVER_SMALL = (
+    SwarmScenario()
+    .with_map(SMALL_RIVER_MAP)
+    .with_pests(replace(FAST_PESTS, pests_per_hour=18.0, source_range_m=50.0))
+    .with_robot_config(LATTICE_ROBOTS)
     .add_robots(RELAY, 64)
     .add_robots(SEEDED_KILLER, 6)
 )
-"""The obstacle comparison's small field (#70): one river with a bridge, and two rocks.
+"""The obstacle benchmark's small field (#70): standing relays and seeded killers on
+``SMALL_RIVER_MAP``, with a mock source on every pest.
 
 Relays stand on a lattice 4 cells apart, as sparse as it gets while the radio, which reaches
 1.25 pitches, still joins almost all of them into one network and every cell is in range of a
 relay. No robot knows the terrain; killers learn obstacles by sensing.
 """
 
-RIVERS_LARGE = (
-    RIVER_SMALL.without_robots()
-    .with_map(MapConfig(size=64, obstacles=two_rivers_and_rocks(64)))
-    .with_pests(replace(RIVER_SMALL.pests, pests_per_hour=48.0))
+RELAYED_RIVERS_LARGE = (
+    SwarmScenario()
+    .with_map(LARGE_RIVERS_MAP)
+    .with_pests(replace(FAST_PESTS, pests_per_hour=48.0, source_range_m=50.0))
+    .with_robot_config(LATTICE_ROBOTS)
     .add_robots(RELAY, 256)
     .add_robots(SEEDED_KILLER, 18)
 )
-"""``RIVER_SMALL`` on four times the area: two rivers with three bridges, and eight rocks."""
+"""``RELAYED_RIVER_SMALL`` on four times the area (``LARGE_RIVERS_MAP``)."""
 
-EXPLORE = SwarmScenario(
-    map=MapConfig(obstacles=()),
-    pests=PestConfig(pests_per_hour=0.0),
-    robots=RobotConfig(speed_mps_drone=1.0, decision_interval=2_500, radio_range_m=math.inf),
-    metrics=MetricsConfig(period=TimeUnit.MINUTE),
-).add_robots(EXPLORER, 5)
+EXPLORE = (
+    SwarmScenario()
+    .with_map(SMALL_OPEN_MAP)
+    .with_pests(NO_PESTS)
+    .with_robot_config(EXPLORE_ROBOTS)
+    .with_metrics(MetricsConfig(period=TimeUnit.MINUTE))
+    .add_robots(EXPLORER, 5)
+)
 """Five explorers alone on an open field, without pests, measured by coverage and idleness."""
 
 PESTS = (
-    SwarmScenario(pests=PestConfig(treatment_rate=FAST_TREATMENT))
+    SwarmScenario()
+    .with_map(MapConfig())
+    .with_pests(FAST_PESTS)
     .add_robots(EXPLORER, 5)
     .add_robots(SEEDED_KILLER, 3)
 )
-"""Five explorers and three seeded killers on the river field, while pests keep appearing.
-
-Killers treat with ``FAST_TREATMENT``: at the default rate of one severity per hour a pest grows
-faster than it is treated and never clears.
-"""
+"""Five explorers and three seeded killers on the river field with one dock, while pests keep
+appearing, with every robot's settings at their defaults (``RobotConfig()``)."""
 
 SMOKE = (
     replace(
@@ -522,27 +701,49 @@ idleness measured after a warm-up of half an hour.
 """
 
 
-def pest_response_configurations(
-    scenario: SwarmScenario, seeded_no_yield: bool = False
-) -> dict[str, SwarmScenario]:
-    """The pest responses compared on ``scenario``, by name, each with its killers.
+PESTS_PER_KILLER_HOUR = 3.0
+"""The pests per killer and hour of the comparison experiments, a load found by experiment:
+multiplied by the killers, the pest rate of a ``moving_explorer_scenario``."""
 
-    Each is ``scenario`` with its killers, as many as it has of every preset, replaced by
-    killers of one response, added after its other robots: ``seeded`` with claims, and the hop
-    configurations of ``hop_beacon_variants`` (``hop``, ``hop-repel`` and ``hop-tuned``).
+
+def moving_explorer_scenario(
+    killer: RobotPreset,
+    explorers: int,
+    killers: int,
+    radio_range_m: float,
+    explorer: RobotPreset = EXPLORER,
+    field: MapConfig = SMALL_RIVER_MAP,
+) -> SwarmScenario:
+    """The scenario of the comparison experiments: moving explorers and killers on ``field``.
+
+    Explorers of one preset find the pests and killers of another treat them, with no relays and
+    no mock sources. Every robot has the settings of ``LATTICE_ROBOTS`` but the radio, and
+    battery and doses are unlimited (``UNLIMITED_BATTERY_CAPACITY``, ``UNLIMITED_DOSES``), so that
+    a run measures the pest response alone. The pests are ``FAST_PESTS`` at
+    ``PESTS_PER_KILLER_HOUR`` per killer.
 
     Args:
-        scenario: The scenario every configuration is a variant of.
-        seeded_no_yield: Whether to add ``seeded-no-yield``: the seeded response without the
-            claims, whose relays pass on only the pests, as before the claims existed.
+        killer: The killers' preset.
+        explorers: How many explorers there are.
+        killers: How many killers there are.
+        radio_range_m: Every robot's radio range.
+        explorer: The explorers' preset.
+        field: The field: ``SMALL_RIVER_MAP``, the small field with one river, by default,
+            or e.g. ``LARGE_RIVERS_MAP``, the large one with two rivers.
     """
-    killers = scenario.killers
-    others = scenario.without_robots(BodyType.KILLER)
-    configurations = {"seeded": others.add_robots(SEEDED_KILLER, killers)}
-    if seeded_no_yield:
-        no_claims = SeededKillerPreset(claims=False)
-        configurations["seeded-no-yield"] = others.add_robots(no_claims, killers)
-    hop_cells = scenario.robots.radio_range_m / scenario.map.cell_size
-    for name, beacons in hop_beacon_variants(hop_cells).items():
-        configurations[name] = others.add_robots(HopKillerPreset(beacons=beacons), killers)
-    return configurations
+    robots = replace(
+        LATTICE_ROBOTS, radio_range_m=radio_range_m, battery_capacity=UNLIMITED_BATTERY_CAPACITY
+    )
+    pests = replace(
+        FAST_PESTS,
+        pests_per_hour=PESTS_PER_KILLER_HOUR * killers,
+        treatment_doses=UNLIMITED_DOSES,
+    )
+    return (
+        SwarmScenario()
+        .with_map(field)
+        .with_pests(pests)
+        .with_robot_config(robots)
+        .add_robots(explorer, explorers)
+        .add_robots(killer, killers)
+    )

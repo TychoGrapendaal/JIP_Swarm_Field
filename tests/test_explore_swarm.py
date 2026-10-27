@@ -9,14 +9,24 @@ from functools import cache
 
 from studies.baselines import RANDOM_WAYPOINT_BRAIN
 from swarm_field.contracts import MetricsSample, TimeUnit
-from swarm_field.experiments import EXPLORE, EXPLORER, ExplorerPreset, MapConfig
+from swarm_field.experiments import (
+    EXPLORE_ROBOTS,
+    EXPLORER,
+    NO_PESTS,
+    ExplorerPreset,
+    MapConfig,
+    SwarmScenario,
+)
 from swarm_field.runner import run_experiment
+from swarm_field.simulation import MetricsConfig
 from swarm_field.swarm import ExploreConfig
 
 _FIELD = replace(
-    EXPLORE.without_robots()
+    SwarmScenario()
     .with_map(MapConfig(size=24, obstacles=()))
-    .with_metrics(replace(EXPLORE.metrics, measure_from=45 * TimeUnit.MINUTE)),
+    .with_pests(NO_PESTS)
+    .with_robot_config(EXPLORE_ROBOTS)
+    .with_metrics(MetricsConfig(period=TimeUnit.MINUTE, measure_from=45 * TimeUnit.MINUTE)),
     until=90 * TimeUnit.MINUTE,
 )
 """Idleness is measured over the second half of the run, after the first exploration."""

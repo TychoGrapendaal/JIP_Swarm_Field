@@ -37,7 +37,8 @@ from swarm_field.console import (
 )
 from swarm_field.contracts import CellId, Time, TimeUnit, WorldSnapshot
 from swarm_field.experiments import (
-    EXPLORE,
+    EXPLORE_ROBOTS,
+    NO_PESTS,
     ExplorerPreset,
     LiveRun,
     MapConfig,
@@ -70,8 +71,10 @@ def build_scenario(args: argparse.Namespace, config: ExploreConfig) -> SwarmScen
     if args.obstacles:
         obstacles = river_and_rocks(args.size)
     scenario = (
-        EXPLORE.without_robots()
+        SwarmScenario()
         .with_map(MapConfig(size=args.size, obstacles=obstacles))
+        .with_pests(NO_PESTS)
+        .with_robot_config(EXPLORE_ROBOTS)
         .add_robots(ExplorerPreset(explore=config), args.robots)
     )
     if args.seed is not None:
