@@ -13,12 +13,14 @@ and when the split stays off, the robots nearest a dock drive to it and switch t
 being a module swapped at the home base. The swarm keeps at least half its explorers
 (``kept_explorers``). Same robots, same starts, same pests per seed.
 
-Measured per run with ``MeasuredPestRun``, the standard measurement: the latency (mean minutes
-from a pest's appearance to its treatment), the pests still infested at the end and the pests
-cleared per hour; and per step the robots that are killers, the cells they drove while they were
-killers, per pest cleared, and the role switches over the whole swarm. The standard measure of
-cells per pest follows the robots that start as killers, which in a rebalancing swarm also fly
-as explorers, so it is replaced by the cells driven in the killer role.
+Measured per run with ``MeasuredPestRun``, the standard measurement: the infested cells averaged
+over the run (the main outcome), the latency (mean minutes from a pest's appearance to its
+treatment) and its 90th percentile, the pests still infested at the end, a single snapshot,
+and the pests cleared per hour; and per step the robots that are killers, the cells they
+drove while they were killers, per pest cleared, and the role switches over the whole swarm.
+The standard measure of cells per pest follows the robots that start as killers, which in a
+rebalancing swarm also fly as explorers, so it is replaced by the cells driven in the killer
+role.
 
 Hypotheses, before running:
 
@@ -38,19 +40,25 @@ repository root with:
 
     uv run python -m studies.rebalancing --seeds 5
 
-and for a quick check that it works:
+for a quick check that it works:
 
     uv run python -m studies.rebalancing --maps rivers-small --seeds 1
+
+and to redraw the tables and figures of an earlier run without running it again:
+
+    uv run python -m studies.rebalancing --from output/<folder> --maps rivers-small
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import math
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
+from pathlib import Path
 from statistics import mean, stdev
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from swarm_field.contracts import BodyType, TimeUnit
 from swarm_field.experiments import (
@@ -87,7 +95,7 @@ ARMS: tuple[str, ...] = ("fixed", "rebalancing")
 METHOD_COLORS: dict[str, str] = {"seeded": "#e07b28", "hop": "#1f5fa8"}
 """Warm for seeded and cool for hop-based killers, as in every figure of the report."""
 METHOD_LABELS: dict[str, str] = {"seeded": "seeded", "hop": "hop-based"}
-METHOD_MARKERS: dict[str, str] = {"seeded": "o", "hop": "s"}
+ARM_LABELS: dict[str, str] = {"fixed": "fixed", "rebalancing": "rebalancing"}
 
 
 @dataclass(frozen=True)
@@ -172,11 +180,29 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seeds", type=int, default=5, help="runs per arm, seeds 0, 1, ...")
     parser.add_argument("--large-seeds", type=int, default=3, help="runs per arm, large field")
     parser.add_argument("--jobs", type=int, help="processes; one per CPU if not given")
+    parser.add_argument(
+        "--from",
+        dest="source",
+        type=Path,
+        help="an earlier run's output folder: redraw its tables and figures without running",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    experiment = Experiment("rebalancing")
+    if args.source is None:
+        seeds, results = _run(args, experiment)
+    else:
+        seeds, results = _load(args.source, args.maps)
+    report(experiment, args.maps, args.methods, results, seeds)
+
+
+def _run(
+    args: argparse.Namespace, experiment: Experiment
+) -> tuple[dict[str, int], dict[str, list[RebalancingResult]]]:
+    """Make the runs of ``args``: the seeds per field, and the results by arm."""
     runs: list[Run[SwarmScenario]] = []
     seeds: dict[str, int] = {}
     for map_name in args.maps:
@@ -189,24 +215,61 @@ def main() -> None:
             for arm, arm_scenario in rebalancing_configurations(scenario).items():
                 specs[arm_name(map_name, method, arm)] = arm_scenario
         runs.extend(runs_for(specs, range(seeds[map_name]), SwarmScenario.run_cost))
+    return seeds, by_arm(experiment.run(runs, measure_rebalancing, args.jobs))
 
-    experiment = Experiment("rebalancing")
-    results = by_arm(experiment.run(runs, measure_rebalancing, args.jobs))
 
+def _arm_and_seed(record: dict[str, Any]) -> tuple[str, int]:
+    """How ``_load`` orders the records of ``results.json``: by arm, then by seed."""
+    return (record["arm"], record["seed"])
+
+
+def _load(
+    source: Path, maps: Sequence[str]
+) -> tuple[dict[str, int], dict[str, list[RebalancingResult]]]:
+    """The results of an earlier run, from its ``results.json``, by arm, seeds in order."""
+    records: list[dict[str, Any]] = json.loads((source / "results.json").read_text())
+    records.sort(key=_arm_and_seed)
+    names = {field.name for field in fields(PestResponse)}
+    results: dict[str, list[RebalancingResult]] = {}
+    for record in records:
+        data = dict(record["result"])
+        pests = {key: value for key, value in data.pop("pests").items() if key in names}
+        pests["commit_hops"] = tuple(pests["commit_hops"])
+        pests["drift"] = tuple(pests["drift"])
+        result = RebalancingResult(pests=PestResponse(**pests), **data)
+        results.setdefault(record["arm"], []).append(result)
+    seeds: dict[str, int] = {}
+    for map_name in maps:
+        counts = [len(arm) for name, arm in results.items() if name.startswith(f"{map_name}/")]
+        if not counts:
+            raise SystemExit(f"{source} has no runs on {map_name}")
+        seeds[map_name] = min(counts)
+    return seeds, results
+
+
+def report(
+    experiment: Experiment,
+    maps: Sequence[str],
+    methods: Sequence[str],
+    results: dict[str, list[RebalancingResult]],
+    seeds: dict[str, int],
+) -> None:
+    """Write the table and the figure of every field to ``experiment``, and print the tables."""
     tables: list[str] = []
-    for map_name in args.maps:
-        headers, rows = table_rows(map_name, args.methods, results)
+    for map_name in maps:
+        headers, rows = table_rows(map_name, methods, results)
         configuration = _configuration(map_name)
         caption = (
-            "Fixed roles against rebalancing at the home base: latency (minutes from a pest's "
-            "appearance to its treatment), pests infested at the end, pests cleared per hour, "
-            "cells driven per pest cleared, the robots that were killers (mean and range) and "
-            "the role switches; Δ open is paired by seed with fixed roles. Mean ± standard "
+            "Fixed roles against rebalancing at the home base: infested cells averaged over the "
+            "run (on field), latency (minutes from a pest's appearance to its treatment) and its "
+            "90th percentile, pests infested at the end, pests cleared per hour, cells driven "
+            "per pest cleared, the robots that were killers (mean, and range in brackets) and "
+            "the role switches; Δ on field is paired by seed with fixed roles. Mean ± standard "
             f"error over {seeds[map_name]} seeds. {configuration}"
         )
         save_table(experiment, f"rebalancing_{map_name}_table", headers, rows, caption)
         tables.append(f"## {map_name}\n\n{markdown_table(headers, rows)}")
-        plot_field(experiment, map_name, args.methods, results, seeds[map_name], configuration)
+        plot_field(experiment, map_name, methods, results, seeds[map_name], configuration)
     text = "\n\n".join(tables)
     print(text)
     experiment.write_text("tables.md", text + "\n")
@@ -217,8 +280,8 @@ def table_rows(
     map_name: str, methods: Sequence[str], results: dict[str, list[RebalancingResult]]
 ) -> tuple[list[str], list[list[str]]]:
     """The table of one field: a row per method and arm."""
-    headers = ["killers", "roles", "latency (min)", "open", "Δ open", "cleared / h"]
-    headers.extend(["cells / pest", "killers (mean)", "killers (range)", "switches"])
+    headers = ["killers", "roles", "on field", "Δ on field", "latency (min)", "p90 (min)"]
+    headers.extend(["open", "cleared / h", "cells / pest", "killers", "switches"])
     rows: list[list[str]] = []
     for method in methods:
         fixed = results[arm_name(map_name, method, "fixed")]
@@ -227,26 +290,38 @@ def table_rows(
             pests = [result.pests for result in arm_results]
             difference = "-"
             if arm != "fixed":
-                open_now = [float(result.open) for result in pests]
-                open_fixed = [float(result.pests.open) for result in fixed]
-                difference = paired_difference(open_now, open_fixed)
+                infested = [result.infested for result in pests]
+                infested_fixed = [result.pests.infested for result in fixed]
+                difference = paired_difference(infested, infested_fixed)
             fewest = min(result.fewest_killers for result in arm_results)
             most = max(result.most_killers for result in arm_results)
             rows.append(
                 [
                     METHOD_LABELS[method],
                     arm,
-                    mean_and_error([result.response_minutes for result in pests]),
-                    mean_and_error([float(result.open) for result in pests]),
+                    mean_and_error([result.infested for result in pests]),
                     difference,
+                    mean_and_error([result.response_minutes for result in pests]),
+                    mean_and_error([result.response_p90 for result in pests]),
+                    mean_and_error([float(result.open) for result in pests]),
                     mean_and_error([result.cleared_per_hour for result in arm_results]),
                     mean_and_error([result.cells_per_pest for result in arm_results]),
-                    mean_and_error([result.killers for result in arm_results]),
-                    f"{fewest}-{most}",
+                    mean_and_error([result.killers for result in arm_results])
+                    + f" ({fewest}-{most})",
                     mean_and_error([float(result.switches) for result in arm_results]),
                 ]
             )
     return headers, rows
+
+
+PANELS: tuple[tuple[str, str], ...] = (
+    ("infested cells, run average", "infested"),
+    ("latency (min)", "latency"),
+    ("latency, 90th percentile (min)", "p90"),
+    ("killers, run average", "killers"),
+    ("pests open at the end", "open"),
+)
+"""The figure's panels: a y label and the measure, lower is better in all of them."""
 
 
 def plot_field(
@@ -257,73 +332,97 @@ def plot_field(
     seeds: int,
     configuration: str,
 ) -> None:
-    """Latency, pests open at the end and pests cleared per hour, fixed against rebalancing."""
+    """Every measure of ``PANELS`` for every method and arm: a bar per mean, a dot per seed."""
     import matplotlib
 
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    from matplotlib.patches import Patch
 
-    figure, axes = plt.subplots(1, 3, figsize=(10.0, 3.4))
-    panels = (
-        ("latency (min)", _latency),
-        ("pests open at the end", _open),
-        ("pests cleared per hour", _cleared),
-    )
-    for panel, (ylabel, measure) in zip(axes, panels, strict=True):
-        for offset, method in enumerate(methods):
-            values = [measure(results[arm_name(map_name, method, arm)]) for arm in ARMS]
-            xs = [index + 0.08 * offset for index in range(len(ARMS))]
-            _plot_method(panel, method, xs, values)
-        panel.set_xticks(list(range(len(ARMS))), ["fixed roles", "rebalancing"])
-        panel.set_xlim(-0.4, len(ARMS) - 0.6)
+    figure, grid = plt.subplots(2, 3, figsize=(10.0, 5.6))
+    panels = list(grid.flat)
+    combos = [(method, arm) for method in methods for arm in ARMS]
+    for panel, (ylabel, measure) in zip(panels, PANELS, strict=False):
+        for index, (method, arm) in enumerate(combos):
+            values = _measure(results[arm_name(map_name, method, arm)], measure)
+            _bar(panel, index, method, arm, values)
+        panel.set_xticks(
+            list(range(len(combos))),
+            [f"{METHOD_LABELS[method]}\n{ARM_LABELS[arm]}" for method, arm in combos],
+            fontsize=8,
+        )
         panel.set_ylabel(ylabel)
-        panel.grid(alpha=0.3)
-    axes[0].legend()
+        panel.grid(axis="y", alpha=0.3)
+        panel.set_axisbelow(True)
+        panel.spines[["top", "right"]].set_visible(False)
+    legend = panels[-1]
+    legend.axis("off")
+    handles: list[Patch] = []
+    for method in methods:
+        colour = METHOD_COLORS[method]
+        handles.append(
+            Patch(facecolor=colour, edgecolor=colour, label=f"{METHOD_LABELS[method]}, fixed")
+        )
+        handles.append(
+            Patch(
+                facecolor="white",
+                edgecolor=colour,
+                hatch="////",
+                label=f"{METHOD_LABELS[method]}, rebalancing",
+            )
+        )
+    legend.legend(handles=handles, loc="center", frameon=False, title="killers, roles")
     caption = (
         "Fixed roles against rebalancing at the home base, for seeded and hop-based killers: "
-        "latency, pests still infested at the end, and pests cleared per hour; mean ± standard "
-        f"error over {seeds} seeds. {configuration}"
+        "infested cells averaged over the run, latency and its 90th percentile, the killers "
+        "averaged over the run and the pests still infested at the end; lower is better in "
+        f"every panel. Bars are the mean ± standard error over {seeds} seeds, dots the seeds. "
+        f"{configuration}"
     )
     save_figure(experiment, figure, f"rebalancing_{map_name}", caption)
 
 
-def _latency(results: list[RebalancingResult]) -> list[float]:
-    values: list[float] = []
+def _measure(results: list[RebalancingResult], measure: str) -> list[float]:
+    """One measure of ``PANELS`` for every run of an arm that has it."""
+    values: list[float | None] = []
     for result in results:
-        if result.pests.response_minutes is not None:
+        if measure == "infested":
+            values.append(result.pests.infested)
+        elif measure == "latency":
             values.append(result.pests.response_minutes)
-    return values
+        elif measure == "p90":
+            values.append(result.pests.response_p90)
+        elif measure == "killers":
+            values.append(result.killers)
+        else:
+            values.append(float(result.pests.open))
+    return [value for value in values if value is not None]
 
 
-def _open(results: list[RebalancingResult]) -> list[float]:
-    return [float(result.pests.open) for result in results]
+def _bar(axes: Axes, x: int, method: str, arm: str, values: Sequence[float]) -> None:
+    """A bar at ``x`` for the mean of ``values``, with its standard error and a dot per seed.
 
-
-def _cleared(results: list[RebalancingResult]) -> list[float]:
-    return [result.cleared_per_hour for result in results]
-
-
-def _plot_method(
-    axes: Axes, method: str, xs: Sequence[float], values: Sequence[Sequence[float]]
-) -> None:
-    """One method's mean at every x, with its standard error over the seeds as error bars."""
-    means: list[float] = []
-    errors: list[float] = []
-    for point in values:
-        means.append(mean(point))
-        error = 0.0
-        if len(point) > 1:
-            error = stdev(point) / math.sqrt(len(point))
-        errors.append(error)
-    axes.errorbar(
-        list(xs),
-        means,
-        yerr=errors,
-        color=METHOD_COLORS[method],
-        marker=METHOD_MARKERS[method],
-        capsize=3,
-        label=METHOD_LABELS[method],
+    Fixed roles are solid, rebalancing hatched, so the arm does not rest on colour alone.
+    """
+    if not values:
+        return
+    colour = METHOD_COLORS[method]
+    error = 0.0
+    if len(values) > 1:
+        error = stdev(values) / math.sqrt(len(values))
+    hatched = arm != "fixed"
+    axes.bar(
+        x,
+        mean(values),
+        width=0.68,
+        color="white" if hatched else colour,
+        edgecolor=colour,
+        hatch="////" if hatched else None,
+        linewidth=1.4,
     )
+    axes.errorbar(x, mean(values), yerr=error, color="black", capsize=3, linewidth=1.0)
+    spread = [x + 0.08 * (index - (len(values) - 1) / 2) for index in range(len(values))]
+    axes.scatter(spread, values, s=9, color="black", alpha=0.45, linewidths=0, zorder=3)
 
 
 def save_figure(experiment: Experiment, figure: Figure, stem: str, caption: str) -> None:

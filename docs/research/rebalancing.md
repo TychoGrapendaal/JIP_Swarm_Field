@@ -80,23 +80,24 @@ Like the arbiter's margins, these are first guesses.
 
 `studies/rebalancing.py --maps rivers-small --seeds 5`: the default small river field (`RIVER_SMALL`, 32 × 32 cells, one river and rocks, docks at (0, 0) and (31, 31)) for 2 h, 10 explorers at 8 m/s and 4 killers at 1 m/s, 100 m radio, 20 static pests at the start and 20 more per hour, no battery drain and unlimited doses. Fixed roles against rebalancing at the docks, with `SEEDED_BEST` and with `HOP_BEST` killers; seeds 0 to 4, the same robots, starts and pests per seed. Mean ± standard error over the seeds; Δ open is paired by seed.
 
-| Killers | Roles | Latency (min) | Open at the end | Δ open | Cleared per hour | Cells per pest | Killers (mean) | Killers (range) | Switches |
-|---|---|---|---|---|---|---|---|---|---|
-| seeded | fixed | 4.89 ± 0.30 | 3.40 ± 0.75 | – | 27.4 ± 1.3 | 8.8 ± 0.3 | 4 | 4 | 0 |
-| seeded | rebalancing | 5.38 ± 0.26 | 2.20 ± 0.20 | −1.20 ± 0.73 | 28.0 ± 1.3 | 14.9 ± 0.7 | 2.73 ± 0.06 | 1–8 | 17.6 ± 0.2 |
-| hop-based | fixed | 11.16 ± 0.81 | 2.80 ± 0.49 | – | 27.6 ± 1.2 | 36.7 ± 2.3 | 4 | 4 | 0 |
-| hop-based | rebalancing | 9.64 ± 0.60 | 4.40 ± 0.51 | +1.60 ± 0.68 | 26.8 ± 1.5 | 37.1 ± 1.4 | 3.93 ± 0.12 | 2–11 | 20.8 ± 1.9 |
+| Killers | Roles | On field | Δ on field | Latency (min) | p90 (min) | Open at the end | Cleared per hour | Cells per pest | Killers (mean, range) | Switches |
+|---|---|---|---|---|---|---|---|---|---|---|
+| seeded | fixed | 2.53 ± 0.20 | – | 4.89 ± 0.30 | 9.46 ± 0.52 | 3.40 ± 0.75 | 27.4 ± 1.3 | 8.8 ± 0.3 | 4 (4–4) | 0 |
+| seeded | rebalancing | 2.59 ± 0.06 | +0.07 ± 0.20 | 5.38 ± 0.26 | 8.82 ± 0.80 | 2.20 ± 0.20 | 28.0 ± 1.3 | 14.9 ± 0.7 | 2.73 ± 0.06 (1–8) | 17.6 ± 0.2 |
+| hop-based | fixed | 5.54 ± 0.65 | – | 11.16 ± 0.81 | 27.61 ± 1.54 | 2.80 ± 0.49 | 27.6 ± 1.2 | 36.7 ± 2.3 | 4 (4–4) | 0 |
+| hop-based | rebalancing | 5.52 ± 0.38 | −0.03 ± 0.28 | 9.64 ± 0.60 | 20.31 ± 1.93 | 4.40 ± 0.51 | 26.8 ± 1.5 | 37.1 ± 1.4 | 3.93 ± 0.12 (2–11) | 20.8 ± 1.9 |
 
-"Cells per pest" counts the cells robots drove while they were killers: main's standard measure follows the robots that start as killers, which in a rebalancing swarm also fly as explorers.
+"On field" is the infested cells averaged over the run, the main outcome; "open at the end" is a single snapshot at 2 h and varies much more between seeds. "p90" is the 90th percentile of the latency, how long the slowest tenth of the pests wait. "Cells per pest" counts the cells robots drove while they were killers: main's standard measure follows the robots that start as killers, which in a rebalancing swarm also fly as explorers. The study's figure shows the same measures as bars with a dot per seed.
 
-Against the hypotheses written in the study before it ran:
+Paired by seed, a difference counts as real at two standard errors or more. Against the hypotheses written in the study before it ran:
 
-- **Every arm clears what arrives.** All four clear 27 to 28 pests an hour, close to all that appear (20 at the start and 20 an hour over 2 h). On this field the default swarm keeps up with fixed roles already, which leaves rebalancing little to gain; hypothesis 2, that it clears more, is not supported.
-- **Seeded: the same work with a third fewer killers.** Rebalancing keeps 2.7 killers on average instead of 4 and leaves 1.2 ± 0.7 fewer pests open at the end, which is under two standard errors, so no conclusion. Its latency is 0.5 min longer, also within two standard errors. Its killers drive 70 % more cells per pest, since fewer of them cover the field and new ones start from a corner.
-- **Hop-based: worse at the end.** Rebalancing leaves 1.6 ± 0.7 more pests open, 2.4 standard errors, with about as many killers as fixed roles (3.9), and every seed but one ends with at least as many open. Its latency is 1.5 min shorter, under two standard errors. This agrees with hypothesis 4 and with the earlier hop result below.
+- **The killers' method matters far more than the roles.** Seeded killers keep about half as many cells infested as hop-based ones (2.5 against 5.5, −3.0 ± 0.6 with fixed roles) and treat a pest 5 to 6 min sooner, with either kind of roles.
+- **Rebalancing keeps the field as clean as fixed roles, with both methods.** Δ on field is +0.07 ± 0.20 with seeded and −0.03 ± 0.28 with hop-based killers. Every arm clears 27 to 28 pests an hour, close to all that appear (20 at the start and 20 an hour over 2 h), so on this field fixed roles keep up already and leave rebalancing little to gain. Hypothesis 2, that rebalancing clears more, is not supported.
+- **Seeded: the same work with a third fewer killers.** Rebalancing keeps 2.7 killers on average instead of 4, so more robots stay explorers. Its latency is 0.5 ± 0.3 min longer, within two standard errors, and its killers drive 70 % more cells per pest, since fewer of them cover the field and new ones start from a corner.
+- **Hop-based: the slowest pests are treated sooner.** Rebalancing cuts the 90th percentile of the latency from 27.6 to 20.3 min (−7.3 ± 2.2, paired), with about as many killers as fixed roles (3.9); its mean latency is 1.5 ± 0.8 min shorter, within two standard errors. It leaves more pests open at the end (+1.6 ± 0.7), but that one snapshot is not borne out by the run average, where the two tie. So hypothesis 4, that rebalancing helps hop-based killers less or hurts them, is not supported on this field: it neither helps nor hurts the run average, and it helps the slowest pests.
 - **Switches stay bounded.** About 18 switches per run with seeded killers and 21 with hop killers, about one per robot per hour, and the killers range from 1 to 8 (seeded) or 2 to 11 (hop).
 
-The large river field (`RIVERS_LARGE`, 4 h) is set up in the same study (`--maps rivers-large`, default 3 seeds) but not run yet: its runs take about six times as long. Hypothesis 3, a smaller gain on the large field because the docks are in two corners, waits on it.
+The large river field (`RIVERS_LARGE`, 4 h) is set up in the same study (`--maps rivers-large`, default 3 seeds) but not run yet: its runs take about six times as long. Hypothesis 3, a smaller gain on the large field because the docks are in two corners, waits on it, and so does whether the roles matter where fixed roles do not keep up.
 
 ## Earlier measurements, switching anywhere
 
@@ -106,7 +107,7 @@ Before the experiment plan's defaults existed, rebalancing was measured on a cus
 
 - **It only counts the pests it knows of.** Robots that have heard of only a few of the pests keep too few killers, and a robot can count a pest a peer has already treated until it hears otherwise.
 - **It does not weigh where pests are.** A cluster of pests far from every killer needs more killers than the same number next to one; `pests_per_killer` is a flat rate.
-- **It does not help hop killers.** See the results above.
+- **It does not clear more on the small field.** Fixed roles keep up there already; see the results above.
 - **The ranking ignores the battery,** and a robot does not combine its trip to the dock with a recharge.
 - **It does not interact with crowding.** Two new killers can head for the same pest; that is the crowding problem of #42 and the TREAT seeder's peer discount, not of rebalancing.
 
@@ -118,6 +119,8 @@ uv run python examples/scenario_viewer.py --scenario rebalancing-fixed
 uv run python examples/scenario_viewer.py --scenario rebalancing-hop
 uv run python -m studies.rebalancing --maps rivers-small --seeds 5
 uv run python -m studies.rebalancing --seeds 5 --large-seeds 3
+uv run python -m studies.rebalancing --from output/<folder> --maps rivers-small
+uv run python examples/rebalancing_video.py --save videos/rebalancing.mp4
 ```
 
-The viewer colours robots by body, so every switch shows. The study writes its tables, a PDF figure per field and their LaTeX fragments to a new folder in `output/`. In code, `rebalancing_configurations(scenario)` turns any scenario of explorers and one kind of killer into the two arms, and takes a `RebalanceConfig` for other parameters. A swarm can also mix fixed and switching robots, e.g. `SwarmScenario().add_robots(EXPLORER, 4).add_robots(REBALANCING_EXPLORER, 4).add_robots(SEEDED_BEST, 2)`.
+The viewer colours robots by body, so every switch shows; the video example shows the four combinations side by side on one seed, and marks the robots driving to a dock to switch. The study writes its tables, a PDF figure per field and their LaTeX fragments to a new folder in `output/`; `--from` redraws them from an earlier run's `results.json` without running it again. In code, `rebalancing_configurations(scenario)` turns any scenario of explorers and one kind of killer into the two arms, and takes a `RebalanceConfig` for other parameters. A swarm can also mix fixed and switching robots, e.g. `SwarmScenario().add_robots(EXPLORER, 4).add_robots(REBALANCING_EXPLORER, 4).add_robots(SEEDED_BEST, 2)`.
