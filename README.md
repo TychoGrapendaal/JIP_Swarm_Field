@@ -285,3 +285,7 @@ studies/           # experiments behind the report, one per research question
 configs/           # experiments described in JSON, for swarm_field.experiments.from_json
 docs/              # design documents, research notes and source material
 ```
+
+## License
+
+The code is licensed under the MIT License; see [`LICENSE`](LICENSE). The documentation and figures are licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/): reuse them freely, with credit to the authors.
