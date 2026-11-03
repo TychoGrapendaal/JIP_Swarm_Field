@@ -72,7 +72,6 @@ from studies.defaults import (
     measured_run,
 )
 from studies.plotting import (
-    METHOD_COLORS,
     METHOD_LABELS,
     mean_and_standard_error,
     plot_method,
@@ -110,6 +109,11 @@ FAILURE_KINDS: dict[str, FailureMode] = {
 
 NO_FAILURES = "none"
 LINESTYLES: dict[str, str] = {NO_FAILURES: "--", "dark": "-", "immobile": ":"}
+ARM_COLORS: dict[str, dict[str, str]] = {
+    "seeded": {NO_FAILURES: "#f5b971", "dark": "#e07b28", "immobile": "#8c3a04"},
+    "hop": {NO_FAILURES: "#8fbce6", "dark": "#1f5fa8", "immobile": "#0a2a5c"},
+}
+"""A shade of the method's colour per kind of failure: light without, dark when immobile."""
 
 FAILURE_PERIOD: Time = TimeUnit.MINUTE
 TIMELINE_PERIOD: Time = 10 * TimeUnit.MINUTE
@@ -263,7 +267,8 @@ def plot_outage(
             label = f"{METHOD_LABELS[method]}, {kind}"
             if kind == NO_FAILURES:
                 label = f"{METHOD_LABELS[method]}, no failures"
-            plot_method(time_axes, method, minutes, infested, LINESTYLES[kind], label)
+            color = ARM_COLORS[method][kind]
+            plot_method(time_axes, method, minutes, infested, LINESTYLES[kind], label, color)
 
         for kind in args.kinds:
             by_robots_left: dict[int, list[float]] = defaultdict(list)
@@ -274,7 +279,7 @@ def plot_outage(
             left_axes.plot(
                 left,
                 [mean(by_robots_left[count]) for count in left],
-                color=METHOD_COLORS[method],
+                color=ARM_COLORS[method][kind],
                 linestyle=LINESTYLES[kind],
                 marker="o",
                 label=f"{METHOD_LABELS[method]}, {kind}",
@@ -284,9 +289,9 @@ def plot_outage(
     time_axes.set_ylabel("infested cells")
     time_axes.legend(fontsize="small")
     robots_axes.set_xlabel("minutes")
-    robots_axes.set_ylabel("robots left")
+    robots_axes.set_ylabel("robots still working")
     robots_axes.legend(fontsize="small")
-    left_axes.set_xlabel("robots left")
+    left_axes.set_xlabel("robots still working (explorers and killers)")
     left_axes.set_ylabel("infested cells")
     left_axes.invert_xaxis()
     left_axes.legend(fontsize="small")
@@ -297,29 +302,39 @@ def plot_outage(
         experiment,
         figure,
         "outage",
-        "Robot failures: the infested cells over time without failures (dashed), with failed "
-        "robots that go dark (solid) and with failed robots that stay in place and keep "
-        "communicating (immobile, dotted), left; the robots and the killers still working over "
-        "time, the same for every arm with failures with the same seeds, middle; and the "
-        "infested cells against the robots still working, over every ten minutes of every run "
-        "with failures, right. Mean ± standard error over "
-        f"{args.seeds} seeds, the infested cells averaged over each ten minutes. {configuration}",
+        "Robot failures, for the seeded (orange) and the hop-based killers (blue). Left: the "
+        "infested cells over time without failures (light, dashed), with failed robots that go "
+        "dark (solid) and with failed robots that stay in place and keep communicating "
+        "(immobile, darkest, dotted), averaged over each ten minutes. Middle: the robots still "
+        "working over time, all robots and the explorers and the killers among them; the "
+        "failures are drawn alike for the same seed, so this holds for every arm with failures. "
+        "Right: the infested cells against the robots still working. Every run with failures "
+        "is cut into periods of ten minutes, and a point is the mean infested cells over all "
+        "periods, of every seed, that end with that many robots working. A run starts with all "
+        "robots and loses them over time, so the axis runs forward in time; the first point "
+        "includes the first minutes, while the pests present from the start are still found, "
+        "and the last points rest on few periods at the end of a few runs. Mean ± standard "
+        f"error over {args.seeds} seeds, left and middle. {configuration}",
         "outage",
     )
 
 
 def plot_robots_left(axes: Axes, results: list[OutageResult]) -> None:
-    """The robots and the killers left over time, the means over the seeds of one arm."""
+    """All robots, the explorers and the killers left over time, the means over the seeds of one
+    arm."""
     minutes = [point.minutes for point in results[0].timeline]
-    for name, color in (("robots", "black"), ("killers", "#7f7f7f")):
+    lines = (("all robots", "black"), ("explorers", "#4d4d4d"), ("killers", "#a6a6a6"))
+    for name, color in lines:
         means: list[float] = []
         errors: list[float] = []
         for index in range(len(minutes)):
             left: list[float] = []
             for result in results:
                 point = result.timeline[index]
-                if name == "robots":
+                if name == "all robots":
                     left.append(float(point.live_robots))
+                elif name == "explorers":
+                    left.append(float(point.live_robots - point.live_killers))
                 else:
                     left.append(float(point.live_killers))
             average, error = mean_and_standard_error(left)

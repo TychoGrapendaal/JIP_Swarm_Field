@@ -154,6 +154,8 @@ def plot_radio(
         for axes in (infested_axes, response_axes):
             axes.set_xscale("log")
             axes.set_xticks(list(args.ranges), [f"{radio:g}" for radio in args.ranges])
+            # The log scale adds minor ticks, labelled 6 x 10^1 and so on, between the ranges.
+            axes.set_xticks([], minor=True)
             axes.set_xlabel("radio range (m)")
             axes.set_ylim(bottom=0)
             axes.grid(alpha=0.3)

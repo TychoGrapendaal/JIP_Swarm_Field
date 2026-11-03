@@ -51,6 +51,7 @@ def plot_method(
     values: Sequence[Sequence[float]],
     linestyle: str = "-",
     label: str | None = None,
+    color: str | None = None,
 ) -> None:
     """Plot one method's mean over the seeds at every x, with its standard error as error bars.
 
@@ -61,6 +62,7 @@ def plot_method(
         values: Every point's values, one per seed; a point without values is left out.
         linestyle: E.g. ``"--"`` for a variant of the method.
         label: The legend entry, the method's name by default.
+        color: A shade of the method's colour for a variant of it, the method's by default.
     """
     points_x: list[float] = []
     means: list[float] = []
@@ -76,7 +78,7 @@ def plot_method(
         points_x,
         means,
         yerr=errors,
-        color=METHOD_COLORS[method],
+        color=color or METHOD_COLORS[method],
         marker=METHOD_MARKERS[method],
         linestyle=linestyle,
         capsize=3,
