@@ -13,7 +13,7 @@ A decentralized swarm of robots that monitor and cultivate a crop field. Each ro
 - [`docs/experiment-plan.md`](docs/experiment-plan.md) — the experiments behind the report: their default settings, the running, plotting and analysis guidelines, and what each experiment asks.
 - [`docs/experiments.md`](docs/experiments.md) — how to run an experiment: configure seeded and hop-based arms, measure them, run seeds in parallel, and read the results in `output/`.
 - [`docs/research/`](docs/research/) — research notes: navigation design, and the robustness measurement (failure and position error).
-- `docs/*.pdf` — the problem statement and literature review (domain background on swarm robotics for crop fields).
+- `docs/*.pdf` — the problem statement, the literature review (domain background on swarm robotics for crop fields) and the final report.
 - Source lives under `src/swarm_field/<package>/`; tests mirror it under `tests/`.
 - `output/` (git-ignored) — one folder per experiment run through `swarm_field.experiments.Experiment`, named `YYYY-MM-DD_HH-MM-SS_<name>_<NNNN>` (four random digits keep apart two experiments started in the same second), with `experiment.json` (what was run, from which commit), `results.json` (one record per run) and whatever else the experiment writes, such as tables and videos.
 - [`studies/`](studies/README.md) — the experiments behind the report, one script per research question; `examples/` holds demonstrations.

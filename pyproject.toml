@@ -3,6 +3,7 @@ name = "swarm-field"
 version = "0.1.0"
 description = "A decentralized swarm algorithm and simulation for robots cultivating and monitoring a crop field."
 readme = "README.md"
+license = "MIT"
 authors = [
     { name = "Blazej Lytkowski", email = "blazej.lytkowski@gmail.com" },
 ]
