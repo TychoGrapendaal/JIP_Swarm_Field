@@ -182,6 +182,12 @@ uv run python examples/scenario_viewer.py --scenario S3 --seed 7 --hours 6
 uv run python examples/scenario_viewer.py --scenario pests
 ```
 
+To change parameters, run one condition of a JSON experiment file (see [Running an experiment from a JSON file](#running-an-experiment-from-a-json-file)) instead of a named scenario: `--config FILE` runs its first condition with its first seed, and `--condition NAME` and `--seed N` pick others. [`configs/live.json`](configs/live.json) is made for this: the default small river field with the parameters most worth changing written out, and the conditions `default`, `hop`, `short-radio`, `few-robots` and `many-pests`. Edit a value, close the window and run the command again. A run from a file cannot be recorded, because a recording names a scenario of the catalogue.
+
+```bash
+uv run python examples/scenario_viewer.py --config configs/live.json --condition hop
+```
+
 In the window:
 
 - Click an empty cell to inject an infestation (`InjectInfestation` command).
@@ -196,6 +202,8 @@ The interactions flow through the typed `Command` port: `InjectInfestation` is a
 | Flag | Meaning | Default |
 |---|---|---|
 | `--scenario NAME` | Scenario of the catalogue to run. | `S2` |
+| `--config FILE` | JSON experiment file to run instead, as in `configs/`. | |
+| `--condition NAME` | Condition of the `--config` file to run. | its first |
 | `--seed N` | Seed of a new run. | 101 |
 | `--hours H` | Simulated hours the run lasts; it stops there. | the scenario's own horizon |
 | `--speed X` | Simulated time per frame: 0.5 s times `X`. In a window this is the starting speed. | 4 |
