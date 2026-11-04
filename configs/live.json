@@ -1,0 +1,18 @@
+{
+  "name": "live",
+  "scenario": "river-small",
+  "seeds": [0],
+  "hours": 2,
+  "parameters": {
+    "swarm": {"explorer": 10, "seeded-best": 4, "hop-best": 0},
+    "robots": {"radio_range_m": 100.0, "speed_mps_drone": 8.0, "speed_mps_ground": 1.0},
+    "pests": {"pests_per_hour": 20.0, "initial_pests": 20, "growth_rate": 0.0, "spread_probability": 0.0}
+  },
+  "conditions": {
+    "default": {},
+    "hop": {"swarm": {"seeded-best": 0, "hop-best": 4}},
+    "short-radio": {"robots": {"radio_range_m": 30.0}},
+    "few-robots": {"swarm": {"explorer": 4, "seeded-best": 2}},
+    "many-pests": {"pests": {"pests_per_hour": 60.0, "growth_rate": 0.05, "spread_probability": 0.02}}
+  }
+}
